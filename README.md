@@ -45,5 +45,5 @@ uv run fastapi dev main.py
 Execute the test suite using `pytest`:
 
 ```bash
-pytest
+uv run pytest
 ```
