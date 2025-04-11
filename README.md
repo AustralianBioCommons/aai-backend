@@ -29,7 +29,7 @@ Follow these steps to set up the project:
    Install the required dependencies:
 
    ```bash
-   uv add -r requirements.txt
+   uv sync
    ```
 
 ## Run the Application
