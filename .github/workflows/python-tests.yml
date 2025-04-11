@@ -3,10 +3,10 @@ name: Run Pytest
 on:
   push:
     branches:
-      - init-project
+      - main
   pull_request:
     branches:
-      - init-project
+      - main
 
 jobs:
   test:
