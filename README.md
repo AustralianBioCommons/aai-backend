@@ -1,6 +1,10 @@
-# aai-backend
+# AAI Backend
 
 The backend library between Auth0 and the AAI portal front end. Technical design document for this project lives in [this Google doc](https://docs.google.com/document/d/1W3-7Hme08M-b4kwMvcQoUscznVNxtOldxuKYPPRhBFE/edit?tab=t.0).
+
+## Requirements
+
+Ensure you have Python 3.13 or higher installed.
 
 ## Installation
 
@@ -17,7 +21,7 @@ Follow these steps to set up the project:
    Create and activate a virtual environment:
 
    ```bash
-   python3 -m venv .venv
+   uv venv
    source .venv/bin/activate
    ```
 
@@ -25,24 +29,21 @@ Follow these steps to set up the project:
    Install the required dependencies:
 
    ```bash
-   pip install "fastapi[standard]"
-   pip install pytest httpx
+   uv add -r requirements.txt
    ```
 
-4. **Run the Application**:
-   Use `uvicorn` to run the FastAPI application:
+## Run the Application
 
-   ```bash
-   fastapi dev main.py
-   ```
+Use `uv` to run the FastAPI application:
 
-5. **Run Tests**:
-   Execute the test suite using `pytest`:
-   ```bash
-   pytest
-   ```
+```bash
+uv run fastapi dev main.py
+```
 
-## Notes
+## Run Tests
 
-- Ensure you have Python 3.13 or higher installed.
-- Use the virtual environment for all development to avoid dependency conflicts.
+Execute the test suite using `pytest`:
+
+```bash
+pytest
+```
