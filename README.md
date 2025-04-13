@@ -4,7 +4,10 @@ The backend library between Auth0 and the AAI portal front end. Technical design
 
 ## Requirements
 
-Ensure you have Python 3.13 or higher installed.
+Ensure you have the following installed:
+
+- python 3.13+
+- uv ([installation instructions](https://github.com/astral-sh/uv#installation))
 
 ## Installation
 
@@ -26,7 +29,7 @@ Follow these steps to set up the project:
    ```
 
 3. **Install Dependencies**:
-   Install the required dependencies:
+   (aai-backend) uv sync
 
    ```bash
    uv sync
