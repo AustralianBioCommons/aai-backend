@@ -5,12 +5,13 @@ from fastapi import HTTPException
 from typing import Dict
 import httpx
 import os
+import json
 
 load_dotenv()
 
 AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
 API_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
-ALGORITHMS = os.getenv("AUTH0_ALGORITHMS")
+ALGORITHMS = json.loads(os.getenv("AUTH0_ALGORITHMS", '["RS256"]'))
 
 def verify_jwt(token: str) -> Dict:
     try:
