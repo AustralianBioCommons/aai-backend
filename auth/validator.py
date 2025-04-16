@@ -39,6 +39,15 @@ def verify_jwt(token: str) -> Dict:
                 audience=API_AUDIENCE,
                 issuer=f"https://{AUTH0_DOMAIN}/"
             )
+
+            roles_claim = "biocommons.org.au/roles"
+            if roles_claim not in payload:
+                raise HTTPException(status_code=403, detail=f"Missing required claim: {roles_claim}")
+
+            roles = payload[roles_claim]
+            if not isinstance(roles, list) or not any("admin" in role.lower() for role in roles):
+                raise HTTPException(status_code=403, detail=f"Access denied: Insufficient permissions")
+
             return payload
 
     except JWTError as e:
