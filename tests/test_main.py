@@ -3,7 +3,7 @@ from main import app
 
 client = TestClient(app)
 
-def test_root():
+def test_public():
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "FastAPI with uv"}
+    assert response.json() == {"message": "Public route"}
