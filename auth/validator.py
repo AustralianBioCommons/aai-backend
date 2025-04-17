@@ -1,21 +1,16 @@
-from dotenv import load_dotenv
 from jose import jwt
 from jose.exceptions import JWTError
 from fastapi import HTTPException
 from typing import Dict
 import httpx
-import os
-import json
 
-load_dotenv()
+from auth.config import get_settings
 
-AUTH0_DOMAIN = os.getenv("AUTH0_DOMAIN")
-API_AUDIENCE = os.getenv("AUTH0_AUDIENCE")
-ALGORITHMS = json.loads(os.getenv("AUTH0_ALGORITHMS", '["RS256"]'))
 
 def verify_jwt(token: str) -> Dict:
+    settings = get_settings()
     try:
-        jwks_url = f"https://{AUTH0_DOMAIN}/.well-known/jwks.json"
+        jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
         response = httpx.get(jwks_url)
         jwks = response.json()
 
@@ -35,9 +30,9 @@ def verify_jwt(token: str) -> Dict:
             payload = jwt.decode(
                 token,
                 rsa_key,
-                algorithms=ALGORITHMS,
-                audience=API_AUDIENCE,
-                issuer=f"https://{AUTH0_DOMAIN}/"
+                algorithms=settings.auth0_algorithms,
+                audience=settings.auth0_audience,
+                issuer=f"https://{settings.auth0_domain}/"
             )
 
             roles_claim = "biocommons.org.au/roles"
