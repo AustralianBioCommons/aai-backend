@@ -5,7 +5,7 @@ from .config import get_settings
 
 def get_management_token():
     settings = get_settings()
-    url = f'https://{os.getenv("AUTH0_DOMAIN")}/oauth/token'
+    url = f'https://{settings.auth0_domain}/oauth/token'
     payload = {
         'grant_type': 'client_credentials',
         'client_id': settings.auth0_management_id,
