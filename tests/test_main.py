@@ -10,6 +10,14 @@ def test_public():
     assert response.json() == {"message": "Public route"}
 
 def test_private_valid_token(mocker):
+    mocker.patch("auth.config.get_settings", return_value={
+        "auth0_domain": "mock-domain",
+        "auth0_audience": "mock-audience",
+        "auth0_management_id": "mock-id",
+        "auth0_management_secret": "mock-secret",
+        "auth0_algorithms": ["RS256"]
+    })
+
     mocker.patch("main.verify_jwt", return_value={
         "sub": "auth0|123456789",
         "biocommons.org.au/roles": ["acdc/indexd_admin"]
@@ -33,6 +41,14 @@ def test_private_missing_token():
     assert response.json() == {"detail": "Not authenticated"}
 
 def test_private_invalid_token(mocker):
+    mocker.patch("auth.config.get_settings", return_value={
+        "auth0_domain": "mock-domain",
+        "auth0_audience": "mock-audience",
+        "auth0_management_id": "mock-id",
+        "auth0_management_secret": "mock-secret",
+        "auth0_algorithms": ["RS256"]
+    })
+
     mocker.patch("auth.validator.verify_jwt", side_effect=Exception("Invalid token: Error decoding token headers."))
     headers = {"Authorization": "Bearer invalid_token"}
     response = client.get("/private", headers=headers)
