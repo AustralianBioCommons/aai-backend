@@ -42,13 +42,6 @@ def test_private_missing_token():
     assert response.json() == {"detail": "Not authenticated"}
 
 def test_private_invalid_token(mocker):
-    mocker.patch("auth.config.get_settings", return_value=Settings(
-        auth0_domain="mock-domain",
-        auth0_audience="mock-audience",
-        auth0_management_id="mock-id",
-        auth0_management_secret="mock-secret",
-        auth0_algorithms=["RS256"]
-    ))
     mocker.patch("auth.validator.verify_jwt", side_effect=Exception("Invalid token: Error decoding token headers."))
     headers = {"Authorization": "Bearer invalid_token"}
     response = client.get("/private", headers=headers)
