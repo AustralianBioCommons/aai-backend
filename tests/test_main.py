@@ -42,7 +42,9 @@ def test_private_missing_token():
     assert response.json() == {"detail": "Not authenticated"}
 
 def test_private_invalid_token(mocker):
+    mocker.patch("httpx.get", return_value=mocker.Mock(json=lambda: {"keys": []}))
     mocker.patch("auth.validator.verify_jwt", side_effect=Exception("Invalid token: Error decoding token headers."))
+
     headers = {"Authorization": "Bearer invalid_token"}
     response = client.get("/private", headers=headers)
     assert response.status_code == 401
