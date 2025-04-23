@@ -12,6 +12,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    env:
+      AUTH0_DOMAIN: "mock-domain"
+      AUTH0_AUDIENCE: "mock-audience"
+      AUTH0_MANAGEMENT_ID: "mock-id"
+      AUTH0_MANAGEMENT_SECRET: "mock-secret"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3

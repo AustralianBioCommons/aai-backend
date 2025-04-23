@@ -49,7 +49,6 @@ def test_private_invalid_token(mocker):
         auth0_management_secret="mock-secret",
         auth0_algorithms=["RS256"]
     ))
-
     mocker.patch("auth.validator.verify_jwt", side_effect=Exception("Invalid token: Error decoding token headers."))
     headers = {"Authorization": "Bearer invalid_token"}
     response = client.get("/private", headers=headers)
