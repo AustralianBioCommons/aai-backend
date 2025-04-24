@@ -1,11 +1,13 @@
 from jose import jwt
 from jose.exceptions import JWTError
-from fastapi import HTTPException
+from fastapi import HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer
 from typing import Dict
 import httpx
 
 from auth.config import get_settings
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def verify_jwt(token: str) -> Dict:
     settings = get_settings()
@@ -49,3 +51,6 @@ def verify_jwt(token: str) -> Dict:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
     raise HTTPException(status_code=401, detail="Unable to verify token")
+
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    return verify_jwt(token)
