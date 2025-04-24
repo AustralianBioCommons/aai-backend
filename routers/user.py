@@ -1,5 +1,3 @@
-from typing import Dict, List
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
