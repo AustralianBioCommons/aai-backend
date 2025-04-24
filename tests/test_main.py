@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from auth.config import Settings
 from main import app
 
+
 client = TestClient(app)
 
 
