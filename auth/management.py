@@ -1,5 +1,5 @@
-import os
 import requests
+
 from .config import get_settings
 
 
