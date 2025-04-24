@@ -1,9 +1,7 @@
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from main import app
-from routers.user import router
 
 
 client = TestClient(app)
@@ -11,7 +9,10 @@ client = TestClient(app)
 
 @pytest.fixture
 def mock_user():
-    return {"sub": "auth0|123456789"}
+    return {
+        "sub": "auth0|123456789",
+        "biocommons.org.au/roles": ["user"]
+    }
 
 
 @pytest.fixture
@@ -36,8 +37,6 @@ def mock_user_data():
 
 @pytest.fixture(autouse=True)
 def mock_dependencies(mocker, mock_user):
-    mocker.patch("auth.validator.get_current_user", return_value=mock_user)
-    mocker.patch("auth.management.get_management_token", return_value="mock_token")
     mocker.patch(
         "auth.validator.verify_jwt",
         return_value={
@@ -45,6 +44,7 @@ def mock_dependencies(mocker, mock_user):
             "biocommons.org.au/roles": ["user"]
         }
     )
+    mocker.patch("auth.management.get_management_token", return_value="mock_token")
 
 
 def test_get_all_services(mocker, mock_user_data):

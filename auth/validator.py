@@ -12,7 +12,7 @@ from auth.config import get_settings
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-def verify_jwt(token: str) -> Dict:
+def verify_jwt(token: str, require_admin: bool = False) -> Dict:
     settings = get_settings()
     try:
         jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
@@ -47,12 +47,13 @@ def verify_jwt(token: str) -> Dict:
                     detail=f"Missing required claim: {roles_claim}"
                 )
 
-            roles = payload[roles_claim]
-            if not isinstance(roles, list) or not any("admin" in role.lower() for role in roles):
-                raise HTTPException(
-                    status_code=403,
-                    detail=f"Access denied: Insufficient permissions"
-                )
+            if require_admin:
+                roles = payload[roles_claim]
+                if not isinstance(roles, list) or not any("admin" in role.lower() for role in roles):
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Access denied: Admin privileges required"
+                    )
 
             return payload
 
@@ -63,4 +64,8 @@ def verify_jwt(token: str) -> Dict:
 
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
-    return verify_jwt(token)
+    return verify_jwt(token, require_admin=False)
+
+
+def get_current_admin(token: str = Depends(oauth2_scheme)):
+    return verify_jwt(token, require_admin=True)
