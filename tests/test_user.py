@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from fastapi import HTTPException
 
 from main import app
 
@@ -47,12 +48,31 @@ def mock_dependencies(mocker, mock_user):
     mocker.patch("auth.management.get_management_token", return_value="mock_token")
 
 
+# Authentication tests
+@pytest.mark.parametrize("endpoint", [
+    "/me/services",
+    "/me/services/approved",
+    "/me/services/pending",
+    "/me/resources",
+    "/me/resources/approved",
+    "/me/resources/pending",
+    "/me/all/pending"
+])
+def test_endpoints_require_auth(endpoint):
+    """Test that all endpoints require authentication."""
+    response = client.get(endpoint)
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
+# Service endpoint tests
 def test_get_all_services(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     headers = {"Authorization": "Bearer mock_token"}
     response = client.get("/me/services", headers=headers)
     assert response.status_code == 200
     assert response.json() == {"services": mock_user_data["app_metadata"]["services"]}
+
 
 def test_get_approved_services(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
@@ -65,6 +85,7 @@ def test_get_approved_services(mocker, mock_user_data):
         ]
     }
 
+
 def test_get_pending_services(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     headers = {"Authorization": "Bearer mock_token"}
@@ -76,6 +97,8 @@ def test_get_pending_services(mocker, mock_user_data):
         ]
     }
 
+
+# Resource endpoint tests
 def test_get_all_resources(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     headers = {"Authorization": "Bearer mock_token"}
@@ -88,6 +111,7 @@ def test_get_all_resources(mocker, mock_user_data):
         ]
     }
 
+
 def test_get_approved_resources(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     headers = {"Authorization": "Bearer mock_token"}
@@ -98,6 +122,7 @@ def test_get_approved_resources(mocker, mock_user_data):
             {"name": "Resource 1", "status": "approved", "id": "res1"}
         ]
     }
+
 
 def test_get_pending_resources(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
@@ -110,6 +135,8 @@ def test_get_pending_resources(mocker, mock_user_data):
         ]
     }
 
+
+# Combined endpoint tests
 def test_get_all_pending(mocker, mock_user_data):
     mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     headers = {"Authorization": "Bearer mock_token"}
@@ -123,3 +150,43 @@ def test_get_all_pending(mocker, mock_user_data):
             {"name": "Resource 2", "status": "pending", "id": "res2"}
         ]
     }
+
+
+# Error handling tests
+def test_get_services_unauthorized():
+    response = client.get("/me/services")
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Not authenticated"}
+
+
+def test_get_services_failed_fetch(mocker):
+    mocker.patch(
+        "routers.user.fetch_user_data",
+        side_effect=HTTPException(status_code=500, detail="Failed to fetch user data")
+    )
+    headers = {"Authorization": "Bearer mock_token"}
+    response = client.get("/me/services", headers=headers)
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Failed to fetch user data"}
+
+
+def test_get_services_empty_metadata(mocker):
+    mocker.patch(
+        "routers.user.fetch_user_data",
+        return_value={"app_metadata": {}}
+    )
+    headers = {"Authorization": "Bearer mock_token"}
+    response = client.get("/me/services", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"services": []}
+
+
+def test_get_services_no_metadata(mocker):
+    mocker.patch(
+        "routers.user.fetch_user_data",
+        return_value={}
+    )
+    headers = {"Authorization": "Bearer mock_token"}
+    response = client.get("/me/services", headers=headers)
+    assert response.status_code == 200
+    assert response.json() == {"services": []}
