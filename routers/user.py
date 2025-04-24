@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException
-from auth.management import get_management_token
-from auth.config import get_settings
-from auth.validator import get_current_user
+from typing import Dict, List
+
 import httpx
+from fastapi import APIRouter, Depends, HTTPException
+
+from auth.config import get_settings
+from auth.management import get_management_token
+from auth.validator import get_current_user
+
 
 router = APIRouter()
 settings = get_settings()
+
 
 async def fetch_user_data(user_id: str, token: str):
     url = f"https://{settings.auth0_domain}/api/v2/users/{user_id}"
@@ -13,7 +18,10 @@ async def fetch_user_data(user_id: str, token: str):
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
         if response.status_code != 200:
-            raise HTTPException(status_code=response.status_code, detail="Failed to fetch user data")
+            raise HTTPException(
+                status_code=response.status_code,
+                detail="Failed to fetch user data"
+            )
         return response.json()
 
 @router.get("/me/services")

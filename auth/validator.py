@@ -1,13 +1,16 @@
 from typing import Dict
 
 import httpx
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 from jose import jwt
 from jose.exceptions import JWTError
 
 from auth.config import get_settings
 
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
 
 def verify_jwt(token: str) -> Dict:
     settings = get_settings()
@@ -39,11 +42,17 @@ def verify_jwt(token: str) -> Dict:
 
             roles_claim = "biocommons.org.au/roles"
             if roles_claim not in payload:
-                raise HTTPException(status_code=403, detail=f"Missing required claim: {roles_claim}")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Missing required claim: {roles_claim}"
+                )
 
             roles = payload[roles_claim]
             if not isinstance(roles, list) or not any("admin" in role.lower() for role in roles):
-                raise HTTPException(status_code=403, detail=f"Access denied: Insufficient permissions")
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied: Insufficient permissions"
+                )
 
             return payload
 
@@ -51,6 +60,7 @@ def verify_jwt(token: str) -> Dict:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
     raise HTTPException(status_code=401, detail="Unable to verify token")
+
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     return verify_jwt(token)
