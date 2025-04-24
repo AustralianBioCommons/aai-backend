@@ -1,10 +1,13 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI
 from fastapi.security import OAuth2PasswordBearer
+
 from auth.management import get_management_token
 from auth.validator import verify_jwt
 
+
 app = FastAPI()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     return verify_jwt(token)

@@ -1,8 +1,9 @@
+from typing import Dict
+
+import httpx
+from fastapi import HTTPException
 from jose import jwt
 from jose.exceptions import JWTError
-from fastapi import HTTPException
-from typing import Dict
-import httpx
 
 from auth.config import get_settings
 
