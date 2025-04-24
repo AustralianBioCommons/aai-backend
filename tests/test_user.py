@@ -45,7 +45,22 @@ def mock_dependencies(mocker, mock_user):
             "biocommons.org.au/roles": ["user"]
         }
     )
+    
     mocker.patch("auth.management.get_management_token", return_value="mock_token")
+    
+    async def mock_get(*args, **kwargs):
+        class MockResponse:
+            status_code = 200
+            
+            def json(self):
+                return mock_user_data()
+            
+            def raise_for_status(self):
+                pass
+        
+        return MockResponse()
+    
+    mocker.patch("httpx.AsyncClient.get", side_effect=mock_get)
 
 
 # Authentication tests
