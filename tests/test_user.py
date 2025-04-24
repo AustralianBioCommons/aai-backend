@@ -11,56 +11,58 @@ client = TestClient(app)
 @pytest.fixture
 def mock_user():
     return {
-        "sub": "auth0|123456789",
-        "biocommons.org.au/roles": ["user"]
+        'sub': 'auth0|123456789',
+        'biocommons.org.au/roles': ['user']
     }
 
 
 @pytest.fixture
 def mock_user_data():
     return {
-        "app_metadata": {
-            "services": [
+        'app_metadata': {
+            'services': [
                 {
-                    "name": "Service 1",
-                    "status": "approved",
-                    "resources": [{"name": "Resource 1", "status": "approved", "id": "res1"}]
+                    'name': 'Service 1',
+                    'status': 'approved',
+                    'resources': [{'name': 'Resource 1', 'status': 'approved', 'id': 'res1'}]
                 },
                 {
-                    "name": "Service 2",
-                    "status": "pending",
-                    "resources": [{"name": "Resource 2", "status": "pending", "id": "res2"}]
+                    'name': 'Service 2',
+                    'status': 'pending',
+                    'resources': [{'name': 'Resource 2', 'status': 'pending', 'id': 'res2'}]
                 }
             ]
         }
     }
 
 
+@pytest.fixture
+def mock_response(mock_user_data):
+    class MockResponse:
+        status_code = 200
+        
+        def json(self):
+            return mock_user_data
+
+    return MockResponse()
+
+
 @pytest.fixture(autouse=True)
-def mock_dependencies(mocker, mock_user):
+def mock_dependencies(mocker, mock_user, mock_response):
     mocker.patch(
-        "auth.validator.verify_jwt",
-        return_value={
-            "sub": "auth0|123456789",
-            "biocommons.org.au/roles": ["user"]
-        }
+        'auth.validator.verify_jwt',
+        return_value=mock_user
     )
     
-    mocker.patch("auth.management.get_management_token", return_value="mock_token")
+    mocker.patch(
+        'auth.management.get_management_token',
+        return_value='mock_token'
+    )
     
-    async def mock_get(*args, **kwargs):
-        class MockResponse:
-            status_code = 200
-            
-            def json(self):
-                return mock_user_data()
-            
-            def raise_for_status(self):
-                pass
-        
-        return MockResponse()
-    
-    mocker.patch("httpx.AsyncClient.get", side_effect=mock_get)
+    mocker.patch(
+        'routers.user.fetch_user_data',
+        return_value=mock_response.json()
+    )
 
 
 # Authentication tests
