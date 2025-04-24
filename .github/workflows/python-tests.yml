@@ -13,11 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AUTH0_DOMAIN: mock-domain.auth0.com
-      AUTH0_AUDIENCE: https://mock-domain.auth0.com/api/v2/
-      AUTH0_MANAGEMENT_ID: mock-management-id
-      AUTH0_MANAGEMENT_SECRET: mock-management-secret
-      PYTEST_DISABLE_NETWORK_CALLS: 1
+      AUTH0_DOMAIN: "mock-domain"
+      AUTH0_AUDIENCE: "mock-audience"
+      AUTH0_MANAGEMENT_ID: "mock-id"
+      AUTH0_MANAGEMENT_SECRET: "mock-secret"
 
     steps:
       - name: Checkout code
@@ -40,4 +39,4 @@ jobs:
 
       - name: Run tests
         run: |
-          uv run pytest --disable-socket
+          uv run pytest
