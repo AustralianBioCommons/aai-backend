@@ -1,4 +1,4 @@
-import requests
+import httpx
 
 from .config import get_settings
 
@@ -12,6 +12,6 @@ def get_management_token():
         'client_secret': settings.auth0_management_secret,
         'audience': f'https://{settings.auth0_domain}/api/v2/'
     }
-    response = requests.post(url, json=payload)
+    response = httpx.post(url, json=payload)
     response.raise_for_status()
     return response.json()['access_token']
