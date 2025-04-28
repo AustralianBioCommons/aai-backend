@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+import pytest
 
 from auth.config import Settings
 from main import app
@@ -70,12 +71,19 @@ def test_private_invalid_token(mocker):
     }
 
 
-def test_private_insufficient_permissions(mocker):
+@pytest.mark.parametrize("roles", [[], ["user_only"]])
+def test_private_insufficient_permissions(roles, mocker):
+    """
+    Test that we return an error when a user has no admin roles
+    """
+    # Bypass finding the signing key
     mocker.patch(
-        "main.verify_jwt",
-        side_effect=HTTPException(
-            status_code=403, detail="Access denied: Insufficient permissions"
-        ),
+        "auth.validator.get_rsa_key",
+        return_value={"kid": "dummy"}
+    )
+    mocker.patch(
+        "jose.jwt.decode",
+        return_value={"biocommons.org.au/roles": roles}
     )
     headers = {"Authorization": "Bearer insufficient_permissions_token"}
     response = client.get("/private", headers=headers)
