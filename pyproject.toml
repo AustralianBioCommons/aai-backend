@@ -9,7 +9,6 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic-settings>=2.8.1",
     "python-jose>=3.4.0",
-    "requests>=2.32.3",
 ]
 
 [tool.pytest.ini_options]
