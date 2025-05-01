@@ -4,8 +4,10 @@ import httpx
 from fastapi import HTTPException
 from jose import jwt, jwk
 from jose.exceptions import JWTError
+from pydantic import ValidationError
 
 from auth.config import get_settings
+from schemas.tokens import AccessTokenPayload
 
 
 def get_rsa_key(token: str) -> jwk.RSAKey | None:
@@ -21,7 +23,7 @@ def get_rsa_key(token: str) -> jwk.RSAKey | None:
     return None
 
 
-def verify_jwt(token: str) -> Dict:
+def verify_jwt(token: str) -> AccessTokenPayload:
     settings = get_settings()
     try:
         rsa_key = get_rsa_key(token)
@@ -49,4 +51,4 @@ def verify_jwt(token: str) -> Dict:
     if not isinstance(roles, list) or not any("admin" in role.lower() for role in roles):
         raise HTTPException(status_code=403, detail=f"Access denied: Insufficient permissions")
 
-    return payload
+    return AccessTokenPayload(**payload)
