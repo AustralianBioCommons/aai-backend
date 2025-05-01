@@ -1,10 +1,9 @@
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import pytest
 
 from auth.config import Settings
 from main import app
-
+from tests.datagen import AccessTokenPayloadFactory
 
 client = TestClient(app)
 
@@ -26,13 +25,13 @@ def test_private_valid_token(mocker):
             auth0_algorithms=["RS256"],
         ),
     )
-
+    token = AccessTokenPayloadFactory.build(
+        sub="auth0|123456789",
+        biocommons_roles=["acdc/indexd_admin"],
+    )
     mocker.patch(
         "main.verify_jwt",
-        return_value={
-            "sub": "auth0|123456789",
-            "biocommons.org.au/roles": ["acdc/indexd_admin"],
-        },
+        return_value=token,
     )
     mocker.patch("main.get_management_token", return_value="mock_management_token")
     headers = {"Authorization": "Bearer valid_token"}
@@ -41,8 +40,7 @@ def test_private_valid_token(mocker):
     assert response.json() == {
         "message": "Private route",
         "user_claims": {
-            "sub": "auth0|123456789",
-            "biocommons.org.au/roles": ["acdc/indexd_admin"],
+            "access_token": token.model_dump(by_alias=True)
         },
         "management_token": "mock_management_token",
     }
