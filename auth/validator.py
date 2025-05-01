@@ -18,7 +18,7 @@ def get_rsa_key(token: str) -> jwk.RSAKey | None:
 
     for key in jwks["keys"]:
         if key["kid"] == unverified_header["kid"]:
-            return jwk.RSAKey(**key)
+            return jwk.construct(key)
     return None
 
 
