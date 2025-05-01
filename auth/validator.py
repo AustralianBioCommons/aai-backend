@@ -4,7 +4,6 @@ import httpx
 from fastapi import HTTPException
 from jose import jwt, jwk
 from jose.exceptions import JWTError
-from pydantic import ValidationError
 
 from auth.config import get_settings
 from schemas.tokens import AccessTokenPayload
