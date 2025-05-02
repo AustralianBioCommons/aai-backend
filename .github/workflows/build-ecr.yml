@@ -11,8 +11,8 @@ permissions:
   actions: read
 
 env:
-  AWS_REGION: ap-southeast-2  # Change to your AWS region
-  ECR_REPOSITORY: aai-backend  # Change to your repo name
+  AWS_REGION: ap-southeast-2
+  ECR_REPOSITORY: aai-backend
   IMAGE_TAG: latest
 
 jobs:
