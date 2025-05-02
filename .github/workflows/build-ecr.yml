@@ -1,0 +1,52 @@
+name: Build and Push Docker Image to ECR
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write  # Required for OIDC
+  actions: read
+
+env:
+  AWS_REGION: ap-southeast-2
+  ECR_REPOSITORY: aai-backend
+  IMAGE_TAG: latest
+
+jobs:
+  build-and-push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::232870232581:role/aai-backend-container-build
+          role-session-name: github-actions-ecr
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create .env File from Secrets
+        run: |
+          cat <<EOF > .env
+          AUTH0_DOMAIN=${{ secrets.AUTH0_DOMAIN }}
+          AUTH0_MANAGEMENT_ID=${{ secrets.AUTH0_MANAGEMENT_ID }}
+          AUTH0_MANAGEMENT_SECRET=${{ secrets.AUTH0_MANAGEMENT_SECRET }}
+          AUTH0_AUDIENCE=${{ secrets.AUTH0_AUDIENCE }}
+          EOF
+
+      - name: Build, Tag, and Push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
