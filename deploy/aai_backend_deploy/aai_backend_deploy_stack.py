@@ -16,9 +16,12 @@ class AaiBackendDeployStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, config: dict, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
-        self.certificate_arn = config["AWS_CERTIFICATE_ARN"]
-        self.zone_id = config["AWS_ZONE_ID"]
-        self.zone_domain = config["AWS_ZONE_DOMAIN"]
+        try:
+            self.certificate_arn = config["AWS_CERTIFICATE_ARN"]
+            self.zone_id = config["AWS_ZONE_ID"]
+            self.zone_domain = config["AWS_ZONE_DOMAIN"]
+        except KeyError as e:
+            raise ValueError(f"Missing required configuration: {e}. These should be set in .env locally, or GitHub Secrets.")
 
         # VPC
         vpc = ec2.Vpc(self, "AaiBackendVPC", max_azs=2)
