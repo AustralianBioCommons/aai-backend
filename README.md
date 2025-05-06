@@ -50,3 +50,11 @@ Execute the test suite using `pytest`:
 ```bash
 uv run pytest
 ```
+
+# Deployment
+
+Currently the service is deployed to AWS via the CDK scripts in `deploy/`, 
+and updated on each commit to `main`.
+
+Secrets/configuration variables for the deployment are stored in the
+GitHub Secrets for the repository.
