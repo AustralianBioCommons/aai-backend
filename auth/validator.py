@@ -1,11 +1,10 @@
 import httpx
 
+from auth.config import get_settings
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, jwk
 from jose.exceptions import JWTError
-
-from auth.config import get_settings
 from schemas.tokens import AccessTokenPayload
 from schemas.user import User
 

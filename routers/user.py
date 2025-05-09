@@ -1,11 +1,10 @@
 import httpx
 
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
-
 from auth.config import get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException
 from schemas.requests import ResourceRequest, ServiceRequest
 from schemas.user import User
 

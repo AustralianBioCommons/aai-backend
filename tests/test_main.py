@@ -1,9 +1,8 @@
 import pytest
 
+from auth.config import Settings
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-
-from auth.config import Settings
 from main import app
 from tests.datagen import AccessTokenPayloadFactory
 

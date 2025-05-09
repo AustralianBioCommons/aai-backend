@@ -1,7 +1,6 @@
-from fastapi import Depends, FastAPI
-
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from fastapi import Depends, FastAPI
 from routers import user
 
 app = FastAPI()

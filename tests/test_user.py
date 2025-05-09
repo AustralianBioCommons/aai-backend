@@ -1,7 +1,7 @@
 import pytest
-from fastapi.testclient import TestClient
 
 from auth.config import Settings
+from fastapi.testclient import TestClient
 from main import app
 from tests.datagen import AccessTokenPayloadFactory
 
