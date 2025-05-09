@@ -1,4 +1,5 @@
 import httpx
+
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, jwk
@@ -16,10 +17,15 @@ def verify_jwt(token: str) -> AccessTokenPayload:
     try:
         rsa_key = get_rsa_key(token)
     except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid token: {e}"
+        )
+
     if rsa_key is None:
         raise HTTPException(
-            status_code=401, detail="Couldn't find a matching signing key."
+            status_code=401,
+            detail="Couldn't find a matching signing key."
         )
 
     try:
@@ -31,12 +37,16 @@ def verify_jwt(token: str) -> AccessTokenPayload:
             issuer=f"https://{settings.auth0_domain}/",
         )
     except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid token: {e}"
+        )
 
     roles_claim = "biocommons.org.au/roles"
     if roles_claim not in payload:
         raise HTTPException(
-            status_code=403, detail=f"Missing required claim: {roles_claim}"
+            status_code=403,
+            detail=f"Missing required claim: {roles_claim}"
         )
 
     roles = payload[roles_claim]
@@ -44,7 +54,8 @@ def verify_jwt(token: str) -> AccessTokenPayload:
         "admin" in role.lower() for role in roles
     ):
         raise HTTPException(
-            status_code=403, detail="Access denied: Insufficient permissions"
+            status_code=403,
+            detail="Access denied: Insufficient permissions"
         )
 
     return AccessTokenPayload(**payload)
@@ -60,6 +71,7 @@ def get_rsa_key(token: str) -> jwk.RSAKey | None:
     for key in jwks["keys"]:
         if key["kid"] == unverified_header["kid"]:
             return jwk.construct(key)
+
     return None
 
 
