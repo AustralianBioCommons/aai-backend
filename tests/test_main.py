@@ -1,7 +1,8 @@
 import pytest
-from fastapi.testclient import TestClient
 
 from auth.config import Settings
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 from main import app
 from tests.datagen import AccessTokenPayloadFactory
 
@@ -30,7 +31,7 @@ def test_private_valid_token(mocker):
         biocommons_roles=["acdc/indexd_admin"],
     )
     mocker.patch(
-        "main.verify_jwt",
+        "auth.validator.verify_jwt",
         return_value=token,
     )
     mocker.patch("main.get_management_token", return_value="mock_management_token")
@@ -39,9 +40,7 @@ def test_private_valid_token(mocker):
     assert response.status_code == 200
     assert response.json() == {
         "message": "Private route",
-        "user_claims": {
-            "access_token": token.model_dump(by_alias=True)
-        },
+        "user_claims": {"access_token": token.model_dump(by_alias=True)},
         "management_token": "mock_management_token",
     }
 
@@ -53,20 +52,18 @@ def test_private_missing_token():
 
 
 def test_private_invalid_token(mocker):
-    mocker.patch(
-        "httpx.get", return_value=mocker.Mock(json=lambda: {"keys": []})
-    )
+    mocker.patch("httpx.get", return_value=mocker.Mock(json=lambda: {"keys": []}))
     mocker.patch(
         "auth.validator.verify_jwt",
-        side_effect=Exception("Invalid token: Error decoding token headers."),
+        side_effect=HTTPException(
+            status_code=401, detail="Invalid token: Error decoding token headers."
+        ),
     )
 
     headers = {"Authorization": "Bearer invalid_token"}
     response = client.get("/private", headers=headers)
     assert response.status_code == 401
-    assert response.json() == {
-        "detail": "Invalid token: Error decoding token headers."
-    }
+    assert response.json() == {"detail": "Invalid token: Error decoding token headers."}
 
 
 @pytest.mark.parametrize("roles", [[], ["user_only"]])
@@ -75,17 +72,9 @@ def test_private_insufficient_permissions(roles, mocker):
     Test that we return an error when a user has no admin roles
     """
     # Bypass finding the signing key
-    mocker.patch(
-        "auth.validator.get_rsa_key",
-        return_value={"kid": "dummy"}
-    )
-    mocker.patch(
-        "jose.jwt.decode",
-        return_value={"biocommons.org.au/roles": roles}
-    )
+    mocker.patch("auth.validator.get_rsa_key", return_value={"kid": "dummy"})
+    mocker.patch("jose.jwt.decode", return_value={"biocommons.org.au/roles": roles})
     headers = {"Authorization": "Bearer insufficient_permissions_token"}
     response = client.get("/private", headers=headers)
     assert response.status_code == 403
-    assert response.json() == {
-        "detail": "Access denied: Insufficient permissions"
-    }
+    assert response.json() == {"detail": "Access denied: Insufficient permissions"}
