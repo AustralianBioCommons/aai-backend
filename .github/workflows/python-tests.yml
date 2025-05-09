@@ -1,4 +1,4 @@
-name: Run Pytest
+name: Run Pytest with Coverage
 
 on:
   push:
@@ -35,8 +35,15 @@ jobs:
       - name: Create virtual environment and install dependencies
         run: |
           uv venv
-          uv sync
+          uv sync --dev  # Include dev tools like pytest and pytest-cov
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          uv run pytest
+          uv run pytest --cov=aai_backend --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}  # Optional for public repos
+          files: ./coverage.xml
+          fail_ci_if_error: true
