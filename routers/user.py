@@ -10,11 +10,12 @@ from schemas.requests import ResourceRequest, ServiceRequest
 from schemas.user import User
 
 router = APIRouter()
-settings = get_settings()
 
+def get_settings_instance():
+    return get_settings()
 
 async def fetch_user_data(user_id: str, token: str):
-    url = f"https://{settings.auth0_domain}/api/v2/users/{user_id}"
+    url = f"https://{get_settings_instance().auth0_domain}/api/v2/users/{user_id}"
     headers = {"Authorization": f"Bearer {token}"}
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
@@ -28,7 +29,7 @@ async def fetch_user_data(user_id: str, token: str):
 
 async def update_user_metadata(user_id: str, token: str, metadata: dict):
     """Utility function to update user metadata in Auth0."""
-    url = f"https://{settings.auth0_domain}/api/v2/users/{user_id}"
+    url = f"https://{ get_settings_instance().auth0_domain}/api/v2/users/{user_id}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",

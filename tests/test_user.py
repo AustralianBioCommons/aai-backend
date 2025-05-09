@@ -8,20 +8,19 @@ from tests.datagen import AccessTokenPayloadFactory
 client = TestClient(app)
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def mock_auth_settings(mocker):
-    """Fixture to mock auth settings"""
-    return mocker.patch(
-        "auth.config.get_settings",
-        return_value=Settings(
-            auth0_domain="mock-domain",
-            auth0_audience="mock-audience",
-            auth0_management_id="mock-id",
-            auth0_management_secret="mock-secret",
-            auth0_algorithms=["RS256"],
-        ),
+    """Fixture to mock auth settings globally"""
+    mock_settings = Settings(
+        auth0_domain="mock-domain.com",
+        auth0_audience="mock-audience",
+        auth0_management_id="mock-id",
+        auth0_management_secret="mock-secret",
+        auth0_algorithms=["RS256"],
     )
-
+    mocker.patch("auth.config.get_settings", return_value=mock_settings)
+    mocker.patch("auth.management.get_settings", return_value=mock_settings)
+    return mock_settings
 
 @pytest.fixture
 def mock_auth_token(mocker):
@@ -81,6 +80,7 @@ def mock_user_data():
         "/me/all/pending",
     ],
 )
+
 def test_endpoints_require_auth(endpoint):
     """Test that all endpoints require authentication"""
     response = client.get(endpoint)
@@ -97,6 +97,11 @@ def test_get_all_services(
         return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
     )
 
+    mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
     response = client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"services": mock_user_data["app_metadata"]["services"]}
@@ -107,6 +112,11 @@ def test_get_approved_services(
 ):
     """Test getting approved services"""
     mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
+    mocker.patch(
         "httpx.AsyncClient.get",
         return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
     )
@@ -114,28 +124,32 @@ def test_get_approved_services(
     response = client.get("/me/services/approved", headers=auth_headers)
     assert response.status_code == 200
     approved_services = [
-        s
-        for s in mock_user_data["app_metadata"]["services"]
-        if s["status"] == "approved"
+        s for s in mock_user_data["app_metadata"]["services"] if s["status"] == "approved"
     ]
     assert response.json() == {"approved_services": approved_services}
-
 
 def test_get_pending_services(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting pending services"""
+
+    # Patch the Auth0 token request
+    mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
+    # Patch the user metadata fetch
     mocker.patch(
         "httpx.AsyncClient.get",
         return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
     )
 
     response = client.get("/me/services/pending", headers=auth_headers)
+
     assert response.status_code == 200
     pending_services = [
-        s
-        for s in mock_user_data["app_metadata"]["services"]
-        if s["status"] == "pending"
+        s for s in mock_user_data["app_metadata"]["services"] if s["status"] == "pending"
     ]
     assert response.json() == {"pending_services": pending_services}
 
@@ -144,6 +158,14 @@ def test_get_all_resources(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting all resources"""
+
+    # Patch token fetch
+    mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
+    # Patch user metadata fetch
     mocker.patch(
         "httpx.AsyncClient.get",
         return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
@@ -163,11 +185,17 @@ def test_get_services_failed_fetch(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of failed API calls"""
+
+    # Patch token acquisition
+    mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
+    # Patch failed metadata fetch
     mocker.patch(
         "httpx.AsyncClient.get",
-        return_value=mocker.Mock(
-            status_code=403, json=lambda: {"error": "Unauthorized"}
-        ),
+        return_value=mocker.Mock(status_code=403, json=lambda: {"error": "Unauthorized"}),
     )
 
     response = client.get("/me/services", headers=auth_headers)
@@ -179,6 +207,12 @@ def test_get_services_empty_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty metadata"""
+    # Patch token acquisition
+    mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
     mocker.patch(
         "httpx.AsyncClient.get",
         return_value=mocker.Mock(status_code=200, json=lambda: {"app_metadata": {}}),
@@ -194,6 +228,11 @@ def test_get_services_no_metadata(
 ):
     """Test handling of missing metadata"""
     mocker.patch(
+        "httpx.post",
+        return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}),
+    )
+
+    mocker.patch(
         "httpx.AsyncClient.get",
         return_value=mocker.Mock(status_code=200, json=lambda: {}),
     )
@@ -201,3 +240,108 @@ def test_get_services_no_metadata(
     response = client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"services": []}
+
+def test_request_service_success(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    from datetime import datetime
+    from schemas.requests import ServiceRequest
+
+    mocker.patch("httpx.post", return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}))
+    mocker.patch("httpx.AsyncClient.get", return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data))
+    mocker.patch("httpx.AsyncClient.patch", return_value=mocker.Mock(status_code=200, json=lambda: {}))
+
+    new_service = {
+        "name": "New Service",
+        "id": "service3",
+        "user_id": mock_auth_token.sub,
+    }
+
+    response = client.post("/request/service", json=new_service, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["message"] == "Service request submitted successfully"
+    assert response.json()["service"]["id"] == "service3"
+
+def test_request_service_duplicate(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    mocker.patch("httpx.post", return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}))
+    mocker.patch("httpx.AsyncClient.get", return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data))
+
+    existing_service = {
+        "name": "Service 1",
+        "id": "service1",
+        "user_id": mock_auth_token.sub,
+    }
+
+    response = client.post("/request/service", json=existing_service, headers=auth_headers)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Service request with ID service1 already exists"
+
+def test_request_service_user_mismatch(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    request_payload = {
+        "name": "Service Mismatch",
+        "id": "svc-mismatch",
+        "user_id": "auth0|WRONG_USER",
+    }
+
+    response = client.post("/request/service", json=request_payload, headers=auth_headers)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "User ID in request does not match authenticated user"
+
+def test_request_resource_success(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    approved_service = mock_user_data["app_metadata"]["services"][0]
+    approved_service["resources"] = []
+
+    mocker.patch("httpx.post", return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}))
+    mocker.patch("httpx.AsyncClient.get", return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data))
+    mocker.patch("httpx.AsyncClient.patch", return_value=mocker.Mock(status_code=200, json=lambda: {}))
+
+    request_payload = {
+        "name": "New Resource",
+        "id": "resource-new",
+        "user_id": mock_auth_token.sub,
+        "service_id": "service1",
+    }
+
+    response = client.post("/request/service1/resource-new", json=request_payload, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["resource"]["id"] == "resource-new"
+
+def test_request_resource_user_mismatch(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    request_payload = {
+        "name": "Invalid Resource",
+        "id": "res-invalid",
+        "user_id": "wrong-user",
+        "service_id": "service1",
+    }
+
+    response = client.post("/request/service1/res-invalid", json=request_payload, headers=auth_headers)
+    assert response.status_code == 403
+    assert response.json()["detail"] == "User ID in request does not match authenticated user"
+
+def test_request_resource_non_approved_service(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    # Set service2 to be requested
+    service = mock_user_data["app_metadata"]["services"][1]
+
+    mocker.patch("httpx.post", return_value=mocker.Mock(status_code=200, json=lambda: {"access_token": "test-token"}))
+    mocker.patch("httpx.AsyncClient.get", return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data))
+
+    request_payload = {
+        "name": "Blocked Resource",
+        "id": "blocked-resource",
+        "user_id": mock_auth_token.sub,
+        "service_id": "service2",
+    }
+
+    response = client.post("/request/service2/blocked-resource", json=request_payload, headers=auth_headers)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Cannot request resources for a service that is not approved"
