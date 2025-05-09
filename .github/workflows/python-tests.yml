@@ -40,11 +40,15 @@ jobs:
       - name: Run tests and generate Cobertura coverage report
         run: |
           mkdir -p coverage
-          PYTHONPATH=./ uv run pytest \
-            --cov=aai_backend \
+          PYTHONPATH=. uv run pytest \
+            --cov=auth \
+            --cov=schemas \
+            --cov=routers \
+            --cov=main \
             --cov-report=term-missing \
             --cov-report=xml:coverage/cobertura.xml \
             --cov-fail-under=90 \
+            --cov-report=html:coverage/html
 
       - name: Code Coverage Report
         uses: irongut/CodeCoverageSummary@v1.3.0
