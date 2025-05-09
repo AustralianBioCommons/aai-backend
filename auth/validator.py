@@ -1,8 +1,7 @@
-from typing import Dict
 
 import httpx
 from fastapi import HTTPException
-from jose import jwt, jwk
+from jose import jwk, jwt
 from jose.exceptions import JWTError
 
 from auth.config import get_settings
@@ -48,6 +47,6 @@ def verify_jwt(token: str) -> AccessTokenPayload:
 
     roles = payload[roles_claim]
     if not isinstance(roles, list) or not any("admin" in role.lower() for role in roles):
-        raise HTTPException(status_code=403, detail=f"Access denied: Insufficient permissions")
+        raise HTTPException(status_code=403, detail="Access denied: Insufficient permissions")
 
     return AccessTokenPayload(**payload)

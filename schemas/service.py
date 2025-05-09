@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
-from typing import Literal
 from datetime import datetime
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 
 class Resource(BaseModel):
