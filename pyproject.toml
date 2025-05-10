@@ -8,7 +8,11 @@ dependencies = [
     "fastapi[standard]>=0.115.12",
     "httpx>=0.28.1",
     "pydantic-settings>=2.8.1",
-    "python-jose>=3.4.0",
+    "python-jose>=3.4.0"
+]
+
+[project.optional-dependencies]
+dev = [
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
     "pytest-cov>=4.1.0",
@@ -19,6 +23,7 @@ dependencies = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+addopts = "--cov=auth --cov=deploy --cov=routers --cov=schemas --cov-report=term --cov-report=xml"
 
 [build-system]
 requires = ["setuptools>=61.0"]

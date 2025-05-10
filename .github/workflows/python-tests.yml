@@ -35,7 +35,7 @@ jobs:
       - name: Create virtual environment and install dependencies
         run: |
           uv venv
-          uv sync --features dev
+          uv sync --extra dev
 
       - name: Run Ruff (lint)
         run: |
