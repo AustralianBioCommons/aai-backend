@@ -35,12 +35,12 @@ jobs:
       - name: Create virtual environment and install dependencies
         run: |
           uv venv
-          uv sync --features dev
+          uv sync --extra dev
 
       - name: Run Ruff (lint)
         run: |
           uv run -- ruff check .
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
           uv run pytest
