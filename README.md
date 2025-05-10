@@ -50,6 +50,13 @@ Execute the test suite using `pytest`:
 ```bash
 uv run pytest
 ```
+## Run the Linter
+
+This command will automatically fix issues where possible:
+
+```bash
+uv run -- ruff check . --fix
+```
 
 # Deployment
 

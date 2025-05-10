@@ -2,9 +2,9 @@
 import os
 
 import aws_cdk as cdk
+from aai_backend_deploy.aai_backend_deploy_stack import AaiBackendDeployStack
 from dotenv import load_dotenv
 
-from aai_backend_deploy.aai_backend_deploy_stack import AaiBackendDeployStack
 
 def get_dotenv_config():
     load_dotenv()
