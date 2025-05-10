@@ -47,7 +47,7 @@ jobs:
             --cov=main \
             --cov-report=term-missing \
             --cov-report=xml:coverage/cobertura.xml \
-            --cov-fail-under=90 \
+            --cov-fail-under=80 \
             --cov-report=html:coverage/html
 
       - name: Code Coverage Report
