@@ -9,6 +9,7 @@ from tests.datagen import AccessTokenPayloadFactory
 client = TestClient(app)
 
 
+# --- Test Fixtures ---
 @pytest.fixture(autouse=True)
 def mock_auth_settings(mocker):
     """Fixture to mock auth settings globally"""
@@ -70,7 +71,7 @@ def mock_user_data():
     }
 
 
-# Authentication Tests (GET)
+# --- Authentication Tests (GET) ---
 @pytest.mark.parametrize(
     "endpoint",
     [
@@ -90,7 +91,7 @@ def test_endpoints_require_auth(endpoint):
     assert response.json() == {"detail": "Not authenticated"}
 
 
-# Service Tests (GET)
+# --- Service Endpoints (GET) ---
 def test_get_all_services(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
@@ -200,24 +201,17 @@ def test_get_services_no_metadata(
     assert response.json() == {"services": []}
 
 
-# Resource Tests (GET)
+# --- Resource Endpoints (GET) ---
 def test_get_all_resources(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting all resources"""
-
-    # Patch token fetch
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
+        "routers.user.fetch_user_data",
+        return_value=mock_user_data,
     )
-
-    # Patch user metadata fetch
     mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
     response = client.get("/me/resources", headers=auth_headers)
@@ -309,7 +303,21 @@ def test_get_resources_empty_metadata(
     assert response.json() == {"resources": []}
 
 
-# Service Request Tests (POST)
+def test_get_resources_no_metadata(
+    mock_auth_settings, mock_auth_token, auth_headers, mocker
+):
+    """Test handling of missing resource metadata"""
+    mocker.patch("routers.user.fetch_user_data", return_value={})
+    mocker.patch(
+        "routers.user.get_management_token", return_value="mock_management_token"
+    )
+
+    response = client.get("/me/resources", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json() == {"resources": []}
+
+
+# --- Service Request Endpoints (POST) ---
 def test_request_service_success(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
@@ -336,15 +344,9 @@ def test_request_service_duplicate(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test duplicate service request"""
+    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
-    )
-    mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
     existing_service = {
@@ -382,7 +384,7 @@ def test_request_service_user_mismatch(
     )
 
 
-# Resource Request Tests (POST)
+# --- Resource Request Endpoints (POST) ---
 def test_request_resource_success(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
@@ -452,3 +454,53 @@ def test_request_resource_non_approved_service(
         response.json()["detail"]
         == "Cannot request resources for a service that is not approved"
     )
+
+
+def test_request_resource_duplicate(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    """Test duplicate resource request"""
+    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch(
+        "routers.user.get_management_token", return_value="mock_management_token"
+    )
+
+    existing_resource = {
+        "name": "Resource 1",
+        "id": "resource1",
+        "user_id": mock_auth_token.sub,
+        "service_id": "service1",
+    }
+
+    response = client.post(
+        "/request/service1/resource1", json=existing_resource, headers=auth_headers
+    )
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"] == "Resource request with ID resource1 already exists"
+    )
+
+
+def test_request_resource_invalid_service(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    """Test resource request for non-existent service"""
+    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch(
+        "routers.user.get_management_token", return_value="mock_management_token"
+    )
+
+    request_payload = {
+        "name": "Invalid Service Resource",
+        "id": "resource-invalid",
+        "user_id": mock_auth_token.sub,
+        "service_id": "non-existent-service",
+    }
+
+    response = client.post(
+        "/request/non-existent-service/resource-invalid",
+        json=request_payload,
+        headers=auth_headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Service with ID non-existent-service not found"
