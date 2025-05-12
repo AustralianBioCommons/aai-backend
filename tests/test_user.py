@@ -93,15 +93,11 @@ def test_get_all_services(
 ):
     """Test getting all services"""
     mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
+        "routers.user.fetch_user_data",
+        return_value=mock_user_data,
     )
-
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
     response = client.get("/me/services", headers=auth_headers)
@@ -114,15 +110,11 @@ def test_get_approved_services(
 ):
     """Test getting approved services"""
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
+        "routers.user.fetch_user_data",
+        return_value=mock_user_data,
     )
-
     mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
     response = client.get("/me/services/approved", headers=auth_headers)
@@ -194,73 +186,83 @@ def test_get_all_resources(
     assert response.json() == {"resources": all_resources}
 
 
-def test_get_services_failed_fetch(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+def test_get_approved_resources(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
-    """Test handling of failed API calls"""
-
-    # Patch token acquisition
+    """Test getting approved resources"""
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
+        "routers.user.fetch_user_data",
+        return_value=mock_user_data,
+    )
+    mocker.patch(
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    # Patch failed metadata fetch
-    mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(
-            status_code=403, json=lambda: {"error": "Unauthorized"}
-        ),
-    )
-
-    response = client.get("/me/services", headers=auth_headers)
-    assert response.status_code == 403
-    assert response.json() == {"detail": "Failed to fetch user data"}
-
-
-def test_get_services_empty_metadata(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
-):
-    """Test handling of empty metadata"""
-    # Patch token acquisition
-    mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
-    )
-
-    mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: {"app_metadata": {}}),
-    )
-
-    response = client.get("/me/services", headers=auth_headers)
+    response = client.get("/me/resources/approved", headers=auth_headers)
     assert response.status_code == 200
-    assert response.json() == {"services": []}
+    approved_resources = [
+        resource
+        for service in mock_user_data["app_metadata"]["services"]
+        for resource in service["resources"]
+        if resource["status"] == "approved"
+    ]
+    assert response.json() == {"approved_resources": approved_resources}
 
 
-def test_get_services_no_metadata(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+def test_get_pending_resources(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
-    """Test handling of missing metadata"""
+    """Test getting pending resources"""
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
+        "routers.user.fetch_user_data",
+        return_value=mock_user_data,
+    )
+    mocker.patch(
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: {}),
-    )
-
-    response = client.get("/me/services", headers=auth_headers)
+    response = client.get("/me/resources/pending", headers=auth_headers)
     assert response.status_code == 200
-    assert response.json() == {"services": []}
+    pending_resources = [
+        resource
+        for service in mock_user_data["app_metadata"]["services"]
+        for resource in service["resources"]
+        if resource["status"] == "pending"
+    ]
+    assert response.json() == {"pending_resources": pending_resources}
+
+
+def test_get_all_pending(
+    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+):
+    """Test getting all pending items"""
+    mocker.patch(
+        "routers.user.fetch_user_data",
+        return_value=mock_user_data,
+    )
+    mocker.patch(
+        "routers.user.get_management_token", return_value="mock_management_token"
+    )
+
+    response = client.get("/me/all/pending", headers=auth_headers)
+    assert response.status_code == 200
+
+    pending_services = [
+        s
+        for s in mock_user_data["app_metadata"]["services"]
+        if s["status"] == "pending"
+    ]
+    pending_resources = [
+        resource
+        for service in mock_user_data["app_metadata"]["services"]
+        for resource in service["resources"]
+        if resource["status"] == "pending"
+    ]
+
+    assert response.json() == {
+        "pending_services": pending_services,
+        "pending_resources": pending_resources,
+    }
 
 
 def test_request_service_success(
