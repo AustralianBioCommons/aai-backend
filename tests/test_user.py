@@ -432,18 +432,9 @@ def test_request_resource_non_approved_service(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test resource request for non-approved service"""
-    # Set service2 to be requested
-    service = mock_user_data["app_metadata"]["services"][1]
-
+    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
     mocker.patch(
-        "httpx.post",
-        return_value=mocker.Mock(
-            status_code=200, json=lambda: {"access_token": "test-token"}
-        ),
-    )
-    mocker.patch(
-        "httpx.AsyncClient.get",
-        return_value=mocker.Mock(status_code=200, json=lambda: mock_user_data),
+        "routers.user.get_management_token", return_value="mock_management_token"
     )
 
     request_payload = {
