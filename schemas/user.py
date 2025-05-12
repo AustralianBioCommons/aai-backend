@@ -8,6 +8,7 @@ class User(BaseModel):
     permissions checks here, instead of doing individual
     checks in different places.
     """
+
     access_token: AccessTokenPayload
 
     def is_admin(self) -> bool:
@@ -20,4 +21,3 @@ class User(BaseModel):
             if "admin" in role.lower():
                 return True
         return False
-
