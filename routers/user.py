@@ -1,4 +1,5 @@
-import httpx
+from typing import Dict, List, Any
+from httpx import AsyncClient
 
 from auth.config import get_settings
 from auth.management import get_management_token
@@ -6,143 +7,130 @@ from auth.validator import get_current_user
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from schemas.requests import ResourceRequest, ServiceRequest
-from schemas.service import Service
+from schemas.service import Auth0User, Service, Resource
 from schemas.user import User
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
+)
 
 
-async def fetch_user_data(user_id: str, token: str):
-    url = f"https://{get_settings().auth0_domain}/api/v2/users/{user_id}"
+async def get_user_data(user: User) -> Auth0User:
+    """Fetch and return user data from Auth0."""
+    url = f"https://{get_settings().auth0_domain}/api/v2/users/{user.access_token.sub}"
+    token = get_management_token()
     headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code, detail="Failed to fetch user data"
-            )
-        return response.json()
+
+    try:
+        async with AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Failed to fetch user data",
+                )
+            return Auth0User(**response.json())
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=403, detail=f"Failed to fetch user data: {str(e)}"
+        )
 
 
-async def update_user_metadata(user_id: str, token: str, metadata: dict):
+async def update_user_metadata(
+    user_id: str, token: str, metadata: Dict[str, Any]
+) -> Dict[str, Any]:
     """Utility function to update user metadata in Auth0."""
     url = f"https://{get_settings().auth0_domain}/api/v2/users/{user_id}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    async with httpx.AsyncClient() as client:
-        response = await client.patch(
-            url, headers=headers, json={"app_metadata": metadata}
-        )
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail="Failed to update user metadata",
+    try:
+        async with AsyncClient() as client:
+            response = await client.patch(
+                url, headers=headers, json={"app_metadata": metadata}
             )
-        return response.json()
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Failed to update user metadata",
+                )
+            return response.json()
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Failed to update user metadata: {str(e)}",
+        )
 
 
-@router.get("/me/services")
-async def get_all_services(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    return {"services": services}
+@router.get("/services", response_model=Dict[str, List[Service]])
+async def get_services(user: User = Depends(get_current_user)):
+    """Get all services for the authenticated user."""
+    user_data = await get_user_data(user)
+    return {"services": user_data.app_metadata.services}
 
 
-@router.get("/me/services/approved")
+@router.get("/services/approved", response_model=Dict[str, List[Service]])
 async def get_approved_services(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    approved_services = [
-        service for service in services if service.get("status") == "approved"
-    ]
-    return {"approved_services": approved_services}
+    """Get approved services for the authenticated user."""
+    user_data = await get_user_data(user)
+    return {"approved_services": user_data.approved_services}
 
 
-@router.get("/me/services/pending")
+@router.get("/services/pending", response_model=Dict[str, List[Service]])
 async def get_pending_services(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    pending_services = [
-        service for service in services if service.get("status") == "pending"
-    ]
-    return {"pending_services": pending_services}
+    """Get pending services for the authenticated user."""
+    user_data = await get_user_data(user)
+    return {"pending_services": user_data.pending_services}
 
 
-@router.get("/me/resources")
-async def get_all_resources(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    resources = [
-        resource for service in services for resource in service.get("resources", [])
-    ]
-    return {"resources": resources}
+@router.get("/resources", response_model=Dict[str, List[Resource]])
+async def get_resources(user: User = Depends(get_current_user)):
+    """Get all resources for the authenticated user."""
+    user_data = await get_user_data(user)
+    return {"resources": user_data.app_metadata.get_all_resources()}
 
 
-@router.get("/me/resources/approved")
+@router.get("/resources/approved", response_model=Dict[str, List[Resource]])
 async def get_approved_resources(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    approved_resources = [
-        resource
-        for service in services
-        for resource in service.get("resources", [])
-        if resource.get("status") == "approved"
-    ]
-    return {"approved_resources": approved_resources}
+    """Get approved resources for the authenticated user."""
+    user_data = await get_user_data(user)
+    return {"approved_resources": user_data.approved_resources}
 
 
-@router.get("/me/resources/pending")
+@router.get("/resources/pending", response_model=Dict[str, List[Resource]])
 async def get_pending_resources(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    pending_resources = [
-        resource
-        for service in services
-        for resource in service.get("resources", [])
-        if resource.get("status") == "pending"
-    ]
-    return {"pending_resources": pending_resources}
+    """Get pending resources for the authenticated user."""
+    user_data = await get_user_data(user)
+    return {"pending_resources": user_data.pending_resources}
 
 
-@router.get("/me/all/pending")
+@router.get("/all/pending", response_model=Dict[str, List[Any]])
 async def get_all_pending(user: User = Depends(get_current_user)):
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
-    pending_services = [
-        service for service in services if service.get("status") == "pending"
-    ]
-    pending_resources = [
-        resource
-        for service in services
-        for resource in service.get("resources", [])
-        if resource.get("status") == "pending"
-    ]
+    """Get all pending services and resources."""
+    user_data = await get_user_data(user)
     return {
-        "pending_services": pending_services,
-        "pending_resources": pending_resources,
+        "pending_services": user_data.pending_services,
+        "pending_resources": user_data.pending_resources,
     }
 
 
-@router.post("/request/service")
+@router.post(
+    "/request/service",
+    response_model=Dict[str, Any],
+    responses={
+        400: {"description": "Bad Request - Service already exists"},
+        403: {"description": "Forbidden - User ID mismatch"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def request_service(
     service_request: ServiceRequest, user: User = Depends(get_current_user)
-):
+) -> Dict[str, Any]:
     """Submit a request for a service."""
     if user.access_token.sub != service_request.user_id:
         raise HTTPException(
@@ -150,41 +138,52 @@ async def request_service(
             detail="User ID in request does not match authenticated user",
         )
 
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
+    user_data = await get_user_data(user)
 
-    if any(s.get("id") == service_request.id for s in services):
+    if any(s.id == service_request.id for s in user_data.app_metadata.services):
         raise HTTPException(
             status_code=400,
             detail=f"Service request with ID {service_request.id} already exists",
         )
 
-    new_service: Service = {
-        "name": service_request.name,
-        "id": service_request.id,
-        "status": "pending",
-        "last_updated": datetime.now(timezone.utc).isoformat(),
-        "updated_by": user_id,
-        "resources": [],
+    new_service = Service(
+        name=service_request.name,
+        id=service_request.id,
+        status="pending",
+        last_updated=datetime.now(timezone.utc),
+        updated_by=user.access_token.sub,
+        resources=[],
+    )
+
+    user_data.app_metadata.services.append(new_service)
+    await update_user_metadata(
+        user.access_token.sub,
+        get_management_token(),
+        user_data.app_metadata.model_dump(),
+    )
+
+    return {
+        "message": "Service request submitted successfully",
+        "service": new_service.model_dump(mode="json"),
     }
 
-    services.append(new_service)
-    updated_metadata = user_data.get("app_metadata", {})
-    updated_metadata["services"] = services
 
-    await update_user_metadata(user_id, token, updated_metadata)
-    return {"message": "Service request submitted successfully", "service": new_service}
-
-
-@router.post("/request/{service_id}/{resource_id}")
+@router.post(
+    "/request/{service_id}/{resource_id}",
+    response_model=Dict[str, Any],
+    responses={
+        400: {"description": "Bad Request"},
+        403: {"description": "Forbidden"},
+        404: {"description": "Service not found"},
+        500: {"description": "Internal server error"},
+    },
+)
 async def request_resource(
     service_id: str,
     resource_id: str,
     resource_request: ResourceRequest,
     user: User = Depends(get_current_user),
-):
+) -> Dict[str, Any]:
     """Submit a request for a resource within a service."""
     if user.access_token.sub != resource_request.user_id:
         raise HTTPException(
@@ -197,48 +196,42 @@ async def request_resource(
             status_code=400, detail="Service ID in path does not match request body"
         )
 
-    user_id = user.access_token.sub
-    token = get_management_token()
-    user_data = await fetch_user_data(user_id, token)
-    services = user_data.get("app_metadata", {}).get("services", [])
+    user_data = await get_user_data(user)
+    service = user_data.app_metadata.get_service_by_id(service_id)
 
-    service = next((s for s in services if s.get("id") == service_id), None)
     if not service:
         raise HTTPException(
             status_code=404, detail=f"Service with ID {service_id} not found"
         )
 
-    if service.get("status") != "approved":
+    if service.status != "approved":
         raise HTTPException(
             status_code=400,
             detail="Cannot request resources for a service that is not approved",
         )
 
-    if any(r.get("id") == resource_id for r in service.get("resources", [])):
+    if any(r.id == resource_id for r in service.resources):
         raise HTTPException(
             status_code=400,
             detail=f"Resource request with ID {resource_id} already exists",
         )
 
-    new_resource = {
-        "name": resource_request.name,
-        "id": resource_id,
-        "status": "pending",
-    }
+    new_resource = Resource(
+        name=resource_request.name, id=resource_id, status="pending"
+    )
 
-    if "resources" not in service:
-        service["resources"] = []
+    service.resources.append(new_resource)
+    service.last_updated = datetime.now(timezone.utc)
+    service.updated_by = user.access_token.sub
 
-    service["resources"].append(new_resource)
-    service["last_updated"] = datetime.now(timezone.utc).isoformat()
-    service["updated_by"] = user_id
+    await update_user_metadata(
+        user.access_token.sub,
+        get_management_token(),
+        user_data.app_metadata.model_dump(),
+    )
 
-    updated_metadata = user_data.get("app_metadata", {})
-    updated_metadata["services"] = services
-
-    await update_user_metadata(user_id, token, updated_metadata)
     return {
         "message": "Resource request submitted successfully",
-        "service": service,
-        "resource": new_resource,
+        "service": service.model_dump(mode="json"),
+        "resource": new_resource.model_dump(mode="json"),
     }

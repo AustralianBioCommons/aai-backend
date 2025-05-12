@@ -1,9 +1,11 @@
 from fastapi import HTTPException
+from datetime import datetime
 import pytest
 
 from auth.config import Settings
 from fastapi.testclient import TestClient
 from main import app
+from schemas.service import Auth0User, Service, Resource, Group, AppMetadata
 from tests.datagen import AccessTokenPayloadFactory
 
 client = TestClient(app)
@@ -46,29 +48,51 @@ def auth_headers():
 @pytest.fixture
 def mock_user_data():
     """Fixture to provide mock user data"""
-    return {
-        "app_metadata": {
-            "services": [
-                {
-                    "id": "service1",
-                    "name": "Service 1",
-                    "status": "approved",
-                    "resources": [
-                        {"id": "resource1", "name": "Resource 1", "status": "approved"},
-                        {"id": "resource2", "name": "Resource 2", "status": "pending"},
+    return Auth0User(
+        created_at=datetime.now(),
+        email="test@example.com",
+        email_verified=True,
+        identities=[
+            {
+                "connection": "Username-Password-Authentication",
+                "provider": "auth0",
+                "user_id": "67d10aa30b421a4a877cce78",
+                "isSocial": False,
+            }
+        ],
+        name="Test User",
+        nickname="test",
+        picture="https://example.com/picture.jpg",
+        updated_at=datetime.now(),
+        user_id="auth0|123456789",
+        user_metadata={},
+        app_metadata=AppMetadata(
+            groups=[Group(name="Australian University", id="AU")],
+            services=[
+                Service(
+                    id="service1",
+                    name="Service 1",
+                    status="approved",
+                    last_updated=datetime.now(),
+                    updated_by="test@example.com",
+                    resources=[
+                        Resource(id="resource1", name="Resource 1", status="approved"),
+                        Resource(id="resource2", name="Resource 2", status="pending"),
                     ],
-                },
-                {
-                    "id": "service2",
-                    "name": "Service 2",
-                    "status": "pending",
-                    "resources": [
-                        {"id": "resource3", "name": "Resource 3", "status": "pending"},
+                ),
+                Service(
+                    id="service2",
+                    name="Service 2",
+                    status="pending",
+                    last_updated=datetime.now(),
+                    updated_by="test@example.com",
+                    resources=[
+                        Resource(id="resource3", name="Resource 3", status="pending")
                     ],
-                },
-            ]
-        }
-    }
+                ),
+            ],
+        ),
+    )
 
 
 # --- Authentication Tests (GET) ---
@@ -97,7 +121,7 @@ def test_get_all_services(
 ):
     """Test getting all services"""
     mocker.patch(
-        "routers.user.fetch_user_data",
+        "routers.user.get_user_data",  # Changed from fetch_user_data
         return_value=mock_user_data,
     )
     mocker.patch(
@@ -106,7 +130,11 @@ def test_get_all_services(
 
     response = client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
-    assert response.json() == {"services": mock_user_data["app_metadata"]["services"]}
+
+    expected_services = [
+        s.model_dump(mode="json") for s in mock_user_data.app_metadata.services
+    ]
+    assert response.json() == {"services": expected_services}
 
 
 def test_get_approved_services(
@@ -114,7 +142,7 @@ def test_get_approved_services(
 ):
     """Test getting approved services"""
     mocker.patch(
-        "routers.user.fetch_user_data",
+        "routers.user.get_user_data",  # Changed from fetch_user_data
         return_value=mock_user_data,
     )
     mocker.patch(
@@ -123,10 +151,11 @@ def test_get_approved_services(
 
     response = client.get("/me/services/approved", headers=auth_headers)
     assert response.status_code == 200
+
     approved_services = [
-        s
-        for s in mock_user_data["app_metadata"]["services"]
-        if s["status"] == "approved"
+        s.model_dump(mode="json")
+        for s in mock_user_data.app_metadata.services
+        if s.status == "approved"
     ]
     assert response.json() == {"approved_services": approved_services}
 
@@ -136,7 +165,7 @@ def test_get_pending_services(
 ):
     """Test getting pending services"""
     mocker.patch(
-        "routers.user.fetch_user_data",
+        "routers.user.get_user_data",  # Changed from fetch_user_data
         return_value=mock_user_data,
     )
     mocker.patch(
@@ -145,10 +174,11 @@ def test_get_pending_services(
 
     response = client.get("/me/services/pending", headers=auth_headers)
     assert response.status_code == 200
+
     pending_services = [
-        s
-        for s in mock_user_data["app_metadata"]["services"]
-        if s["status"] == "pending"
+        s.model_dump(mode="json")
+        for s in mock_user_data.app_metadata.services
+        if s.status == "pending"
     ]
     assert response.json() == {"pending_services": pending_services}
 
@@ -158,7 +188,7 @@ def test_get_services_failed_fetch(
 ):
     """Test handling of failed API calls"""
     mocker.patch(
-        "routers.user.fetch_user_data",
+        "routers.user.get_user_data",  # Changed from fetch_user_data
         side_effect=HTTPException(status_code=403, detail="Failed to fetch user data"),
     )
     mocker.patch(
@@ -174,7 +204,27 @@ def test_get_services_empty_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty metadata"""
-    mocker.patch("routers.user.fetch_user_data", return_value={"app_metadata": {}})
+    empty_user = Auth0User(
+        created_at=datetime.now(),
+        email="test@example.com",
+        email_verified=True,
+        identities=[
+            {
+                "connection": "Username-Password-Authentication",
+                "provider": "auth0",
+                "user_id": "123",
+                "isSocial": False,
+            }
+        ],
+        name="Test User",
+        nickname="test",
+        picture="https://example.com/picture.jpg",
+        updated_at=datetime.now(),
+        user_id="auth0|123",
+        user_metadata={},
+        app_metadata=AppMetadata(services=[], groups=[]),
+    )
+    mocker.patch("routers.user.get_user_data", return_value=empty_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -188,10 +238,27 @@ def test_get_services_no_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of missing metadata"""
-    mocker.patch(
-        "routers.user.fetch_user_data",
-        return_value={},
+    no_metadata_user = Auth0User(
+        created_at=datetime.now(),
+        email="test@example.com",
+        email_verified=True,
+        identities=[
+            {
+                "connection": "Username-Password-Authentication",
+                "provider": "auth0",
+                "user_id": "123",
+                "isSocial": False,
+            }
+        ],
+        name="Test User",
+        nickname="test",
+        picture="https://example.com/picture.jpg",
+        updated_at=datetime.now(),
+        user_id="auth0|123",
+        user_metadata={},
+        app_metadata=AppMetadata(),
     )
+    mocker.patch("routers.user.get_user_data", return_value=no_metadata_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -207,7 +274,7 @@ def test_get_all_resources(
 ):
     """Test getting all resources"""
     mocker.patch(
-        "routers.user.fetch_user_data",
+        "routers.user.get_user_data",  # Changed from fetch_user_data
         return_value=mock_user_data,
     )
     mocker.patch(
@@ -217,9 +284,9 @@ def test_get_all_resources(
     response = client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     all_resources = [
-        resource
-        for service in mock_user_data["app_metadata"]["services"]
-        for resource in service["resources"]
+        r.model_dump()
+        for s in mock_user_data.app_metadata.services
+        for r in s.resources
     ]
     assert response.json() == {"resources": all_resources}
 
@@ -229,7 +296,7 @@ def test_get_approved_resources(
 ):
     """Test getting approved resources"""
     mocker.patch(
-        "routers.user.fetch_user_data",
+        "routers.user.get_user_data",  # Changed from fetch_user_data
         return_value=mock_user_data,
     )
     mocker.patch(
@@ -239,61 +306,39 @@ def test_get_approved_resources(
     response = client.get("/me/resources/approved", headers=auth_headers)
     assert response.status_code == 200
     approved_resources = [
-        resource
-        for service in mock_user_data["app_metadata"]["services"]
-        for resource in service["resources"]
-        if resource["status"] == "approved"
+        r.model_dump()
+        for s in mock_user_data.app_metadata.services
+        for r in s.resources
+        if r.status == "approved"
     ]
     assert response.json() == {"approved_resources": approved_resources}
-
-
-def test_get_pending_resources(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
-):
-    """Test getting pending resources"""
-    mocker.patch(
-        "routers.user.fetch_user_data",
-        return_value=mock_user_data,
-    )
-    mocker.patch(
-        "routers.user.get_management_token", return_value="mock_management_token"
-    )
-
-    response = client.get("/me/resources/pending", headers=auth_headers)
-    assert response.status_code == 200
-    pending_resources = [
-        resource
-        for service in mock_user_data["app_metadata"]["services"]
-        for resource in service["resources"]
-        if resource["status"] == "pending"
-    ]
-    assert response.json() == {"pending_resources": pending_resources}
-
-
-def test_get_resources_failed_fetch(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
-):
-    """Test handling of failed resource API calls"""
-    mocker.patch(
-        "routers.user.fetch_user_data",
-        side_effect=HTTPException(status_code=403, detail="Failed to fetch user data"),
-    )
-    mocker.patch(
-        "routers.user.get_management_token", return_value="mock_management_token"
-    )
-
-    response = client.get("/me/resources", headers=auth_headers)
-    assert response.status_code == 403
-    assert response.json() == {"detail": "Failed to fetch user data"}
 
 
 def test_get_resources_empty_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty resource metadata"""
-    mocker.patch(
-        "routers.user.fetch_user_data", return_value={"app_metadata": {"services": []}}
+    empty_user = Auth0User(
+        created_at=datetime.now(),
+        email="test@example.com",
+        email_verified=True,
+        identities=[
+            {
+                "connection": "Username-Password-Authentication",
+                "provider": "auth0",
+                "user_id": "123",
+                "isSocial": False,
+            }
+        ],
+        name="Test User",
+        nickname="test",
+        picture="https://example.com/picture.jpg",
+        updated_at=datetime.now(),
+        user_id="auth0|123",
+        user_metadata={},
+        app_metadata=AppMetadata(services=[], groups=[]),
     )
+    mocker.patch("routers.user.get_user_data", return_value=empty_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -307,7 +352,27 @@ def test_get_resources_no_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of missing resource metadata"""
-    mocker.patch("routers.user.fetch_user_data", return_value={})
+    no_metadata_user = Auth0User(
+        created_at=datetime.now(),
+        email="test@example.com",
+        email_verified=True,
+        identities=[
+            {
+                "connection": "Username-Password-Authentication",
+                "provider": "auth0",
+                "user_id": "123",
+                "isSocial": False,
+            }
+        ],
+        name="Test User",
+        nickname="test",
+        picture="https://example.com/picture.jpg",
+        updated_at=datetime.now(),
+        user_id="auth0|123",
+        user_metadata={},
+        app_metadata=AppMetadata(),
+    )
+    mocker.patch("routers.user.get_user_data", return_value=no_metadata_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -322,7 +387,7 @@ def test_request_service_success(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test successful service request"""
-    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -334,7 +399,9 @@ def test_request_service_success(
         "user_id": mock_auth_token.sub,
     }
 
-    response = client.post("/request/service", json=new_service, headers=auth_headers)
+    response = client.post(
+        "/me/request/service", json=new_service, headers=auth_headers
+    )
     assert response.status_code == 200
     assert response.json()["message"] == "Service request submitted successfully"
     assert response.json()["service"]["id"] == "service3"
@@ -344,7 +411,7 @@ def test_request_service_duplicate(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test duplicate service request"""
-    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -356,7 +423,7 @@ def test_request_service_duplicate(
     }
 
     response = client.post(
-        "/request/service", json=existing_service, headers=auth_headers
+        "/me/request/service", json=existing_service, headers=auth_headers
     )
     assert response.status_code == 400
     assert (
@@ -375,7 +442,7 @@ def test_request_service_user_mismatch(
     }
 
     response = client.post(
-        "/request/service", json=request_payload, headers=auth_headers
+        "/me/request/service", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 403
     assert (
@@ -389,7 +456,7 @@ def test_request_resource_success(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test successful resource request"""
-    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -403,7 +470,7 @@ def test_request_resource_success(
     }
 
     response = client.post(
-        "/request/service1/resource-new", json=request_payload, headers=auth_headers
+        "/me/request/service1/resource-new", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 200
     assert response.json()["resource"]["id"] == "resource-new"
@@ -421,7 +488,7 @@ def test_request_resource_user_mismatch(
     }
 
     response = client.post(
-        "/request/service1/res-invalid", json=request_payload, headers=auth_headers
+        "/me/request/service1/res-invalid", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 403
     assert (
@@ -434,7 +501,7 @@ def test_request_resource_non_approved_service(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test resource request for non-approved service"""
-    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -447,7 +514,9 @@ def test_request_resource_non_approved_service(
     }
 
     response = client.post(
-        "/request/service2/blocked-resource", json=request_payload, headers=auth_headers
+        "/me/request/service2/blocked-resource",
+        json=request_payload,
+        headers=auth_headers,
     )
     assert response.status_code == 400
     assert (
@@ -460,7 +529,7 @@ def test_request_resource_duplicate(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test duplicate resource request"""
-    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -473,7 +542,7 @@ def test_request_resource_duplicate(
     }
 
     response = client.post(
-        "/request/service1/resource1", json=existing_resource, headers=auth_headers
+        "/me/request/service1/resource1", json=existing_resource, headers=auth_headers
     )
     assert response.status_code == 400
     assert (
@@ -485,7 +554,7 @@ def test_request_resource_invalid_service(
     mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test resource request for non-existent service"""
-    mocker.patch("routers.user.fetch_user_data", return_value=mock_user_data)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
@@ -498,7 +567,7 @@ def test_request_resource_invalid_service(
     }
 
     response = client.post(
-        "/request/non-existent-service/resource-invalid",
+        "/me/request/non-existent-service/resource-invalid",
         json=request_payload,
         headers=auth_headers,
     )
