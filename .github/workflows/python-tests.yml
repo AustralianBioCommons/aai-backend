@@ -41,10 +41,7 @@ jobs:
         run: |
           mkdir -p coverage
           PYTHONPATH=. uv run pytest \
-            --cov=auth \
-            --cov=schemas \
-            --cov=routers \
-            --cov=main \
+            --cov \
             --cov-report=term-missing \
             --cov-report=xml:coverage/cobertura.xml \
             --cov-fail-under=80 \
