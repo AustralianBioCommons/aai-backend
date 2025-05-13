@@ -40,12 +40,15 @@ class AaiBackendDeployStack(Stack):
 
         container = task_definition.add_container(
             "FastAPIContainer",
-            image=ecs.ContainerImage.from_ecr_repository(ecr_repo, tag="latest"),
-            # Set an env variable to the current time to force redeploy -
-            #   might be better to use an image tag in future
-            environment={
-                "FORCE_REDEPLOY": str(datetime.datetime.now())
-            },
+            image=ecs.ContainerImage.from_ecr_repository(
+                ecr_repo,
+                # Set an env variable to the current time to force redeploy -
+                #   might be better to use an image tag in future
+                environment={
+                    "FORCE_REDEPLOY": str(datetime.datetime.now())
+                },
+                tag="latest"
+            ),
             logging=ecs.LogDrivers.aws_logs(stream_prefix="FastAPI"),
         )
 
