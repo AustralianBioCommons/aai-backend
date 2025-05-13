@@ -1,3 +1,4 @@
+import datetime
 from aws_cdk import (
     Stack, CfnOutput,
     aws_ec2 as ec2,
@@ -37,8 +38,14 @@ class AaiBackendDeployStack(Stack):
                                                     memory_limit_mib=1024,
                                                     cpu=512)
 
-        container = task_definition.add_container("FastAPIContainer",
+        container = task_definition.add_container(
+            "FastAPIContainer",
             image=ecs.ContainerImage.from_ecr_repository(ecr_repo, tag="latest"),
+            # Set an env variable to the current time to force redeploy -
+            #   might be better to use an image tag in future
+            environment={
+                "FORCE_REDEPLOY": str(datetime.datetime.now())
+            },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="FastAPI"),
         )
 
