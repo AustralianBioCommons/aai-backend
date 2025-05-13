@@ -6,9 +6,10 @@ class AccessTokenPayload(BaseModel):
     """
     Schema for the access token payload.
     """
+
     biocommons_roles: list[str] = Field(
         alias="biocommons.org.au/roles",
-        description="BioCommons-specific roles assigned to the user"
+        description="BioCommons-specific roles assigned to the user",
     )
     email: Optional[str] = Field(None, description="Email address")
     iss: str = Field(description="Issuer identifier")

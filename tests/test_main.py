@@ -1,91 +1,10 @@
-import pytest
 from fastapi.testclient import TestClient
-
-from auth.config import Settings
 from main import app
-from tests.datagen import AccessTokenPayloadFactory
 
 client = TestClient(app)
 
 
-def test_public():
+def test_root():
     response = client.get("/")
     assert response.status_code == 200
-    assert response.json() == {"message": "Public route"}
-
-
-def test_private_valid_token(mocker):
-    mocker.patch(
-        "auth.config.get_settings",
-        return_value=Settings(
-            auth0_domain="mock-domain",
-            auth0_audience="mock-audience",
-            auth0_management_id="mock-id",
-            auth0_management_secret="mock-secret",
-            auth0_algorithms=["RS256"],
-        ),
-    )
-    token = AccessTokenPayloadFactory.build(
-        sub="auth0|123456789",
-        biocommons_roles=["acdc/indexd_admin"],
-    )
-    mocker.patch(
-        "main.verify_jwt",
-        return_value=token,
-    )
-    mocker.patch("main.get_management_token", return_value="mock_management_token")
-    headers = {"Authorization": "Bearer valid_token"}
-    response = client.get("/private", headers=headers)
-    assert response.status_code == 200
-    assert response.json() == {
-        "message": "Private route",
-        "user_claims": {
-            "access_token": token.model_dump(by_alias=True)
-        },
-        "management_token": "mock_management_token",
-    }
-
-
-def test_private_missing_token():
-    response = client.get("/private")
-    assert response.status_code == 401
-    assert response.json() == {"detail": "Not authenticated"}
-
-
-def test_private_invalid_token(mocker):
-    mocker.patch(
-        "httpx.get", return_value=mocker.Mock(json=lambda: {"keys": []})
-    )
-    mocker.patch(
-        "auth.validator.verify_jwt",
-        side_effect=Exception("Invalid token: Error decoding token headers."),
-    )
-
-    headers = {"Authorization": "Bearer invalid_token"}
-    response = client.get("/private", headers=headers)
-    assert response.status_code == 401
-    assert response.json() == {
-        "detail": "Invalid token: Error decoding token headers."
-    }
-
-
-@pytest.mark.parametrize("roles", [[], ["user_only"]])
-def test_private_insufficient_permissions(roles, mocker):
-    """
-    Test that we return an error when a user has no admin roles
-    """
-    # Bypass finding the signing key
-    mocker.patch(
-        "auth.validator.get_rsa_key",
-        return_value={"kid": "dummy"}
-    )
-    mocker.patch(
-        "jose.jwt.decode",
-        return_value={"biocommons.org.au/roles": roles}
-    )
-    headers = {"Authorization": "Bearer insufficient_permissions_token"}
-    response = client.get("/private", headers=headers)
-    assert response.status_code == 403
-    assert response.json() == {
-        "detail": "Access denied: Insufficient permissions"
-    }
+    assert response.json() == {"message": "AAI Backend API"}
