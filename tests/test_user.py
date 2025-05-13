@@ -6,7 +6,7 @@ from auth.config import Settings
 from fastapi.testclient import TestClient
 from main import app
 from schemas.service import Auth0User, Service, Resource, Group, AppMetadata
-from tests.datagen import AccessTokenPayloadFactory
+from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
 
 client = TestClient(app)
 
@@ -48,24 +48,7 @@ def auth_headers():
 @pytest.fixture
 def mock_user_data():
     """Fixture to provide mock user data"""
-    return Auth0User(
-        created_at=datetime.now(),
-        email="test@example.com",
-        email_verified=True,
-        identities=[
-            {
-                "connection": "Username-Password-Authentication",
-                "provider": "auth0",
-                "user_id": "67d10aa30b421a4a877cce78",
-                "isSocial": False,
-            }
-        ],
-        name="Test User",
-        nickname="test",
-        picture="https://example.com/picture.jpg",
-        updated_at=datetime.now(),
-        user_id="auth0|123456789",
-        user_metadata={},
+    return Auth0UserFactory.build(
         app_metadata=AppMetadata(
             groups=[Group(name="Australian University", id="AU")],
             services=[
@@ -204,24 +187,7 @@ def test_get_services_empty_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty metadata"""
-    empty_user = Auth0User(
-        created_at=datetime.now(),
-        email="test@example.com",
-        email_verified=True,
-        identities=[
-            {
-                "connection": "Username-Password-Authentication",
-                "provider": "auth0",
-                "user_id": "123",
-                "isSocial": False,
-            }
-        ],
-        name="Test User",
-        nickname="test",
-        picture="https://example.com/picture.jpg",
-        updated_at=datetime.now(),
-        user_id="auth0|123",
-        user_metadata={},
+    empty_user = Auth0UserFactory.build(
         app_metadata=AppMetadata(services=[], groups=[]),
     )
     mocker.patch("routers.user.get_user_data", return_value=empty_user)
@@ -238,26 +204,7 @@ def test_get_services_no_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of missing metadata"""
-    no_metadata_user = Auth0User(
-        created_at=datetime.now(),
-        email="test@example.com",
-        email_verified=True,
-        identities=[
-            {
-                "connection": "Username-Password-Authentication",
-                "provider": "auth0",
-                "user_id": "123",
-                "isSocial": False,
-            }
-        ],
-        name="Test User",
-        nickname="test",
-        picture="https://example.com/picture.jpg",
-        updated_at=datetime.now(),
-        user_id="auth0|123",
-        user_metadata={},
-        app_metadata=AppMetadata(),
-    )
+    no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
     mocker.patch("routers.user.get_user_data", return_value=no_metadata_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
@@ -318,25 +265,7 @@ def test_get_resources_empty_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty resource metadata"""
-    empty_user = Auth0User(
-        created_at=datetime.now(),
-        email="test@example.com",
-        email_verified=True,
-        identities=[
-            {
-                "connection": "Username-Password-Authentication",
-                "provider": "auth0",
-                "user_id": "123",
-                "isSocial": False,
-            }
-        ],
-        name="Test User",
-        nickname="test",
-        picture="https://example.com/picture.jpg",
-        updated_at=datetime.now(),
-        user_id="auth0|123",
-        user_metadata={},
-        app_metadata=AppMetadata(services=[], groups=[]),
+    empty_user = Auth0UserFactory.build(app_metadata=AppMetadata(services=[], groups=[]),
     )
     mocker.patch("routers.user.get_user_data", return_value=empty_user)
     mocker.patch(
@@ -352,26 +281,7 @@ def test_get_resources_no_metadata(
     mock_auth_settings, mock_auth_token, auth_headers, mocker
 ):
     """Test handling of missing resource metadata"""
-    no_metadata_user = Auth0User(
-        created_at=datetime.now(),
-        email="test@example.com",
-        email_verified=True,
-        identities=[
-            {
-                "connection": "Username-Password-Authentication",
-                "provider": "auth0",
-                "user_id": "123",
-                "isSocial": False,
-            }
-        ],
-        name="Test User",
-        nickname="test",
-        picture="https://example.com/picture.jpg",
-        updated_at=datetime.now(),
-        user_id="auth0|123",
-        user_metadata={},
-        app_metadata=AppMetadata(),
-    )
+    no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
     mocker.patch("routers.user.get_user_data", return_value=no_metadata_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
