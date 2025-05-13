@@ -1,4 +1,4 @@
-name: Run Pytest
+name: Run Pytest with Coverage
 
 on:
   push:
@@ -35,8 +35,27 @@ jobs:
       - name: Create virtual environment and install dependencies
         run: |
           uv venv
-          uv sync
+          uv sync --dev  # Include dev tools like pytest and pytest-cov
 
-      - name: Run tests
+      - name: Run tests and generate Cobertura coverage report
         run: |
-          uv run pytest
+          mkdir -p coverage
+          PYTHONPATH=. uv run pytest \
+            --cov \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage/cobertura.xml \
+            --cov-fail-under=80 \
+            --cov-report=html:coverage/html
+
+      - name: Code Coverage Report
+        uses: irongut/CodeCoverageSummary@v1.3.0
+        with:
+          filename: coverage/cobertura.xml
+          badge: true
+          fail_below_min: true
+          format: markdown
+          hide_branch_rate: true
+          hide_complexity: true
+          indicators: true
+          output: console
+          thresholds: '80 80'
