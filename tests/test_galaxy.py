@@ -79,3 +79,9 @@ def test_register(mocker, mock_auth_token, mock_settings, client_with_settings_o
         headers=headers
     )
 
+
+def test_register_requires_token(client_with_settings_override):
+    user_data = GalaxyRegistrationDataFactory.build()
+    resp = client_with_settings_override.post("/galaxy/register", json=user_data.model_dump())
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Missing registration token"
