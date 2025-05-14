@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Literal
+from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class Resource(BaseModel):
