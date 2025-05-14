@@ -22,6 +22,7 @@ def mock_settings():
         auth0_management_secret="mock-secret",
         auth0_audience="mock-audience",
         jwt_secret_key="mock-secret-key",
+        cors_allowed_origins=["http://test"],
         auth0_algorithms=["HS256"]
     )
 
@@ -116,7 +117,7 @@ def test_register(mocker, mock_auth_token, mock_settings):
     assert resp.json()["message"] == "User registered successfully"
     assert resp.json()["user"] == {"user_id": "abc123"}
 
-    url = f"https://{mock_settings.auth0_domain}/api/v2/users/"
+    url = f"https://{mock_settings.auth0_domain}/api/v2/users"
     headers = {"Authorization": f"Bearer mock_token"}
     mock_post.assert_called_once_with(
         url,

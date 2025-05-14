@@ -20,6 +20,8 @@ def mock_auth_settings(mocker):
         auth0_audience="mock-audience",
         auth0_management_id="mock-id",
         auth0_management_secret="mock-secret",
+        jwt_secret_key="mock-secret",
+        cors_allowed_origins=["http://test"],
         auth0_algorithms=["RS256"],
     )
     mocker.patch("auth.config.get_settings", return_value=mock_settings)
