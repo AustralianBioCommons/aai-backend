@@ -1,11 +1,12 @@
 import httpx
-from fastapi import HTTPException
+from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwk, jwt
 from jose.exceptions import JWTError
 
 from auth.config import get_settings
 from schemas.tokens import AccessTokenPayload
+from schemas.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -63,3 +64,6 @@ def get_rsa_key(token: str) -> jwk.RSAKey | None:  # type: ignore
 
     return None
 
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+    access_token = verify_jwt(token)
+    return User(access_token=access_token)
