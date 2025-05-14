@@ -108,6 +108,7 @@ def test_register(mocker, mock_auth_token, mock_settings):
     mock_resp = MagicMock()
     # Dummy user data: doesn't currently resemble response from Auth0
     mock_resp.json.return_value = {"user_id": "abc123"}
+    mock_resp.status_code = 201
     mock_post = mocker.patch("httpx.post", return_value=mock_resp)
     user_data = GalaxyRegistrationDataFactory.build()
     token_resp = client.get("/galaxy/get-registration-token")
