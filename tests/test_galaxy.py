@@ -39,6 +39,7 @@ def patch_get_settings(mock_settings):
         "register.tokens.get_settings",
         "auth.config.get_settings",
         "auth.management.get_settings",
+        "main.get_settings",
     ]
     with ExitStack() as stack:
         # Override FastAPI dependency

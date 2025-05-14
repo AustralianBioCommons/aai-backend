@@ -26,6 +26,7 @@ def mock_auth_settings(mocker):
     )
     mocker.patch("auth.config.get_settings", return_value=mock_settings)
     mocker.patch("auth.management.get_settings", return_value=mock_settings)
+    mocker.patch("main.get_settings", return_value=mock_settings)
     return mock_settings
 
 
