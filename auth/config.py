@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     auth0_management_id: str
     auth0_management_secret: str
     auth0_audience: str
+    jwt_secret_key: str
     auth0_algorithms: list[str] = ["RS256"]
 
     model_config = SettingsConfigDict(env_file=".env")
