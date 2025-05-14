@@ -18,8 +18,8 @@ router = APIRouter(
 
 
 @router.get("/get-registration-token")
-async def get_registration_token():
-    return {"token": create_registration_token()}
+async def get_registration_token(settings: Settings = Depends(get_settings)):
+    return {"token": create_registration_token(settings)}
 
 
 @router.post("/register")
@@ -31,7 +31,7 @@ def register(
     if not registration_token:
         raise HTTPException(status_code=400, detail="Missing registration token")
 
-    verify_registration_token(registration_token)
+    verify_registration_token(registration_token, settings=settings)
     logger.debug("Registration token verified.")
 
     url = f"https://{settings.auth0_domain}/api/v2/users"
