@@ -1,8 +1,12 @@
+from datetime import datetime, UTC, timedelta
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import HTTPException
 from jose import jwt
 
+import register
+from register.tokens import create_registration_token, verify_registration_token
 from schemas.galaxy import GalaxyRegistrationData
 from tests.datagen import AccessTokenPayloadFactory, GalaxyRegistrationDataFactory
 
@@ -28,6 +32,21 @@ def test_get_registration_token(client_with_settings_override, mock_settings):
     assert response.status_code == 200
     decoded = jwt.decode(response.json()["token"], mock_settings.jwt_secret_key,
                          algorithms=mock_settings.auth0_algorithms)
+
+
+def test_registration_token_invalid_purpose(mock_settings):
+    """
+    Test registration token is invalid if purpose is not "register"
+    """
+    expire = datetime.now(UTC) + timedelta(minutes=5)
+    payload = {
+        "purpose": "evil",
+        "exp": expire,
+        "iat": datetime.now(UTC)
+    }
+    token = jwt.encode(payload, key=mock_settings.jwt_secret_key, algorithm=register.tokens.ALGORITHM)
+    with pytest.raises(HTTPException, match="Invalid or expired token"):
+        verify_registration_token(token, mock_settings)
 
 
 def test_to_auth0_create_user_data_valid():
