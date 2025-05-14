@@ -42,6 +42,6 @@ def register(
     logger.debug("Registering with Auth0 management API")
     resp = httpx.post(url, json=user_data.model_dump(), headers=headers)
     if resp.status_code != 201:
-        raise HTTPException(status_code=400, detail=f'Error: {resp.json()["error"]}, Message: {resp.json()["message"]}')
+        raise HTTPException(status_code=400, detail=f'Registration failed: {resp.json()["message"]}')
     return {"message": "User registered successfully", "user": resp.json()}
 
