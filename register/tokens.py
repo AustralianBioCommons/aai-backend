@@ -3,13 +3,13 @@ from datetime import datetime, timedelta, UTC
 from fastapi import HTTPException
 from jose import jwt, JWTError
 
-from auth.config import get_settings
+from auth.config import Settings
 
 ALGORITHM = "HS256"
 TOKEN_EXPIRATION_MINUTES = 5
 
 
-def create_registration_token() -> str:
+def create_registration_token(settings: Settings) -> str:
     """
     Create a JWT token for registration
     """
@@ -19,14 +19,12 @@ def create_registration_token() -> str:
         "exp": expire,
         "iat": datetime.now(UTC)
     }
-    settings = get_settings()
     token = jwt.encode(payload, key=settings.jwt_secret_key, algorithm=ALGORITHM)
     return token
 
 
-def verify_registration_token(token: str):
+def verify_registration_token(token: str, settings: Settings):
     try:
-        settings = get_settings()
         payload = jwt.decode(token, key=settings.jwt_secret_key, algorithms=[ALGORITHM])
         if payload.get("purpose") != "register":
             raise JWTError("Invalid purpose")
