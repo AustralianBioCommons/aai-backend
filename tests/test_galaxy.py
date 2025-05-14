@@ -20,11 +20,6 @@ def mock_auth_token(mocker):
     return token
 
 
-@pytest.fixture
-def mock_verify_token(mocker):
-    mocker.patch("routers.galaxy_register.verify_registration_token", return_value=None)
-
-
 def test_get_registration_token(client_with_settings_override, mock_settings):
     """
     Test get-registration-token endpoint returns a valid JWT token.
