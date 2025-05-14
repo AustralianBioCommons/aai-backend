@@ -30,10 +30,12 @@ def register(
 
     verify_registration_token(registration_token)
 
-    url = f"https://{settings.auth0_domain}/api/v2/users/"
+    url = f"https://{settings.auth0_domain}/api/v2/users"
     management_token = get_management_token()
     headers = {"Authorization": f"Bearer {management_token}"}
     user_data = registration_data.to_auth0_create_user_data()
     resp = httpx.post(url, json=user_data.model_dump(), headers=headers)
+    if resp.status_code != 201:
+        raise HTTPException(status_code=400, detail=f'Error: {resp.json()["error"]}, Message: {resp.json()["message"]}')
     return {"message": "User registered successfully", "user": resp.json()}
 
