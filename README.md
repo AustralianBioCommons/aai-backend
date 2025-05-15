@@ -63,6 +63,11 @@ This command will automatically fix issues where possible:
 uv run -- ruff check . --fix
 ```
 
+## Manually run pre-commit
+```bash
+pre-commit run --all-files
+```
+
 # Deployment
 
 Currently the service is deployed to AWS via the CDK scripts in `deploy/`,
