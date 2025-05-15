@@ -1,11 +1,12 @@
-from fastapi import HTTPException
 from datetime import datetime
+
 import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
 
 from auth.config import Settings
-from fastapi.testclient import TestClient
 from main import app
-from schemas.service import Service, Resource, Group, AppMetadata
+from schemas.service import AppMetadata, Group, Resource, Service
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
 
 client = TestClient(app)

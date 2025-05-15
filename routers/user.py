@@ -1,13 +1,14 @@
-from typing import Dict, List, Any
+from datetime import datetime, timezone
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
 
 from auth.config import get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
 from schemas.requests import ResourceRequest, ServiceRequest
-from schemas.service import Auth0User, Service, Resource
+from schemas.service import Auth0User, Resource, Service
 from schemas.user import User
 
 router = APIRouter(
