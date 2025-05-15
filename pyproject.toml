@@ -17,7 +17,8 @@ dev = [
     "pytest-mock>=3.14.0",
     "pytest-cov>=4.1.0",
     "ruff>=0.4.4",
-    "polyfactory>=2.21.0"
+    "polyfactory>=2.21.0",
+    "pre-commit>=3.7.0"
 ]
 
 [tool.pytest.ini_options]

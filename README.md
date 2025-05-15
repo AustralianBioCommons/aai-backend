@@ -35,6 +35,11 @@ Follow these steps to set up the project:
    uv sync
    ```
 
+4. **Install pre-commit**:
+   ```bash
+   pre-commit install
+   ```
+
 ## Run the Application
 
 Use `uv` to run the FastAPI application:
