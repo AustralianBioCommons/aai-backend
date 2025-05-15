@@ -35,6 +35,11 @@ Follow these steps to set up the project:
    uv sync
    ```
 
+4. **Install pre-commit**:
+   ```bash
+   pre-commit install
+   ```
+
 ## Run the Application
 
 Use `uv` to run the FastAPI application:
@@ -49,6 +54,18 @@ Execute the test suite using `pytest`:
 
 ```bash
 uv run pytest
+```
+## Run the Linter
+
+This command will automatically fix issues where possible:
+
+```bash
+uv run -- ruff check . --fix
+```
+
+## Manually run pre-commit
+```bash
+pre-commit run --all-files
 ```
 
 # Deployment

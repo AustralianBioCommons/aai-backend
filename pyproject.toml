@@ -8,17 +8,34 @@ dependencies = [
     "fastapi[standard]>=0.115.12",
     "httpx>=0.28.1",
     "pydantic-settings>=2.8.1",
-    "python-jose>=3.4.0",
+    "python-jose>=3.4.0"
 ]
 
-[tool.pytest.ini_options]
-pythonpath=["."]
-testpaths=["tests"]
-
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
-    "polyfactory>=2.21.0",
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
     "pytest-cov>=4.1.0",
+    "ruff>=0.4.4",
+    "polyfactory>=2.21.0",
+    "pre-commit>=3.7.0"
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--cov=auth --cov=routers --cov=schemas --cov-report=term --cov-report=xml"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["auth*", "routers*", "schemas*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+lint.select = ["E", "F", "I"]
+lint.ignore = ["E501"]
+exclude = ["tests/data", ".venv", "venv", "migrations"]

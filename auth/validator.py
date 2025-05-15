@@ -1,10 +1,10 @@
 import httpx
-
-from auth.config import get_settings
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, jwk
+from jose import jwk, jwt
 from jose.exceptions import JWTError
+
+from auth.config import get_settings
 from schemas.tokens import AccessTokenPayload
 from schemas.user import User
 
@@ -63,7 +63,6 @@ def get_rsa_key(token: str) -> jwk.RSAKey | None:  # type: ignore
             return jwk.construct(key)
 
     return None
-
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     access_token = verify_jwt(token)
