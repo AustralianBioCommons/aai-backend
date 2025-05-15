@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from auth.config import Settings
 from main import app
 from schemas.service import AppMetadata, Group, Resource, Service
+from schemas.tokens import AccessTokenPayload
+from schemas.user import User
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
 
 client = TestClient(app)
@@ -487,3 +489,67 @@ def test_request_resource_invalid_service(
     )
     assert response.status_code == 404
     assert response.json()["detail"] == "Service with ID non-existent-service not found"
+
+def test_is_admin_true():
+    payload = AccessTokenPayload(
+        exp=9999999999,
+        iat=9999999000,
+        iss="https://example.com/",
+        sub="abc123",
+        aud=["client_id"],
+        scope="read:all",
+        **{
+            "biocommons.org.au/roles": ["PlatformAdmin"],
+            "permissions": ["read"]
+        }
+    )
+    user = User(access_token=payload)
+    assert user.is_admin() is True
+
+def test_is_admin_false():
+    payload = AccessTokenPayload(
+        exp=9999999999,
+        iat=9999999000,
+        iss="https://example.com/",
+        sub="abc123",
+        aud=["client_id"],
+        scope="read:all",
+        **{
+            "biocommons.org.au/roles": ["guest"],
+            "permissions": ["read"]
+        }
+    )
+    user = User(access_token=payload)
+    assert user.is_admin() is False
+
+def test_is_admin_empty_roles():
+    payload = AccessTokenPayload(
+        exp=9999999999,
+        iat=9999999000,
+        iss="https://example.com/",
+        sub="abc123",
+        aud=["client_id"],
+        scope="read:all",
+        **{
+            "biocommons.org.au/roles": [],
+            "permissions": ["read"]
+        }
+    )
+    user = User(access_token=payload)
+    assert user.is_admin() is False
+
+def test_is_admin_multiple_roles_with_admin():
+    payload = AccessTokenPayload(
+        exp=9999999999,
+        iat=9999999000,
+        iss="https://example.com/",
+        sub="abc123",
+        aud=["client_id"],
+        scope="read:all",
+        **{
+            "biocommons.org.au/roles": ["editor", "admin_viewer"],
+            "permissions": ["read"]
+        }
+    )
+    user = User(access_token=payload)
+    assert user.is_admin() is True
