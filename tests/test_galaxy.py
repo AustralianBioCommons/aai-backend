@@ -1,4 +1,4 @@
-from datetime import datetime, UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from jose import jwt
 
 import register
-from register.tokens import create_registration_token, verify_registration_token
+from register.tokens import verify_registration_token
 from schemas.galaxy import GalaxyRegistrationData
 from tests.datagen import AccessTokenPayloadFactory, GalaxyRegistrationDataFactory
 
@@ -30,8 +30,8 @@ def test_get_registration_token(client_with_settings_override, mock_settings):
     """
     response = client_with_settings_override.get("/galaxy/get-registration-token")
     assert response.status_code == 200
-    decoded = jwt.decode(response.json()["token"], mock_settings.jwt_secret_key,
-                         algorithms=mock_settings.auth0_algorithms)
+    jwt.decode(response.json()["token"], mock_settings.jwt_secret_key,
+               algorithms=mock_settings.auth0_algorithms)
 
 
 def test_registration_token_invalid_purpose(mock_settings):
@@ -91,7 +91,7 @@ def test_register(mocker, mock_auth_token, mock_settings, client_with_settings_o
     assert resp.json()["user"] == {"user_id": "abc123"}
 
     url = f"https://{mock_settings.auth0_domain}/api/v2/users"
-    headers = {"Authorization": f"Bearer mock_token"}
+    headers = {"Authorization": "Bearer mock_token"}
     mock_post.assert_called_once_with(
         url,
         json=user_data.to_auth0_create_user_data().model_dump(),

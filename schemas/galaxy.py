@@ -1,4 +1,5 @@
 from typing import Annotated, Self
+
 from pydantic import BaseModel, EmailStr, StringConstraints, model_validator
 
 

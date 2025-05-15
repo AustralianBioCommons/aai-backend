@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 
 from auth.config import Settings
 
@@ -30,4 +30,3 @@ def verify_registration_token(token: str, settings: Settings):
             raise JWTError("Invalid purpose")
     except JWTError:
         raise HTTPException(status_code=403, detail="Invalid or expired token")
-

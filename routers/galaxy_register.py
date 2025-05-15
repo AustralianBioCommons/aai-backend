@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.params import Depends
 
-from auth.config import get_settings, Settings
+from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from register.tokens import create_registration_token, verify_registration_token
 from schemas.galaxy import GalaxyRegistrationData
@@ -44,4 +44,3 @@ def register(
     if resp.status_code != 201:
         raise HTTPException(status_code=400, detail=f'Registration failed: {resp.json()["message"]}')
     return {"message": "User registered successfully", "user": resp.json()}
-
