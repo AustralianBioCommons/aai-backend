@@ -6,9 +6,9 @@ from fastapi.testclient import TestClient
 
 from auth.config import Settings
 from main import app
-from schemas.user import User
 from schemas.service import AppMetadata, Group, Resource, Service
 from schemas.tokens import AccessTokenPayload
+from schemas.user import User
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
 
 client = TestClient(app)

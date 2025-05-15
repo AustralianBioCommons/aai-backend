@@ -1,5 +1,6 @@
-from schemas.user import User
 from schemas.tokens import AccessTokenPayload
+from schemas.user import User
+
 
 def test_is_admin_true():
     payload = AccessTokenPayload(
