@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 from jose import jwt
+from pydantic import ValidationError
 
 import register
 from register.tokens import verify_registration_token
@@ -22,6 +23,14 @@ def mock_auth_token(mocker):
     mocker.patch("auth.management.get_management_token", return_value="mock_token")
     mocker.patch("routers.galaxy_register.get_management_token", return_value="mock_token")
     return token
+
+
+def test_galaxy_registration_data_password_match():
+    with pytest.raises(ValidationError, match="Passwords do not match"):
+        GalaxyRegistrationData(email="user@example.com",
+                               password="securepassword",
+                               password_confirmation="insecurepassword",
+                               public_name="valid_username")
 
 
 def test_get_registration_token(client_with_settings_override, mock_settings):
