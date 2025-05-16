@@ -12,7 +12,7 @@ from routers import galaxy_register, user
 #   allowed_origins before we load the app
 load_dotenv()
 ALLOWED_ORIGINS = [origin.strip()
-                   for origin in os.getenv("CORS_ALLOWED_ORIGINS").split()]
+                   for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")]
 
 app = FastAPI()
 app.add_middleware(
