@@ -36,7 +36,7 @@ def register(
 
     url = f"https://{settings.auth0_domain}/api/v2/users"
     logger.debug("Getting management token.")
-    management_token = get_management_token()
+    management_token = get_management_token(settings=settings)
     headers = {"Authorization": f"Bearer {management_token}"}
     user_data = registration_data.to_auth0_create_user_data()
     logger.debug("Registering with Auth0 management API")

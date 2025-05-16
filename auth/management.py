@@ -1,10 +1,9 @@
 import httpx
 
-from .config import get_settings
+from .config import Settings
 
 
-def get_management_token():
-    settings = get_settings()
+def get_management_token(settings: Settings):
     url = f"https://{settings.auth0_domain}/oauth/token"
     payload = {
         "grant_type": "client_credentials",

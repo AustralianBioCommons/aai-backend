@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
 
-from auth.config import get_settings
+from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
 from schemas.requests import ResourceRequest, ServiceRequest
@@ -16,10 +16,10 @@ router = APIRouter(
 )
 
 
-async def get_user_data(user: User) -> Auth0User:
+async def get_user_data(user: User, settings: Settings) -> Auth0User:
     """Fetch and return user data from Auth0."""
-    url = f"https://{get_settings().auth0_domain}/api/v2/users/{user.access_token.sub}"
-    token = get_management_token()
+    url = f"https://{settings.auth0_domain}/api/v2/users/{user.access_token.sub}"
+    token = get_management_token(settings=settings)
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
@@ -130,7 +130,8 @@ async def get_all_pending(user: User = Depends(get_current_user)):
     },
 )
 async def request_service(
-    service_request: ServiceRequest, user: User = Depends(get_current_user)
+    service_request: ServiceRequest, user: User = Depends(get_current_user),
+        settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
     """Submit a request for a service."""
     if user.access_token.sub != service_request.user_id:
@@ -139,7 +140,7 @@ async def request_service(
             detail="User ID in request does not match authenticated user",
         )
 
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings=settings)
 
     if any(s.id == service_request.id for s in user_data.app_metadata.services):
         raise HTTPException(
@@ -159,7 +160,7 @@ async def request_service(
     user_data.app_metadata.services.append(new_service)
     await update_user_metadata(
         user.access_token.sub,
-        get_management_token(),
+        get_management_token(settings=settings),
         user_data.app_metadata.model_dump(),
     )
 
@@ -184,6 +185,7 @@ async def request_resource(
     resource_id: str,
     resource_request: ResourceRequest,
     user: User = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
     """Submit a request for a resource within a service."""
     if user.access_token.sub != resource_request.user_id:
@@ -227,7 +229,7 @@ async def request_resource(
 
     await update_user_metadata(
         user.access_token.sub,
-        get_management_token(),
+        get_management_token(settings=settings),
         user_data.app_metadata.model_dump(),
     )
 
