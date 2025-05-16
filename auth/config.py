@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     auth0_management_secret: str
     auth0_audience: str
     jwt_secret_key: str
-    cors_allowed_origins: list[str]
     auth0_algorithms: list[str] = ["RS256"]
+    # Note we process this separately in app startup as it needs
+    #   to be available before the app starts
+    cors_allowed_origins: str
 
     model_config = SettingsConfigDict(env_file=".env")
 

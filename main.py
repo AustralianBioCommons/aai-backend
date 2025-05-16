@@ -1,32 +1,27 @@
-from contextlib import asynccontextmanager
+import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from auth.config import get_settings
 from routers import galaxy_register, user
 
+# Load .env to get CORS_ALLOWED_ORIGINS.
+# Note that for most env variables, we use pydantic-settings
+#   and load them via auth.config. But we need the
+#   allowed_origins before we load the app
+load_dotenv()
+ALLOWED_ORIGINS = [origin.strip()
+                   for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")]
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """
-    Set up CORS middleware after startup so we can override it in testing
-    :param app:
-    :return:
-    """
-    settings = app.dependency_overrides.get(get_settings, get_settings)()
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_allowed_origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"]
-    )
-
-    yield
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"]
+)
 
 
 @app.get("/")

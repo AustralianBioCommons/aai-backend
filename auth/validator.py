@@ -4,17 +4,16 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwk, jwt
 from jose.exceptions import JWTError
 
-from auth.config import get_settings
+from auth.config import Settings
 from schemas.tokens import AccessTokenPayload
 from schemas.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
-def verify_jwt(token: str) -> AccessTokenPayload:
-    settings = get_settings()
+def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     try:
-        rsa_key = get_rsa_key(token)
+        rsa_key = get_rsa_key(token, settings=settings)
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
@@ -51,8 +50,7 @@ def verify_jwt(token: str) -> AccessTokenPayload:
     return AccessTokenPayload(**payload)
 
 
-def get_rsa_key(token: str) -> jwk.RSAKey | None:  # type: ignore
-    settings = get_settings()
+def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: ignore
     jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
     response = httpx.get(jwks_url)
     jwks = response.json()
@@ -63,6 +61,7 @@ def get_rsa_key(token: str) -> jwk.RSAKey | None:  # type: ignore
             return jwk.construct(key)
 
     return None
+
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     access_token = verify_jwt(token)

@@ -7,20 +7,12 @@ from auth.config import Settings
 from auth.validator import get_rsa_key
 
 
-def test_get_rsa_key_returns_key():
+def test_get_rsa_key_returns_key(mock_settings: Settings):
     token = jwt.encode({"some": "payload"}, "secret", algorithm="HS256")
     unverified_header = {"kid": "testkey"}
 
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header), \
-         patch("auth.validator.httpx.get") as mock_get, \
-         patch("auth.validator.get_settings", return_value=Settings(
-             auth0_domain="yourdomain.auth0.com",
-             auth0_management_id="testid",
-             auth0_management_secret="testsecret",
-             auth0_audience="https://your-auth0-api-audience",
-             jwt_secret_key="supersecret",
-             cors_allowed_origins=["*"]
-         )):
+         patch("auth.validator.httpx.get") as mock_get:
 
         mock_get.return_value.json.return_value = {
             "keys": [{
@@ -32,6 +24,6 @@ def test_get_rsa_key_returns_key():
             }]
         }
 
-        key = get_rsa_key(token)
+        key = get_rsa_key(token, settings=mock_settings)
         assert key is not None
         assert isinstance(key, RSAKey)
