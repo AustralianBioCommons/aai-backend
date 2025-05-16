@@ -4,7 +4,6 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from auth.config import Settings
 from main import app
 from schemas.service import AppMetadata, Group, Resource, Service
 from schemas.tokens import AccessTokenPayload
@@ -15,23 +14,6 @@ client = TestClient(app)
 
 
 # --- Test Fixtures ---
-@pytest.fixture(autouse=True)
-def mock_auth_settings(mocker):
-    """Fixture to mock auth settings globally"""
-    mock_settings = Settings(
-        auth0_domain="mock-domain.com",
-        auth0_audience="mock-audience",
-        auth0_management_id="mock-id",
-        auth0_management_secret="mock-secret",
-        jwt_secret_key="mock-secret",
-        cors_allowed_origins="http://test",
-        auth0_algorithms=["RS256"],
-    )
-    mocker.patch("auth.config.get_settings", return_value=mock_settings)
-    mocker.patch("auth.management.get_settings", return_value=mock_settings)
-    return mock_settings
-
-
 @pytest.fixture
 def mock_auth_token(mocker):
     """Fixture to mock authentication token"""
@@ -105,7 +87,7 @@ def test_endpoints_require_auth(endpoint):
 
 # --- Service Endpoints (GET) ---
 def test_get_all_services(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting all services"""
     mocker.patch(
@@ -126,7 +108,7 @@ def test_get_all_services(
 
 
 def test_get_approved_services(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting approved services"""
     mocker.patch(
@@ -149,7 +131,7 @@ def test_get_approved_services(
 
 
 def test_get_pending_services(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting pending services"""
     mocker.patch(
@@ -172,7 +154,7 @@ def test_get_pending_services(
 
 
 def test_get_services_failed_fetch(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker
 ):
     """Test handling of failed API calls"""
     mocker.patch(
@@ -189,7 +171,7 @@ def test_get_services_failed_fetch(
 
 
 def test_get_services_empty_metadata(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty metadata"""
     empty_user = Auth0UserFactory.build(
@@ -206,7 +188,7 @@ def test_get_services_empty_metadata(
 
 
 def test_get_services_no_metadata(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker
 ):
     """Test handling of missing metadata"""
     no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
@@ -222,7 +204,7 @@ def test_get_services_no_metadata(
 
 # --- Resource Endpoints (GET) ---
 def test_get_all_resources(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting all resources"""
     mocker.patch(
@@ -244,7 +226,7 @@ def test_get_all_resources(
 
 
 def test_get_approved_resources(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test getting approved resources"""
     mocker.patch(
@@ -267,7 +249,7 @@ def test_get_approved_resources(
 
 
 def test_get_resources_empty_metadata(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker
 ):
     """Test handling of empty resource metadata"""
     empty_user = Auth0UserFactory.build(app_metadata=AppMetadata(services=[], groups=[]),
@@ -283,7 +265,7 @@ def test_get_resources_empty_metadata(
 
 
 def test_get_resources_no_metadata(
-    mock_auth_settings, mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker
 ):
     """Test handling of missing resource metadata"""
     no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
@@ -299,7 +281,7 @@ def test_get_resources_no_metadata(
 
 # --- Service Request Endpoints (POST) ---
 def test_request_service_success(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test successful service request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -323,7 +305,7 @@ def test_request_service_success(
 
 
 def test_request_service_duplicate(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test duplicate service request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -347,7 +329,7 @@ def test_request_service_duplicate(
 
 
 def test_request_service_user_mismatch(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data
 ):
     """Test service request with mismatched user"""
     request_payload = {
@@ -368,7 +350,7 @@ def test_request_service_user_mismatch(
 
 # --- Resource Request Endpoints (POST) ---
 def test_request_resource_success(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test successful resource request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -392,7 +374,7 @@ def test_request_resource_success(
 
 
 def test_request_resource_user_mismatch(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data
 ):
     """Test resource request with mismatched user"""
     request_payload = {
@@ -413,7 +395,7 @@ def test_request_resource_user_mismatch(
 
 
 def test_request_resource_non_approved_service(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test resource request for non-approved service"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -441,7 +423,7 @@ def test_request_resource_non_approved_service(
 
 
 def test_request_resource_duplicate(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test duplicate resource request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -466,7 +448,7 @@ def test_request_resource_duplicate(
 
 
 def test_request_resource_invalid_service(
-    mock_auth_settings, mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker
 ):
     """Test resource request for non-existent service"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
