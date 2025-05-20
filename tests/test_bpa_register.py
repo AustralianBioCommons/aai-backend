@@ -2,20 +2,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.datagen import AccessTokenPayloadFactory
+from tests.datagen import AccessTokenPayloadFactory, BPARegistrationDataFactory
 
-VALID_REGISTRATION_DATA = {
-    "username": "testuser",
-    "fullname": "Test User",
-    "email": "test@example.com",
-    "reason": "Need access to BPA resources",
-    "password": "SecurePass123!",
-    "organizations": {
-        "bpa-bioinformatics-workshop": True,
-        "cipps": False,
-        "ausarg": True,
-    },
-}
+
+@pytest.fixture
+def valid_registration_data():
+    """Fixture that provides valid BPA registration data."""
+    return BPARegistrationDataFactory.build(
+        username="testuser",
+        fullname="Test User",
+        email="test@example.com",
+        reason="Need access to BPA resources",
+        password="SecurePass123!",
+        organizations=BPARegistrationDataFactory.get_default_organizations(),
+    ).model_dump()
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def mock_auth_token(mocker):
 
 
 def test_successful_registration(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
 ):
     """Test successful user registration with BPA service"""
     mock_response = MagicMock()
@@ -41,16 +41,16 @@ def test_successful_registration(
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     response = client_with_settings_override.post(
-        "/bpa/register", json=VALID_REGISTRATION_DATA
+        "/bpa/register", json=valid_registration_data
     )
 
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
 
     called_data = mock_post.call_args[1]["json"]
-    assert called_data["email"] == VALID_REGISTRATION_DATA["email"]
-    assert called_data["username"] == VALID_REGISTRATION_DATA["username"]
-    assert called_data["name"] == VALID_REGISTRATION_DATA["fullname"]
+    assert called_data["email"] == valid_registration_data["email"]
+    assert called_data["username"] == valid_registration_data["username"]
+    assert called_data["name"] == valid_registration_data["fullname"]
 
     app_metadata = called_data["app_metadata"]
     assert len(app_metadata["services"]) == 1
@@ -61,12 +61,12 @@ def test_successful_registration(
 
     assert (
         called_data["user_metadata"]["bpa"]["registration_reason"]
-        == VALID_REGISTRATION_DATA["reason"]
+        == valid_registration_data["reason"]
     )
 
 
 def test_registration_duplicate_user(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with duplicate user"""
     mock_response = MagicMock()
@@ -74,7 +74,7 @@ def test_registration_duplicate_user(
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     response = client_with_settings_override.post(
-        "/bpa/register", json=VALID_REGISTRATION_DATA
+        "/bpa/register", json=valid_registration_data
     )
 
     assert response.status_code == 409
@@ -82,7 +82,7 @@ def test_registration_duplicate_user(
 
 
 def test_registration_auth0_error(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with Auth0 API error"""
     mock_response = MagicMock()
@@ -91,7 +91,7 @@ def test_registration_auth0_error(
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     response = client_with_settings_override.post(
-        "/bpa/register", json=VALID_REGISTRATION_DATA
+        "/bpa/register", json=valid_registration_data
     )
 
     assert response.status_code == 400
@@ -99,10 +99,10 @@ def test_registration_auth0_error(
 
 
 def test_registration_with_invalid_organization(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with invalid organization ID"""
-    data = VALID_REGISTRATION_DATA.copy()
+    data = valid_registration_data.copy()
     data["organizations"] = {"invalid-org-id": True}
 
     response = client_with_settings_override.post("/bpa/register", json=data)
@@ -125,10 +125,10 @@ def test_registration_request_validation(client_with_settings_override):
 
 
 def test_no_selected_organizations(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with no organizations selected"""
-    data = VALID_REGISTRATION_DATA.copy()
+    data = valid_registration_data.copy()
     data["organizations"] = {
         "bpa-bioinformatics-workshop": False,
         "cipps": False,
@@ -150,10 +150,10 @@ def test_no_selected_organizations(
 
 
 def test_empty_organizations_dict(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with empty organizations dictionary"""
-    data = VALID_REGISTRATION_DATA.copy()
+    data = valid_registration_data.copy()
     data["organizations"] = {}
 
     mock_response = MagicMock()
@@ -170,9 +170,11 @@ def test_empty_organizations_dict(
     assert len(bpa_service["resources"]) == 0
 
 
-def test_registration_email_format(client_with_settings_override):
+def test_registration_email_format(
+    client_with_settings_override, valid_registration_data
+):
     """Test email format validation"""
-    data = VALID_REGISTRATION_DATA.copy()
+    data = valid_registration_data.copy()
     data["email"] = "invalid-email"
 
     response = client_with_settings_override.post("/bpa/register", json=data)
@@ -182,10 +184,14 @@ def test_registration_email_format(client_with_settings_override):
 
 
 def test_all_organizations_selected(
-    client_with_settings_override, mock_auth_token, mock_settings, mocker
+    client_with_settings_override,
+    mock_auth_token,
+    mock_settings,
+    mocker,
+    valid_registration_data,
 ):
     """Test registration with all organizations selected"""
-    data = VALID_REGISTRATION_DATA.copy()
+    data = valid_registration_data.copy()
     data["organizations"] = {k: True for k in mock_settings.organizations.keys()}
 
     mock_response = MagicMock()
