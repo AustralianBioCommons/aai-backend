@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
+from schemas.bpa import BPARegisterData
 from schemas.service import Resource, Service
 
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
@@ -40,25 +41,19 @@ async def register_bpa_user(
 
     # Create BPA resources for selected organizations
     bpa_resources = []
-    valid_org_ids = {org["id"] for org in settings.organizations}
-
     for org_id, is_selected in registration.organizations.items():
         if not is_selected:
             continue
-        if org_id not in valid_org_ids:
+        if org_id not in settings.organizations:
             raise HTTPException(
                 status_code=400, detail=f"Invalid organization ID: {org_id}"
             )
-        org_name = next(
-            (org["name"] for org in settings.organizations if org["id"] == org_id),
-            None,
-        )
-        resource = Resource(id=org_id, name=org_name, status="pending").model_dump(
-            mode="json"
-        )
+        resource = Resource(
+            id=org_id, name=settings.organizations[org_id], status="pending"
+        ).model_dump(mode="json")
         bpa_resources.append(resource)
 
-    # Create initial BPA service
+    # Create BPA service
     bpa_service = Service(
         name="BPA",
         id="bpa",
@@ -68,34 +63,16 @@ async def register_bpa_user(
         resources=bpa_resources,
     )
 
-    user_data = {
-        "email": registration.email,
-        "password": registration.password,
-        "connection": "Username-Password-Authentication",
-        "username": registration.username,
-        "name": registration.fullname,
-        "nickname": registration.username,
-        "email_verified": False,
-        "blocked": False,
-        "verify_email": True,
-        "user_metadata": {"registration_reason": registration.reason},
-        "app_metadata": {
-            "groups": [],
-            "services": [bpa_service.model_dump(mode="json")],
-        },
-    }
-
-    name_parts = registration.fullname.split(maxsplit=1)
-    if len(name_parts) > 1:
-        user_data["given_name"] = name_parts[0]
-        user_data["family_name"] = name_parts[1]
-    else:
-        user_data["given_name"] = registration.fullname
-        user_data["family_name"] = ""
+    # Create Auth0 user data
+    user_data = BPARegisterData.from_registration(
+        registration=registration, bpa_service=bpa_service
+    )
 
     try:
         async with AsyncClient() as client:
-            response = await client.post(url, headers=headers, json=user_data)
+            response = await client.post(
+                url, headers=headers, json=user_data.model_dump()
+            )
 
             if response.status_code == 409:
                 raise HTTPException(

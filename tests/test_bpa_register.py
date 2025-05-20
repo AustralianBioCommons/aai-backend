@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from auth.config import Settings
 from tests.datagen import AccessTokenPayloadFactory
 
 VALID_REGISTRATION_DATA = {
@@ -51,8 +50,7 @@ def test_successful_registration(
     called_data = mock_post.call_args[1]["json"]
     assert called_data["email"] == VALID_REGISTRATION_DATA["email"]
     assert called_data["username"] == VALID_REGISTRATION_DATA["username"]
-    assert called_data["given_name"] == "Test"
-    assert called_data["family_name"] == "User"
+    assert called_data["name"] == VALID_REGISTRATION_DATA["fullname"]
 
     app_metadata = called_data["app_metadata"]
     assert len(app_metadata["services"]) == 1
@@ -61,26 +59,10 @@ def test_successful_registration(
     assert bpa_service["status"] == "pending"
     assert len(bpa_service["resources"]) == 2
 
-
-def test_registration_with_single_name(
-    client_with_settings_override, mock_auth_token, mocker
-):
-    """Test registration with single name handling"""
-    data = VALID_REGISTRATION_DATA.copy()
-    data["fullname"] = "SingleName"
-
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.json.return_value = {"user_id": "auth0|123"}
-
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
-
-    response = client_with_settings_override.post("/bpa/register", json=data)
-
-    assert response.status_code == 200
-    called_data = mock_post.call_args[1]["json"]
-    assert called_data["given_name"] == "SingleName"
-    assert called_data["family_name"] == ""
+    assert (
+        called_data["user_metadata"]["bpa"]["registration_reason"]
+        == VALID_REGISTRATION_DATA["reason"]
+    )
 
 
 def test_registration_duplicate_user(
@@ -200,11 +182,11 @@ def test_registration_email_format(client_with_settings_override):
 
 
 def test_all_organizations_selected(
-    client_with_settings_override, mock_auth_token, mocker
+    client_with_settings_override, mock_auth_token, mock_settings, mocker
 ):
     """Test registration with all organizations selected"""
     data = VALID_REGISTRATION_DATA.copy()
-    data["organizations"] = {org["id"]: True for org in Settings().organizations}
+    data["organizations"] = {k: True for k in mock_settings.organizations.keys()}
 
     mock_response = MagicMock()
     mock_response.status_code = 201
@@ -217,4 +199,4 @@ def test_all_organizations_selected(
     assert response.status_code == 200
     called_data = mock_post.call_args[1]["json"]
     bpa_service = called_data["app_metadata"]["services"][0]
-    assert len(bpa_service["resources"]) == len(Settings().organizations)
+    assert len(bpa_service["resources"]) == len(mock_settings.organizations)
