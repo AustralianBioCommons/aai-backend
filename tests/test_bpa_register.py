@@ -71,14 +71,16 @@ def test_registration_duplicate_user(
     """Test registration with duplicate user"""
     mock_response = MagicMock()
     mock_response.status_code = 409
+    mock_response.json.return_value = {"message": "User already exists"}
+
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     response = client_with_settings_override.post(
         "/bpa/register", json=valid_registration_data
     )
 
-    assert response.status_code == 409
-    assert "already exists" in response.json()["detail"]
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Registration failed: User already exists"
 
 
 def test_registration_auth0_error(
@@ -87,7 +89,8 @@ def test_registration_auth0_error(
     """Test registration with Auth0 API error"""
     mock_response = MagicMock()
     mock_response.status_code = 400
-    mock_response.text = "Invalid request"
+    mock_response.json.return_value = {"message": "Invalid request"}
+
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     response = client_with_settings_override.post(
@@ -95,7 +98,7 @@ def test_registration_auth0_error(
     )
 
     assert response.status_code == 400
-    assert "Failed to create user" in response.json()["detail"]
+    assert response.json()["detail"] == "Registration failed: Invalid request"
 
 
 def test_registration_with_invalid_organization(
