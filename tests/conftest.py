@@ -7,13 +7,15 @@ from main import app
 from tests.datagen import AccessTokenPayloadFactory, UserFactory
 
 
-def pytest_configure(config: pytest.Config) -> None:
+@pytest.fixture(autouse=True)
+def ignore_env_file():
     """
-    Force the app to ignore the .env file while testing.
-    Otherwise we get different results when the .env
-    file is present or not.
+    Always ignore the .env file when running tests,
+    so we get the same behaviour when the .env file is present or not.
     """
-    Settings.model_config["env_file"] = ""
+    def get_settings_no_env_file():
+        return Settings(_env_file=None)
+    app.dependency_overrides[get_settings] = get_settings_no_env_file
 
 
 @pytest.fixture
