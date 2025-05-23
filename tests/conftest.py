@@ -2,7 +2,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from auth.config import Settings, get_settings
+from auth.validator import get_current_user
 from main import app
+from tests.datagen import AccessTokenPayloadFactory, UserFactory
 
 
 @pytest.fixture
@@ -33,4 +35,18 @@ def client_with_settings_override(mock_settings):
     yield client
 
     # Reset override
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def as_admin_user():
+    """
+    Override the get_current_user dependency to return a User object with admin role,
+    so admin check will pass.
+    """
+    def override_user():
+        token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
+        return UserFactory.build(access_token=token)
+    app.dependency_overrides[get_current_user] = override_user
+    yield
     app.dependency_overrides.clear()
