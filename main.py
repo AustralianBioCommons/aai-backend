@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from routers import bpa_register, galaxy_register, user
+from routers import admin, bpa_register, galaxy_register, user
 
 # Load .env to get CORS_ALLOWED_ORIGINS.
 # Note that for most env variables, we use pydantic-settings
@@ -30,6 +30,7 @@ def public_route():
     return {"message": "AAI Backend API"}
 
 
+app.include_router(admin.router)
 app.include_router(user.router)
 app.include_router(bpa_register.router)
 app.include_router(galaxy_register.router)
