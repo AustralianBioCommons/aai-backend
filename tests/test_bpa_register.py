@@ -31,7 +31,7 @@ def mock_auth_token(mocker):
 
 
 def test_successful_registration(
-    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
+        test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test successful user registration with BPA service"""
     mock_response = MagicMock()
@@ -40,7 +40,7 @@ def test_successful_registration(
 
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/bpa/register", json=valid_registration_data
     )
 
@@ -66,14 +66,14 @@ def test_successful_registration(
 
 
 def test_registration_duplicate_user(
-    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
+        test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with duplicate user"""
     mock_response = MagicMock()
     mock_response.status_code = 409
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/bpa/register", json=valid_registration_data
     )
 
@@ -82,7 +82,7 @@ def test_registration_duplicate_user(
 
 
 def test_registration_auth0_error(
-    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
+        test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with Auth0 API error"""
     mock_response = MagicMock()
@@ -90,7 +90,7 @@ def test_registration_auth0_error(
     mock_response.text = "Invalid request"
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/bpa/register", json=valid_registration_data
     )
 
@@ -99,19 +99,19 @@ def test_registration_auth0_error(
 
 
 def test_registration_with_invalid_organization(
-    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
+        test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with invalid organization ID"""
     data = valid_registration_data.copy()
     data["organizations"] = {"invalid-org-id": True}
 
-    response = client_with_settings_override.post("/bpa/register", json=data)
+    response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 400
     assert "Invalid organization ID" in response.json()["detail"]
 
 
-def test_registration_request_validation(client_with_settings_override):
+def test_registration_request_validation(test_client):
     """Test request validation"""
     invalid_data = {
         "username": "testuser",
@@ -119,13 +119,13 @@ def test_registration_request_validation(client_with_settings_override):
         "organizations": {},
     }
 
-    response = client_with_settings_override.post("/bpa/register", json=invalid_data)
+    response = test_client.post("/bpa/register", json=invalid_data)
 
     assert response.status_code == 422
 
 
 def test_no_selected_organizations(
-    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
+        test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with no organizations selected"""
     data = valid_registration_data.copy()
@@ -141,7 +141,7 @@ def test_no_selected_organizations(
 
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = client_with_settings_override.post("/bpa/register", json=data)
+    response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 200
     called_data = mock_post.call_args[1]["json"]
@@ -150,7 +150,7 @@ def test_no_selected_organizations(
 
 
 def test_empty_organizations_dict(
-    client_with_settings_override, mock_auth_token, mocker, valid_registration_data
+        test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with empty organizations dictionary"""
     data = valid_registration_data.copy()
@@ -162,7 +162,7 @@ def test_empty_organizations_dict(
 
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = client_with_settings_override.post("/bpa/register", json=data)
+    response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 200
     called_data = mock_post.call_args[1]["json"]
@@ -171,20 +171,20 @@ def test_empty_organizations_dict(
 
 
 def test_registration_email_format(
-    client_with_settings_override, valid_registration_data
+        test_client, valid_registration_data
 ):
     """Test email format validation"""
     data = valid_registration_data.copy()
     data["email"] = "invalid-email"
 
-    response = client_with_settings_override.post("/bpa/register", json=data)
+    response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 422
     assert "email" in response.json()["detail"][0]["loc"]
 
 
 def test_all_organizations_selected(
-    client_with_settings_override,
+        test_client,
     mock_auth_token,
     mock_settings,
     mocker,
@@ -200,7 +200,7 @@ def test_all_organizations_selected(
 
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = client_with_settings_override.post("/bpa/register", json=data)
+    response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 200
     called_data = mock_post.call_args[1]["json"]

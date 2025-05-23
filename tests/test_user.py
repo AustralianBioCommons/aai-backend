@@ -282,7 +282,7 @@ def test_get_resources_no_metadata(
 # --- Service Request Endpoints (POST) ---
 def test_request_service_success(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test successful service request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -297,7 +297,7 @@ def test_request_service_success(
         "user_id": mock_auth_token.sub,
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service", json=new_service, headers=auth_headers
     )
     assert response.status_code == 200
@@ -307,7 +307,7 @@ def test_request_service_success(
 
 def test_request_service_duplicate(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test duplicate service request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -321,7 +321,7 @@ def test_request_service_duplicate(
         "user_id": mock_auth_token.sub,
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service", json=existing_service, headers=auth_headers
     )
     assert response.status_code == 400
@@ -332,7 +332,7 @@ def test_request_service_duplicate(
 
 def test_request_service_user_mismatch(
     mock_auth_token, auth_headers, mock_user_data,
-        client_with_settings_override
+        test_client
 ):
     """Test service request with mismatched user"""
     request_payload = {
@@ -341,7 +341,7 @@ def test_request_service_user_mismatch(
         "user_id": "auth0|WRONG_USER",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 403
@@ -354,7 +354,7 @@ def test_request_service_user_mismatch(
 # --- Resource Request Endpoints (POST) ---
 def test_request_resource_success(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test successful resource request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -370,7 +370,7 @@ def test_request_resource_success(
         "service_id": "service1",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service1/resource-new", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 200
@@ -379,7 +379,7 @@ def test_request_resource_success(
 
 def test_request_resource_user_mismatch(
     mock_auth_token, auth_headers, mock_user_data,
-        client_with_settings_override
+        test_client
 ):
     """Test resource request with mismatched user"""
     request_payload = {
@@ -389,7 +389,7 @@ def test_request_resource_user_mismatch(
         "service_id": "service1",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service1/res-invalid", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 403
@@ -401,7 +401,7 @@ def test_request_resource_user_mismatch(
 
 def test_request_resource_non_approved_service(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test resource request for non-approved service"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -416,7 +416,7 @@ def test_request_resource_non_approved_service(
         "service_id": "service2",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service2/blocked-resource",
         json=request_payload,
         headers=auth_headers,
@@ -430,7 +430,7 @@ def test_request_resource_non_approved_service(
 
 def test_request_resource_duplicate(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test duplicate resource request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -445,7 +445,7 @@ def test_request_resource_duplicate(
         "service_id": "service1",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service1/resource1", json=existing_resource, headers=auth_headers
     )
     assert response.status_code == 400
@@ -456,7 +456,7 @@ def test_request_resource_duplicate(
 
 def test_request_resource_invalid_service(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test resource request for non-existent service"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -471,7 +471,7 @@ def test_request_resource_invalid_service(
         "service_id": "non-existent-service",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/non-existent-service/resource-invalid",
         json=request_payload,
         headers=auth_headers,

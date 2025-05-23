@@ -21,9 +21,11 @@ def mock_settings():
         auth0_algorithms=["HS256"]
     )
 
-
 @pytest.fixture
-def client_with_settings_override(mock_settings):
+def test_client(mock_settings):
+    """
+    Override the get_settings dependency to return a mocked Settings object.
+    """
     # Define override
     def override_settings():
         return mock_settings
