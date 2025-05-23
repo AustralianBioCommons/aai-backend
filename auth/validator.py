@@ -1,10 +1,12 @@
+from typing import Annotated
+
 import httpx
-from fastapi import Depends, HTTPException
+from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwk, jwt
 from jose.exceptions import JWTError
 
-from auth.config import Settings
+from auth.config import Settings, get_settings
 from schemas.tokens import AccessTokenPayload
 from schemas.user import User
 
@@ -63,6 +65,17 @@ def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: i
     return None
 
 
-def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
-    access_token = verify_jwt(token)
+def get_current_user(token: str = Depends(oauth2_scheme),
+                     settings: Settings = Depends(get_settings)) -> User:
+    access_token = verify_jwt(token, settings=settings)
     return User(access_token=access_token)
+
+
+def user_is_admin(current_user: Annotated[User, Depends(get_current_user)],
+                  settings: Annotated[Settings, Depends(get_settings)]) -> User:
+    if not current_user.is_admin(settings=settings):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You must be an admin to access this endpoint."
+        )
+    return current_user
