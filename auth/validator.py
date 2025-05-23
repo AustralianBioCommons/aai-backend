@@ -41,14 +41,6 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
             status_code=403, detail=f"Missing required claim: {roles_claim}"
         )
 
-    roles = payload[roles_claim]
-    if not isinstance(roles, list) or not any(
-        "admin" in role.lower() for role in roles
-    ):
-        raise HTTPException(
-            status_code=403, detail="Access denied: Insufficient permissions"
-        )
-
     return AccessTokenPayload(**payload)
 
 
