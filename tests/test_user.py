@@ -2,13 +2,9 @@ from datetime import datetime
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
-from main import app
 from schemas.service import AppMetadata, Group, Resource, Service
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
-
-client = TestClient(app)
 
 
 # --- Test Fixtures ---
@@ -76,16 +72,17 @@ def mock_user_data():
         "/me/all/pending",
     ],
 )
-def test_endpoints_require_auth(endpoint):
+def test_endpoints_require_auth(endpoint, test_client):
     """Test that all endpoints require authentication"""
-    response = client.get(endpoint)
+    response = test_client.get(endpoint)
     assert response.status_code == 401
     assert response.json() == {"detail": "Not authenticated"}
 
 
 # --- Service Endpoints (GET) ---
 def test_get_all_services(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting all services"""
     mocker.patch(
@@ -96,7 +93,7 @@ def test_get_all_services(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
 
     expected_services = [
@@ -106,7 +103,8 @@ def test_get_all_services(
 
 
 def test_get_approved_services(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting approved services"""
     mocker.patch(
@@ -117,7 +115,7 @@ def test_get_approved_services(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services/approved", headers=auth_headers)
+    response = test_client.get("/me/services/approved", headers=auth_headers)
     assert response.status_code == 200
 
     approved_services = [
@@ -129,7 +127,8 @@ def test_get_approved_services(
 
 
 def test_get_pending_services(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting pending services"""
     mocker.patch(
@@ -140,7 +139,7 @@ def test_get_pending_services(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services/pending", headers=auth_headers)
+    response = test_client.get("/me/services/pending", headers=auth_headers)
     assert response.status_code == 200
 
     pending_services = [
@@ -152,7 +151,8 @@ def test_get_pending_services(
 
 
 def test_get_services_failed_fetch(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker,
+        test_client
 ):
     """Test handling of failed API calls"""
     mocker.patch(
@@ -163,13 +163,13 @@ def test_get_services_failed_fetch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 403
     assert response.json() == {"detail": "Failed to fetch user data"}
 
 
 def test_get_services_empty_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker, test_client
 ):
     """Test handling of empty metadata"""
     empty_user = Auth0UserFactory.build(
@@ -180,13 +180,14 @@ def test_get_services_empty_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"services": []}
 
 
 def test_get_services_no_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker,
+        test_client
 ):
     """Test handling of missing metadata"""
     no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
@@ -195,14 +196,15 @@ def test_get_services_no_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"services": []}
 
 
 # --- Resource Endpoints (GET) ---
 def test_get_all_resources(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting all resources"""
     mocker.patch(
@@ -213,7 +215,7 @@ def test_get_all_resources(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources", headers=auth_headers)
+    response = test_client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     all_resources = [
         r.model_dump()
@@ -224,7 +226,8 @@ def test_get_all_resources(
 
 
 def test_get_approved_resources(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting approved resources"""
     mocker.patch(
@@ -235,7 +238,7 @@ def test_get_approved_resources(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources/approved", headers=auth_headers)
+    response = test_client.get("/me/resources/approved", headers=auth_headers)
     assert response.status_code == 200
     approved_resources = [
         r.model_dump()
@@ -247,7 +250,7 @@ def test_get_approved_resources(
 
 
 def test_get_resources_empty_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker, test_client
 ):
     """Test handling of empty resource metadata"""
     empty_user = Auth0UserFactory.build(app_metadata=AppMetadata(services=[], groups=[]),
@@ -257,13 +260,14 @@ def test_get_resources_empty_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources", headers=auth_headers)
+    response = test_client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"resources": []}
 
 
 def test_get_resources_no_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker,
+        test_client
 ):
     """Test handling of missing resource metadata"""
     no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
@@ -272,7 +276,7 @@ def test_get_resources_no_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources", headers=auth_headers)
+    response = test_client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"resources": []}
 
