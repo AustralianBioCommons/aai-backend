@@ -17,6 +17,7 @@ def mock_settings():
         auth0_audience="mock-audience",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
+        admin_roles=["Admin"],
         auth0_algorithms=["HS256"]
     )
 
