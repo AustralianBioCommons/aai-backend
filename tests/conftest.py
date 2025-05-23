@@ -7,6 +7,15 @@ from main import app
 from tests.datagen import AccessTokenPayloadFactory, UserFactory
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """
+    Force the app to ignore the .env file while testing.
+    Otherwise we get different results when the .env
+    file is present or not.
+    """
+    Settings.model_config["env_file"] = ""
+
+
 @pytest.fixture
 def mock_settings():
     """Fixture that returns mocked Settings object."""
