@@ -1,35 +1,26 @@
-from schemas.tokens import AccessTokenPayload
 from schemas.user import User
+from tests.datagen import AccessTokenPayloadFactory
 
 
-def test_is_admin_true():
-    payload = AccessTokenPayload(
-        exp=9999999999,
-        iat=9999999000,
-        iss="https://example.com/",
-        sub="abc123",
-        aud=["client_id"],
-        scope="read:all",
-        **{
-            "biocommons.org.au/roles": ["PlatformAdmin"],  # ✅ match schema key
-            "permissions": ["read"]
-        }
-    )
+def test_is_admin_true(mock_settings):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     user = User(access_token=payload)
-    assert user.is_admin() is True
+    assert user.is_admin(settings=mock_settings) is True
 
-def test_is_admin_false():
-    payload = AccessTokenPayload(
-        exp=9999999999,
-        iat=9999999000,
-        iss="https://example.com/",
-        sub="abc123",
-        aud=["client_id"],
-        scope="read:all",
-        **{
-            "biocommons.org.au/roles": ["guest"],  # ✅ match schema key
-            "permissions": ["read"]
-        }
-    )
+
+def test_is_admin_false(mock_settings):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
     user = User(access_token=payload)
-    assert user.is_admin() is False
+    assert user.is_admin(settings=mock_settings) is False
+
+
+def test_is_admin_empty_roles(mock_settings):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=[])
+    user = User(access_token=payload)
+    assert user.is_admin(settings=mock_settings) is False
+
+
+def test_is_admin_multiple_roles_with_admin(mock_settings):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin", "Editor"])
+    user = User(access_token=payload)
+    assert user.is_admin(settings=mock_settings) is True

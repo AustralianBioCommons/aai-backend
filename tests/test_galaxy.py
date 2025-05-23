@@ -33,11 +33,11 @@ def test_galaxy_registration_data_password_match():
                                public_name="valid_username")
 
 
-def test_get_registration_token(client_with_settings_override, mock_settings):
+def test_get_registration_token(test_client, mock_settings):
     """
     Test get-registration-token endpoint returns a valid JWT token.
     """
-    response = client_with_settings_override.get("/galaxy/get-registration-token")
+    response = test_client.get("/galaxy/get-registration-token")
     assert response.status_code == 200
     jwt.decode(response.json()["token"], mock_settings.jwt_secret_key,
                algorithms=mock_settings.auth0_algorithms)
@@ -78,7 +78,7 @@ def test_to_auth0_create_user_data_valid():
     assert auth0_data.user_metadata.galaxy_username == "valid_username"
 
 
-def test_register(mocker, mock_auth_token, mock_settings, client_with_settings_override):
+def test_register(mocker, mock_auth_token, mock_settings, test_client):
     """
     Try to test our register endpoint. Since we don't want to call
     an actual Auth0 API, test that:
@@ -92,9 +92,9 @@ def test_register(mocker, mock_auth_token, mock_settings, client_with_settings_o
     mock_resp.status_code = 201
     mock_post = mocker.patch("httpx.post", return_value=mock_resp)
     user_data = GalaxyRegistrationDataFactory.build()
-    token_resp = client_with_settings_override.get("/galaxy/get-registration-token")
+    token_resp = test_client.get("/galaxy/get-registration-token")
     headers = {"registration-token": token_resp.json()["token"]}
-    resp = client_with_settings_override.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
+    resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
     assert resp.status_code == 200
     assert resp.json()["message"] == "User registered successfully"
     assert resp.json()["user"] == {"user_id": "abc123"}
@@ -108,8 +108,8 @@ def test_register(mocker, mock_auth_token, mock_settings, client_with_settings_o
     )
 
 
-def test_register_requires_token(client_with_settings_override):
+def test_register_requires_token(test_client):
     user_data = GalaxyRegistrationDataFactory.build()
-    resp = client_with_settings_override.post("/galaxy/register", json=user_data.model_dump())
+    resp = test_client.post("/galaxy/register", json=user_data.model_dump())
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Missing registration token"

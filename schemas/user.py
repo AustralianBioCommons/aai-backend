@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 
+from auth.config import Settings
+
 from .tokens import AccessTokenPayload
 
 
@@ -12,13 +14,13 @@ class User(BaseModel):
 
     access_token: AccessTokenPayload
 
-    def is_admin(self) -> bool:
+    def is_admin(self, settings: Settings) -> bool:
         """
         Checks if the user has an admin role.
         """
         # TODO: Need to finalize exactly what roles make
         #   a user an admin
         for role in self.access_token.biocommons_roles:
-            if "admin" in role.lower():
+            if role in settings.admin_roles:
                 return True
         return False
