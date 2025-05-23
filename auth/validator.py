@@ -35,7 +35,7 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
-    roles_claim = "biocommons.org.au/roles"
+    roles_claim = "https://biocommons.org.au/roles"
     if roles_claim not in payload:
         raise HTTPException(
             status_code=403, detail=f"Missing required claim: {roles_claim}"
