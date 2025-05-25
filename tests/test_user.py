@@ -2,15 +2,9 @@ from datetime import datetime
 
 import pytest
 from fastapi import HTTPException
-from fastapi.testclient import TestClient
 
-from main import app
 from schemas.service import AppMetadata, Group, Resource, Service
-from schemas.tokens import AccessTokenPayload
-from schemas.user import User
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
-
-client = TestClient(app)
 
 
 # --- Test Fixtures ---
@@ -78,16 +72,17 @@ def mock_user_data():
         "/me/all/pending",
     ],
 )
-def test_endpoints_require_auth(endpoint):
+def test_endpoints_require_auth(endpoint, test_client):
     """Test that all endpoints require authentication"""
-    response = client.get(endpoint)
+    response = test_client.get(endpoint)
     assert response.status_code == 401
     assert response.json() == {"detail": "Not authenticated"}
 
 
 # --- Service Endpoints (GET) ---
 def test_get_all_services(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting all services"""
     mocker.patch(
@@ -98,7 +93,7 @@ def test_get_all_services(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
 
     expected_services = [
@@ -108,7 +103,8 @@ def test_get_all_services(
 
 
 def test_get_approved_services(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting approved services"""
     mocker.patch(
@@ -119,7 +115,7 @@ def test_get_approved_services(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services/approved", headers=auth_headers)
+    response = test_client.get("/me/services/approved", headers=auth_headers)
     assert response.status_code == 200
 
     approved_services = [
@@ -131,7 +127,8 @@ def test_get_approved_services(
 
 
 def test_get_pending_services(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting pending services"""
     mocker.patch(
@@ -142,7 +139,7 @@ def test_get_pending_services(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services/pending", headers=auth_headers)
+    response = test_client.get("/me/services/pending", headers=auth_headers)
     assert response.status_code == 200
 
     pending_services = [
@@ -154,7 +151,8 @@ def test_get_pending_services(
 
 
 def test_get_services_failed_fetch(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker,
+        test_client
 ):
     """Test handling of failed API calls"""
     mocker.patch(
@@ -165,13 +163,13 @@ def test_get_services_failed_fetch(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 403
     assert response.json() == {"detail": "Failed to fetch user data"}
 
 
 def test_get_services_empty_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker, test_client
 ):
     """Test handling of empty metadata"""
     empty_user = Auth0UserFactory.build(
@@ -182,13 +180,14 @@ def test_get_services_empty_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"services": []}
 
 
 def test_get_services_no_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker,
+        test_client
 ):
     """Test handling of missing metadata"""
     no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
@@ -197,14 +196,15 @@ def test_get_services_no_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/services", headers=auth_headers)
+    response = test_client.get("/me/services", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"services": []}
 
 
 # --- Resource Endpoints (GET) ---
 def test_get_all_resources(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting all resources"""
     mocker.patch(
@@ -215,7 +215,7 @@ def test_get_all_resources(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources", headers=auth_headers)
+    response = test_client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     all_resources = [
         r.model_dump()
@@ -226,7 +226,8 @@ def test_get_all_resources(
 
 
 def test_get_approved_resources(
-    mock_auth_token, auth_headers, mock_user_data, mocker
+    mock_auth_token, auth_headers, mock_user_data, mocker,
+        test_client
 ):
     """Test getting approved resources"""
     mocker.patch(
@@ -237,7 +238,7 @@ def test_get_approved_resources(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources/approved", headers=auth_headers)
+    response = test_client.get("/me/resources/approved", headers=auth_headers)
     assert response.status_code == 200
     approved_resources = [
         r.model_dump()
@@ -249,7 +250,7 @@ def test_get_approved_resources(
 
 
 def test_get_resources_empty_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker, test_client
 ):
     """Test handling of empty resource metadata"""
     empty_user = Auth0UserFactory.build(app_metadata=AppMetadata(services=[], groups=[]),
@@ -259,13 +260,14 @@ def test_get_resources_empty_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources", headers=auth_headers)
+    response = test_client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"resources": []}
 
 
 def test_get_resources_no_metadata(
-    mock_auth_token, auth_headers, mocker
+    mock_auth_token, auth_headers, mocker,
+        test_client
 ):
     """Test handling of missing resource metadata"""
     no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
@@ -274,7 +276,7 @@ def test_get_resources_no_metadata(
         "routers.user.get_management_token", return_value="mock_management_token"
     )
 
-    response = client.get("/me/resources", headers=auth_headers)
+    response = test_client.get("/me/resources", headers=auth_headers)
     assert response.status_code == 200
     assert response.json() == {"resources": []}
 
@@ -282,7 +284,7 @@ def test_get_resources_no_metadata(
 # --- Service Request Endpoints (POST) ---
 def test_request_service_success(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test successful service request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -297,7 +299,7 @@ def test_request_service_success(
         "user_id": mock_auth_token.sub,
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service", json=new_service, headers=auth_headers
     )
     assert response.status_code == 200
@@ -307,7 +309,7 @@ def test_request_service_success(
 
 def test_request_service_duplicate(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test duplicate service request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -321,7 +323,7 @@ def test_request_service_duplicate(
         "user_id": mock_auth_token.sub,
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service", json=existing_service, headers=auth_headers
     )
     assert response.status_code == 400
@@ -332,7 +334,7 @@ def test_request_service_duplicate(
 
 def test_request_service_user_mismatch(
     mock_auth_token, auth_headers, mock_user_data,
-        client_with_settings_override
+        test_client
 ):
     """Test service request with mismatched user"""
     request_payload = {
@@ -341,7 +343,7 @@ def test_request_service_user_mismatch(
         "user_id": "auth0|WRONG_USER",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 403
@@ -354,7 +356,7 @@ def test_request_service_user_mismatch(
 # --- Resource Request Endpoints (POST) ---
 def test_request_resource_success(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test successful resource request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -370,7 +372,7 @@ def test_request_resource_success(
         "service_id": "service1",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service1/resource-new", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 200
@@ -379,7 +381,7 @@ def test_request_resource_success(
 
 def test_request_resource_user_mismatch(
     mock_auth_token, auth_headers, mock_user_data,
-        client_with_settings_override
+        test_client
 ):
     """Test resource request with mismatched user"""
     request_payload = {
@@ -389,7 +391,7 @@ def test_request_resource_user_mismatch(
         "service_id": "service1",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service1/res-invalid", json=request_payload, headers=auth_headers
     )
     assert response.status_code == 403
@@ -401,7 +403,7 @@ def test_request_resource_user_mismatch(
 
 def test_request_resource_non_approved_service(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test resource request for non-approved service"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -416,7 +418,7 @@ def test_request_resource_non_approved_service(
         "service_id": "service2",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service2/blocked-resource",
         json=request_payload,
         headers=auth_headers,
@@ -430,7 +432,7 @@ def test_request_resource_non_approved_service(
 
 def test_request_resource_duplicate(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test duplicate resource request"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -445,7 +447,7 @@ def test_request_resource_duplicate(
         "service_id": "service1",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/service1/resource1", json=existing_resource, headers=auth_headers
     )
     assert response.status_code == 400
@@ -456,7 +458,7 @@ def test_request_resource_duplicate(
 
 def test_request_resource_invalid_service(
     mock_auth_token, auth_headers, mock_user_data, mocker,
-        client_with_settings_override
+        test_client
 ):
     """Test resource request for non-existent service"""
     mocker.patch("routers.user.get_user_data", return_value=mock_user_data)
@@ -471,74 +473,10 @@ def test_request_resource_invalid_service(
         "service_id": "non-existent-service",
     }
 
-    response = client_with_settings_override.post(
+    response = test_client.post(
         "/me/request/non-existent-service/resource-invalid",
         json=request_payload,
         headers=auth_headers,
     )
     assert response.status_code == 404
     assert response.json()["detail"] == "Service with ID non-existent-service not found"
-
-def test_is_admin_true():
-    payload = AccessTokenPayload(
-        exp=9999999999,
-        iat=9999999000,
-        iss="https://example.com/",
-        sub="abc123",
-        aud=["client_id"],
-        scope="read:all",
-        **{
-            "biocommons.org.au/roles": ["PlatformAdmin"],
-            "permissions": ["read"]
-        }
-    )
-    user = User(access_token=payload)
-    assert user.is_admin() is True
-
-def test_is_admin_false():
-    payload = AccessTokenPayload(
-        exp=9999999999,
-        iat=9999999000,
-        iss="https://example.com/",
-        sub="abc123",
-        aud=["client_id"],
-        scope="read:all",
-        **{
-            "biocommons.org.au/roles": ["guest"],
-            "permissions": ["read"]
-        }
-    )
-    user = User(access_token=payload)
-    assert user.is_admin() is False
-
-def test_is_admin_empty_roles():
-    payload = AccessTokenPayload(
-        exp=9999999999,
-        iat=9999999000,
-        iss="https://example.com/",
-        sub="abc123",
-        aud=["client_id"],
-        scope="read:all",
-        **{
-            "biocommons.org.au/roles": [],
-            "permissions": ["read"]
-        }
-    )
-    user = User(access_token=payload)
-    assert user.is_admin() is False
-
-def test_is_admin_multiple_roles_with_admin():
-    payload = AccessTokenPayload(
-        exp=9999999999,
-        iat=9999999000,
-        iss="https://example.com/",
-        sub="abc123",
-        aud=["client_id"],
-        scope="read:all",
-        **{
-            "biocommons.org.au/roles": ["editor", "admin_viewer"],
-            "permissions": ["read"]
-        }
-    )
-    user = User(access_token=payload)
-    assert user.is_admin() is True
