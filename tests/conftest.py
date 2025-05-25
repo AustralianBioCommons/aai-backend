@@ -61,6 +61,7 @@ def as_admin_user():
     def override_user():
         token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
         return UserFactory.build(access_token=token)
+
     app.dependency_overrides[get_current_user] = override_user
     yield
     app.dependency_overrides.clear()
