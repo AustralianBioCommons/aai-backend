@@ -20,3 +20,18 @@ class Auth0Client:
         url = f"https://{self.domain}/api/v2/users/{user_id}"
         resp = self._client.get(url)
         return resp.json()
+
+    def get_approved_users(self) -> list[Auth0UserResponse]:
+        # TODO: also search for approved resources? (with OR)
+        approved_query = 'app_metadata.services.status:"approved"'
+        url = f"https://{self.domain}/api/v2/users"
+        # TODO: set primary_order=false for faster search?
+        #   https://auth0.com/docs/manage-users/user-search/user-search-best-practices
+        resp = self._client.get(url, params={"q": approved_query, "search_engine": "v3"})
+        return resp.json()
+
+    def get_pending_users(self) -> list[Auth0UserResponse]:
+        pending_query = 'app_metadata.services.status:"pending"'
+        url = f"https://{self.domain}/api/v2/users"
+        resp = self._client.get(url, params={"q": pending_query, "search_engine": "v3"})
+        return resp.json()
