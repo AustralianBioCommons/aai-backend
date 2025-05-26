@@ -7,11 +7,11 @@ from auth0.schemas import Auth0UserResponse
 
 class Auth0Client:
 
-    def __init__(self, domain: str):
+    def __init__(self, domain: str, management_token: str):
         self.domain = domain
+        self._client = httpx.Client(headers={"Authorization": f"Bearer {management_token}"})
 
-    def get_users(self, access_token: str) -> list[Auth0UserResponse]:
+    def get_users(self) -> list[Auth0UserResponse]:
         url = f"https://{self.domain}/api/v2/users"
-        headers = {"Authorization": f"Bearer {access_token}"}
-        resp = httpx.get(url, headers=headers)
+        resp = self._client.get(url)
         return resp.json()
