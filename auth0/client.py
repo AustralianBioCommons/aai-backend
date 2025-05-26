@@ -15,3 +15,8 @@ class Auth0Client:
         url = f"https://{self.domain}/api/v2/users"
         resp = self._client.get(url)
         return resp.json()
+
+    def get_user(self, user_id: str) -> Auth0UserResponse:
+        url = f"https://{self.domain}/api/v2/users/{user_id}"
+        resp = self._client.get(url)
+        return resp.json()

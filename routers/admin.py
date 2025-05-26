@@ -10,14 +10,21 @@ router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
 
 
-def get_auth0_client(settings: Settings = Depends(get_settings)):
-    return Auth0Client(settings.auth0_domain)
+def get_auth0_client(settings: Settings = Depends(get_settings),
+                     management_token: str = Depends(get_management_token)):
+    return Auth0Client(settings.auth0_domain, management_token=management_token)
 
 
 @router.get("/users",
             response_model=list[Auth0UserResponse])
 def get_users(settings: Settings = Depends(get_settings),
                     client: Auth0Client = Depends(get_auth0_client)):
-    token = get_management_token(settings=settings)
-    resp = client.get_users(token)
+    resp = client.get_users()
     return resp
+
+
+@router.get("/users/{user_id}",
+            response_model=Auth0UserResponse)
+def get_user(user_id: str, settings: Settings = Depends(get_settings),
+                    client: Auth0Client = Depends(get_auth0_client)):
+    return client.get_user(user_id)
