@@ -56,3 +56,11 @@ def test_get_user(test_client, as_admin_user, mock_auth0_client):
     resp = test_client.get(f"/admin/users/{user.user_id}")
     assert resp.status_code == 200
     assert resp.json() == user.model_dump(mode='json')
+
+
+def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
+    users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "approved"}]})
+    mock_auth0_client.get_approved_users.return_value = users
+    resp = test_client.get("/admin/users/approved")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 3
