@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Path
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
@@ -15,16 +15,29 @@ def get_auth0_client(settings: Settings = Depends(get_settings),
     return Auth0Client(settings.auth0_domain, management_token=management_token)
 
 
+# TODO: May need to paginate this response to make sure we get all
+#   of them
 @router.get("/users",
             response_model=list[Auth0UserResponse])
-def get_users(settings: Settings = Depends(get_settings),
-                    client: Auth0Client = Depends(get_auth0_client)):
+def get_users(client: Auth0Client = Depends(get_auth0_client)):
     resp = client.get_users()
     return resp
 
 
+# NOTE: This must appear before /users/{user_id} so it takes precedence
+@router.get("/users/approved")
+def get_approved_users(client: Auth0Client = Depends(get_auth0_client)):
+    resp = client.get_approved_users()
+    return resp
+
+
+@router.get("/users/pending")
+def get_pending_users(client: Auth0Client = Depends(get_auth0_client)):
+    resp = client.get_pending_users()
+    return resp
+
 @router.get("/users/{user_id}",
             response_model=Auth0UserResponse)
-def get_user(user_id: str, settings: Settings = Depends(get_settings),
-                    client: Auth0Client = Depends(get_auth0_client)):
+def get_user(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
+            client: Auth0Client = Depends(get_auth0_client)):
     return client.get_user(user_id)
