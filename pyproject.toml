@@ -18,7 +18,8 @@ dev = [
     "pytest-cov>=4.1.0",
     "ruff>=0.4.4",
     "polyfactory>=2.21.0",
-    "pre-commit>=3.7.0"
+    "pre-commit>=3.7.0",
+    "freezegun>=1.5.2",
 ]
 
 [tool.pytest.ini_options]
