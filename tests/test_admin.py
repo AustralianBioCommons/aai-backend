@@ -1,13 +1,30 @@
+import asyncio
+from datetime import datetime, timedelta
+
 import pytest
 from fastapi import HTTPException
+from freezegun import freeze_time
 
 from auth.validator import get_current_user, user_is_admin
 from main import app
+from schemas import Service
 from tests.datagen import (
     AccessTokenPayloadFactory,
+    AppMetadataFactory,
     Auth0UserResponseFactory,
     UserFactory,
 )
+
+FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
+
+
+@pytest.fixture
+def frozen_time():
+    """
+    Freeze time so datetime.now() returns FROZEN_TIME.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        yield
 
 
 @pytest.fixture
@@ -64,3 +81,58 @@ def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
     resp = test_client.get("/admin/users/approved")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
+
+
+def test_approve_service(test_client, as_admin_user, mock_auth0_client, mocker):
+    """
+    Test that our approved service endpoint tries to update the Auth0 user's metadata.
+
+    Note this is currently pretty clunky due to the need to mock out asyncio.run.
+    """
+    # Build test user and metadata
+    service = Service(
+        name="Test Service",
+        id="service1",
+        status="pending",
+        last_updated=FROZEN_TIME - timedelta(hours=1),
+        updated_by=""
+    )
+    app_metadata = AppMetadataFactory.build(services=[service])
+    user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
+    approving_user = Auth0UserResponseFactory.build()
+
+    # Mock Auth0 client behavior
+    mock_auth0_client.get_user.side_effect = [user, approving_user]
+
+    # Patch update_user_metadata as an AsyncMock
+    mock_update = mocker.patch(
+        "routers.admin.update_user_metadata",
+        new_callable=mocker.AsyncMock,
+        return_value={"status": "ok", "updated": True}
+    )
+
+    # Patch asyncio.run to work in the AnyIO worker thread
+    def run_in_new_loop(coro):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    mocker.patch("routers.admin.asyncio.run", side_effect=run_in_new_loop)
+
+    # Make the API call
+    resp = test_client.get(f"/admin/users/{user.user_id}/services/approve/{service.id}")
+
+    # Validate HTTP response
+    assert resp.status_code == 200
+    mock_update.assert_awaited_once()
+
+    # Validate that update_user_metadata was called with correct data
+    args, kwargs = mock_update.call_args
+    assert kwargs["user_id"] == user.user_id
+    assert kwargs["token"] == mock_auth0_client.management_token
+    assert "services" in kwargs["metadata"]
+    assert kwargs["metadata"]["services"][0]["id"] == service.id
+    assert kwargs["metadata"]["services"][0]["updated_by"] == approving_user.email
