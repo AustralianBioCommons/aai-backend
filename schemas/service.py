@@ -18,6 +18,11 @@ class Service(BaseModel):
     updated_by: str
     resources: List[Resource] = Field(default_factory=list)
 
+    def approve(self, approved_by: str):
+        self.status = "approved"
+        self.updated_by = approved_by
+        self.last_updated = datetime.now()
+
 
 class Group(BaseModel):
     name: str
