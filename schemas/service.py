@@ -57,6 +57,12 @@ class AppMetadata(BaseModel):
         """Get a service by its ID."""
         return next((s for s in self.services if s.id == service_id), None)
 
+    def approve_service(self, service_id: str, approved_by: str):
+        """Approve a service by its ID."""
+        service = self.get_service_by_id(service_id)
+        if service:
+            service.approve(approved_by)
+
 
 class Identity(BaseModel):
     connection: str
