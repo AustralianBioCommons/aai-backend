@@ -1,10 +1,18 @@
+import asyncio
+import logging
+
 from fastapi import APIRouter, Depends, Path
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
-from auth.validator import user_is_admin
+from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client
 from auth0.schemas import Auth0UserResponse
+from routers.user import update_user_metadata
+from schemas.service import AppMetadata
+from schemas.user import User
+
+logger = logging.getLogger('uvicorn.error')
 
 router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
@@ -36,8 +44,28 @@ def get_pending_users(client: Auth0Client = Depends(get_auth0_client)):
     resp = client.get_pending_users()
     return resp
 
+
 @router.get("/users/{user_id}",
             response_model=Auth0UserResponse)
 def get_user(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
             client: Auth0Client = Depends(get_auth0_client)):
     return client.get_user(user_id)
+
+
+@router.get("/users/{user_id}/services/approve/{service_id}")
+def approve_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
+                    service_id: str = Path(..., pattern=r"^[a-zA-Z0-9_]+$"),
+                    client: Auth0Client = Depends(get_auth0_client),
+                    approving_user: User = Depends(get_current_user)):
+    user = client.get_user(user_id=user_id)
+    # NOTE: we currently don't enforce structure on app_metadata for Auth0UserResponse,
+    #   only in our User model, so we need to convert from dict
+    app_metadata = AppMetadata(**user.app_metadata)
+    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
+    logger.debug(f"Approving service {service_id} for user {user_id} by {approving_user_data.email}")
+    app_metadata.approve_service(service_id, approved_by=str(approving_user_data.email))
+    logger.info("Sending updated metadata to Auth0 API")
+    update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=app_metadata.model_dump(mode="json"))
+    resp = asyncio.run(update)
+    logger.info("Metadata updated successfully")
+    return resp
