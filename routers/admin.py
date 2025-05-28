@@ -67,3 +67,16 @@ def approve_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
     resp = asyncio.run(update)
     logger.info("Metadata updated successfully")
     return resp
+
+
+@router.get("/users/{user_id}/services/revoke/{service_id}")
+def revoke_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
+                   service_id: str = Path(..., pattern=r"^[a-zA-Z0-9_]+$"),
+                   client: Auth0Client = Depends(get_auth0_client),
+                   revoking_user: User = Depends(get_current_user)):
+    user = client.get_user(user_id=user_id)
+    revoking_user_data = client.get_user(user_id=revoking_user.access_token.sub)
+    user.app_metadata.revoke_service(service_id=service_id, updated_by=str(revoking_user_data.email))
+    update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
+    resp = asyncio.run(update)
+    return resp
