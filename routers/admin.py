@@ -44,6 +44,11 @@ def get_pending_users(client: Auth0Client = Depends(get_auth0_client)):
     return resp
 
 
+@router.get("/users/revoked")
+def get_revoked_users(client: Auth0Client = Depends(get_auth0_client)):
+    resp = client.get_revoked_users()
+    return resp
+
 @router.get("/users/{user_id}",
             response_model=Auth0UserResponse)
 def get_user(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),

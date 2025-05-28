@@ -41,3 +41,9 @@ class Auth0Client:
         url = f"https://{self.domain}/api/v2/users"
         resp = self._client.get(url, params={"q": pending_query, "search_engine": "v3"})
         return [Auth0UserResponse(**user) for user in resp.json()]
+
+    def get_revoked_users(self) -> list[Auth0UserResponse]:
+        revoked_query = 'app_metadata.services.status:"revoked"'
+        url = f"https://{self.domain}/api/v2/users"
+        resp = self._client.get(url, params={"q": revoked_query, "search_engine": "v3"})
+        return [Auth0UserResponse(**user) for user in resp.json()]
