@@ -1,9 +1,12 @@
+from typing import Annotated
+
 import httpx
+from fastapi import Depends
 
-from .config import Settings
+from .config import Settings, get_settings
 
 
-def get_management_token(settings: Settings):
+def get_management_token(settings: Annotated[Settings, Depends(get_settings)]):
     url = f"https://{settings.auth0_domain}/oauth/token"
     payload = {
         "grant_type": "client_credentials",

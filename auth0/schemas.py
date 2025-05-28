@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from schemas.service import AppMetadata
 
 
 class Auth0UserResponse(BaseModel):
@@ -19,7 +21,7 @@ class Auth0UserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     identities: List[dict]
-    app_metadata: Optional[dict] = None
+    app_metadata: AppMetadata = Field(default_factory=AppMetadata)
     user_metadata: Optional[dict] = None
     picture: Optional[str] = None
     name: Optional[str] = None
