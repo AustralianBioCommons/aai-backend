@@ -26,6 +26,11 @@ class Service(BaseModel):
         self.updated_by = approved_by
         self.last_updated = datetime.now()
 
+    def revoke(self, updated_by: str):
+        self.status = "revoked"
+        self.updated_by = updated_by
+        self.last_updated = datetime.now()
+
     def approve_resource(self, resource_id: str):
         if not self.status == "approved":
             raise PermissionError("Service must be approved before approving a resource.")
@@ -41,13 +46,17 @@ class Service(BaseModel):
         return next((r for r in self.resources if r.id == resource_id), None)
 
 
-
 class Group(BaseModel):
     name: str
     id: str
 
 
 class AppMetadata(BaseModel):
+    """
+    app_metadata we use to manage service/resource requests.
+    Note we expect all app_metadata from Auth0 to match this format
+    (if not empty).
+    """
     groups: List[Group] = Field(default_factory=list)
     services: List[Service] = Field(default_factory=list)
 
@@ -88,6 +97,12 @@ class AppMetadata(BaseModel):
         service = self.get_service_by_id(service_id)
         if service:
             service.approve(approved_by)
+
+    def revoke_service(self, service_id: str, updated_by: str):
+        """Revoke a service by its ID."""
+        service = self.get_service_by_id(service_id)
+        if service:
+            service.revoke(updated_by=updated_by)
 
     def approve_resource(self, service_id: str, resource_id: str):
         """Approve a resource by its ID."""
