@@ -20,7 +20,7 @@ def frozen_time():
 
 def test_approve_service(frozen_time):
     """
-    Test we can approve a service and set metadata correctly..
+    Test we can approve a service and set metadata correctly.
     """
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
@@ -45,6 +45,33 @@ def test_approve_service_from_app_metadata(frozen_time):
     assert service.last_updated == FROZEN_TIME
     assert other.status == "pending"
 
+
+def test_revoke_service(frozen_time):
+    """
+    Test we can revoke a service and set metadata correctly.
+    """
+    service = Service(name="Test Service", id="service1", status="approved",
+                      last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
+    service.revoke(updated_by="admin@example.com")
+    assert service.status == "revoked"
+    assert service.updated_by == "admin@example.com"
+    assert service.last_updated == FROZEN_TIME
+
+
+def test_revoke_service_from_app_metadata(frozen_time):
+    """
+    Test we can revoke a service by ID from AppMetadata.
+    """
+    service = Service(name="Test Service", id="service1", status="approved",
+                      last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
+    other = Service(name="Other Service", id="service2", status="approved",
+                    last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
+    app_metadata = AppMetadataFactory.build(services=[service, other])
+    app_metadata.revoke_service(service_id="service1", updated_by="admin@example.com")
+    assert service.status == "revoked"
+    assert service.updated_by == "admin@example.com"
+    assert service.last_updated == FROZEN_TIME
+    assert other.status == "approved"
 
 def test_approve_resource():
     resource = Resource(name="Test Resource", id="resource1", status="pending")
