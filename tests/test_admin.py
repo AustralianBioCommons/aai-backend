@@ -134,5 +134,64 @@ def test_approve_service(test_client, as_admin_user, mock_auth0_client, mocker):
     assert kwargs["user_id"] == user.user_id
     assert kwargs["token"] == mock_auth0_client.management_token
     assert "services" in kwargs["metadata"]
-    assert kwargs["metadata"]["services"][0]["id"] == service.id
-    assert kwargs["metadata"]["services"][0]["updated_by"] == approving_user.email
+    service_data = kwargs["metadata"]["services"][0]
+    assert service_data["status"] == "approved"
+    assert service_data["id"] == service.id
+    assert service_data["updated_by"] == approving_user.email
+
+
+def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
+    """
+    Test that our approved service endpoint tries to update the Auth0 user's metadata.
+
+    Note this is currently pretty clunky due to the need to mock out asyncio.run.
+    """
+    # Build test user and metadata
+    service = Service(
+        name="Test Service",
+        id="service1",
+        status="approved",
+        last_updated=FROZEN_TIME - timedelta(hours=1),
+        updated_by=""
+    )
+    app_metadata = AppMetadataFactory.build(services=[service])
+    user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
+    revoking_user = Auth0UserResponseFactory.build()
+
+    # Mock Auth0 client behavior
+    mock_auth0_client.get_user.side_effect = [user, revoking_user]
+
+    # Patch update_user_metadata as an AsyncMock
+    mock_update = mocker.patch(
+        "routers.admin.update_user_metadata",
+        new_callable=mocker.AsyncMock,
+        return_value={"status": "ok", "updated": True}
+    )
+
+    # Patch asyncio.run to work in the AnyIO worker thread
+    def run_in_new_loop(coro):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(coro)
+        finally:
+            loop.close()
+
+    mocker.patch("routers.admin.asyncio.run", side_effect=run_in_new_loop)
+
+    # Make the API call
+    resp = test_client.get(f"/admin/users/{user.user_id}/services/revoke/{service.id}")
+
+    # Validate HTTP response
+    assert resp.status_code == 200
+    mock_update.assert_awaited_once()
+
+    # Validate that update_user_metadata was called with correct data
+    args, kwargs = mock_update.call_args
+    assert kwargs["user_id"] == user.user_id
+    assert kwargs["token"] == mock_auth0_client.management_token
+    assert "services" in kwargs["metadata"]
+    service_data = kwargs["metadata"]["services"][0]
+    assert service_data["status"] == "revoked"
+    assert service_data["id"] == service.id
+    assert service_data["updated_by"] == revoking_user.email
