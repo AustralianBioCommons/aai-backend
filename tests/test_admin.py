@@ -76,11 +76,39 @@ def test_get_user(test_client, as_admin_user, mock_auth0_client):
 
 
 def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "approved"}]})
-    mock_auth0_client.get_approved_users.return_value = users
+    approved_users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "approved"}]})
+    mock_auth0_client.get_approved_users.return_value = approved_users
     resp = test_client.get("/admin/users/approved")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
+    approved_ids = set(u.user_id for u in approved_users)
+    for returned_user in resp.json():
+        assert returned_user["app_metadata"]["services"][0]["status"] == "approved"
+        assert returned_user["user_id"] in approved_ids
+
+
+def test_get_pending_users(test_client, as_admin_user, mock_auth0_client):
+    pending_users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "pending"}]})
+    mock_auth0_client.get_pending_users.return_value = pending_users
+    resp = test_client.get("/admin/users/pending")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 3
+    pending_ids = set(u.user_id for u in pending_users)
+    for returned_user in resp.json():
+        assert returned_user["app_metadata"]["services"][0]["status"] == "pending"
+        assert returned_user["user_id"] in pending_ids
+
+
+def test_get_revoked(test_client, as_admin_user, mock_auth0_client):
+    revoked_users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "revoked"}]})
+    mock_auth0_client.get_revoked_users.return_value = revoked_users
+    resp = test_client.get("/admin/users/revoked")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 3
+    revoked_ids = set(u.user_id for u in revoked_users)
+    for returned_user in resp.json():
+        assert returned_user["app_metadata"]["services"][0]["status"] == "revoked"
+        assert returned_user["user_id"] in revoked_ids
 
 
 # Patch asyncio.run to work in the AnyIO worker thread
