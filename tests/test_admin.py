@@ -83,6 +83,16 @@ def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
     assert len(resp.json()) == 3
 
 
+# Patch asyncio.run to work in the AnyIO worker thread
+def run_in_new_loop(coro):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
 def test_approve_service(test_client, as_admin_user, mock_auth0_client, mocker):
     """
     Test that our approved service endpoint tries to update the Auth0 user's metadata.
@@ -110,15 +120,6 @@ def test_approve_service(test_client, as_admin_user, mock_auth0_client, mocker):
         new_callable=mocker.AsyncMock,
         return_value={"status": "ok", "updated": True}
     )
-
-    # Patch asyncio.run to work in the AnyIO worker thread
-    def run_in_new_loop(coro):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
 
     mocker.patch("routers.admin.asyncio.run", side_effect=run_in_new_loop)
 
@@ -167,15 +168,6 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
         new_callable=mocker.AsyncMock,
         return_value={"status": "ok", "updated": True}
     )
-
-    # Patch asyncio.run to work in the AnyIO worker thread
-    def run_in_new_loop(coro):
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
 
     mocker.patch("routers.admin.asyncio.run", side_effect=run_in_new_loop)
 
