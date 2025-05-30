@@ -56,7 +56,7 @@ def get_user(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
     return client.get_user(user_id)
 
 
-@router.get("/users/{user_id}/services/approve/{service_id}")
+@router.post("/users/{user_id}/services/approve/{service_id}")
 def approve_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
                     service_id: str = Path(..., pattern=r"^[a-zA-Z0-9_]+$"),
                     client: Auth0Client = Depends(get_auth0_client),
@@ -74,7 +74,7 @@ def approve_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
     return resp
 
 
-@router.get("/users/{user_id}/services/revoke/{service_id}")
+@router.post("/users/{user_id}/services/revoke/{service_id}")
 def revoke_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
                    service_id: str = Path(..., pattern=r"^[a-zA-Z0-9_]+$"),
                    client: Auth0Client = Depends(get_auth0_client),

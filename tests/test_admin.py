@@ -152,7 +152,7 @@ def test_approve_service(test_client, as_admin_user, mock_auth0_client, mocker):
     mocker.patch("routers.admin.asyncio.run", side_effect=run_in_new_loop)
 
     # Make the API call
-    resp = test_client.get(f"/admin/users/{user.user_id}/services/approve/{service.id}")
+    resp = test_client.post(f"/admin/users/{user.user_id}/services/approve/{service.id}")
 
     # Validate HTTP response
     assert resp.status_code == 200
@@ -200,7 +200,7 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
     mocker.patch("routers.admin.asyncio.run", side_effect=run_in_new_loop)
 
     # Make the API call
-    resp = test_client.get(f"/admin/users/{user.user_id}/services/revoke/{service.id}")
+    resp = test_client.post(f"/admin/users/{user.user_id}/services/revoke/{service.id}")
 
     # Validate HTTP response
     assert resp.status_code == 200
