@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 
@@ -12,6 +13,11 @@ from routers.user import update_user_metadata
 from schemas.user import User
 
 logger = logging.getLogger('uvicorn.error')
+
+
+UserIdParam = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$")
+ServiceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
+ResourceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
 
 router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
@@ -51,16 +57,16 @@ def get_revoked_users(client: Auth0Client = Depends(get_auth0_client)):
 
 @router.get("/users/{user_id}",
             response_model=Auth0UserResponse)
-def get_user(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
+def get_user(user_id: Annotated[str, UserIdParam],
             client: Auth0Client = Depends(get_auth0_client)):
     return client.get_user(user_id)
 
 
-@router.post("/users/{user_id}/services/approve/{service_id}")
-def approve_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
-                    service_id: str = Path(..., pattern=r"^[a-zA-Z0-9_]+$"),
-                    client: Auth0Client = Depends(get_auth0_client),
-                    approving_user: User = Depends(get_current_user)):
+@router.post("/users/{user_id}/services/{service_id}/approve")
+def approve_service(user_id: Annotated[str, UserIdParam],
+                    service_id: Annotated[str, ServiceIdParam],
+                    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                    approving_user: Annotated[User, Depends(get_current_user)]):
     user = client.get_user(user_id=user_id)
     # Need to fetch full user info currently to get email address, not in access token
     approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
@@ -74,11 +80,14 @@ def approve_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
     return resp
 
 
-@router.post("/users/{user_id}/services/revoke/{service_id}")
-def revoke_service(user_id: str = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$"),
-                   service_id: str = Path(..., pattern=r"^[a-zA-Z0-9_]+$"),
-                   client: Auth0Client = Depends(get_auth0_client),
-                   revoking_user: User = Depends(get_current_user)):
+@router.post("/users/{user_id}/services/{service_id}/revoke")
+def revoke_service(user_id: Annotated[str, UserIdParam],
+                   service_id: Annotated[str, ServiceIdParam],
+                   client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                   revoking_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Revoke a service and all associated resources for a user.
+    """
     user = client.get_user(user_id=user_id)
     revoking_user_data = client.get_user(user_id=revoking_user.access_token.sub)
     user.app_metadata.revoke_service(service_id=service_id, updated_by=str(revoking_user_data.email))
