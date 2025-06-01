@@ -91,6 +91,9 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
     user = client.get_user(user_id=user_id)
     revoking_user_data = client.get_user(user_id=revoking_user.access_token.sub)
     user.app_metadata.revoke_service(service_id=service_id, updated_by=str(revoking_user_data.email))
+    service = user.app_metadata.get_service_by_id(service_id)
+    for resource in service.resources:
+        resource.revoke()
     update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
     resp = asyncio.run(update)
     return resp
