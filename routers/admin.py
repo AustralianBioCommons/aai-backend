@@ -2,9 +2,9 @@ import asyncio
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
@@ -35,10 +35,10 @@ class PaginationParams(BaseModel):
 
 
 def get_pagination_params(page: int = 1, per_page: int = 100):
-    return PaginationParams(
-        page=page,
-        per_page=per_page
-    )
+    try:
+        return PaginationParams(page=page, per_page=per_page)
+    except ValidationError:
+        raise HTTPException(status_code=422, detail="Invalid page params: page should be >= 1, per_page should be >= 1 and <= 100")
 
 
 router = APIRouter(prefix="/admin", tags=["admin"],
