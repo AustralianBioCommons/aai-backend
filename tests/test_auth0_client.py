@@ -3,7 +3,6 @@ import respx
 from httpx import Response
 
 from auth0.client import Auth0Client
-from auth0.schemas import Auth0UserResponse
 from tests.datagen import Auth0UserResponseFactory
 
 
@@ -45,15 +44,15 @@ def test_get_users_with_pagination(auth0_client):
 @respx.mock
 def test_get_user_by_id(auth0_client):
     user_id = "auth0|789"
-    expected = {"user_id": user_id, "email": "one@example.com"}
+    user = Auth0UserResponseFactory.build(user_id=user_id)
     route = respx.get(f"https://example.auth0.com/api/v2/users/{user_id}").mock(
-        return_value=Response(200, json=expected)
+        return_value=Response(200, json=user.model_dump(mode="json"))
     )
 
     result = auth0_client.get_user(user_id)
 
     assert route.called
-    assert result == Auth0UserResponse(**expected)
+    assert result.model_dump(mode="json") == user.model_dump(mode="json")
 
 
 @pytest.mark.parametrize(
