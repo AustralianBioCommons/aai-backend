@@ -202,13 +202,15 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
 
     Note this is currently pretty clunky due to the need to mock out asyncio.run.
     """
-    # Build test user and metadata
+    resource1 = Resource(name="Test Resource", id="resource1", status="approved")
+    resource2 = Resource(name="Test Resource", id="resource2", status="approved")
     service = Service(
         name="Test Service",
         id="service1",
         status="approved",
         last_updated=FROZEN_TIME - timedelta(hours=1),
-        updated_by=""
+        updated_by="",
+        resources=[resource1, resource2]
     )
     app_metadata = AppMetadataFactory.build(services=[service])
     user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
@@ -242,6 +244,8 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
     assert service_data["status"] == "revoked"
     assert service_data["id"] == service.id
     assert service_data["updated_by"] == revoking_user.email
+    for resource in service_data["resources"]:
+        assert resource["status"] == "revoked"
 
 
 def test_approve_resource(test_client, as_admin_user, mock_auth0_client, mocker):
