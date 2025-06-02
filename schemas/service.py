@@ -9,6 +9,12 @@ class Resource(BaseModel):
     status: Literal["approved", "revoked", "pending"]
     id: str
 
+    def approve(self):
+        self.status = "approved"
+
+    def revoke(self):
+        self.status = "revoked"
+
 
 class Service(BaseModel):
     name: str
@@ -18,6 +24,30 @@ class Service(BaseModel):
     updated_by: str
     resources: List[Resource] = Field(default_factory=list)
 
+    def approve(self, updated_by: str):
+        self.status = "approved"
+        self.updated_by = updated_by
+        self.last_updated = datetime.now()
+
+    def revoke(self, updated_by: str):
+        self.status = "revoked"
+        self.updated_by = updated_by
+        self.last_updated = datetime.now()
+
+    def approve_resource(self, resource_id: str):
+        if not self.status == "approved":
+            raise PermissionError("Service must be approved before approving a resource.")
+        resource = self.get_resource_by_id(resource_id)
+        if resource:
+            resource.approve()
+            self.last_updated = datetime.now()
+            return resource
+        else:
+            raise ValueError("Resource not found.")
+
+    def get_resource_by_id(self, resource_id: str) -> Optional[Resource]:
+        return next((r for r in self.resources if r.id == resource_id), None)
+
 
 class Group(BaseModel):
     name: str
@@ -25,6 +55,11 @@ class Group(BaseModel):
 
 
 class AppMetadata(BaseModel):
+    """
+    app_metadata we use to manage service/resource requests.
+    Note we expect all app_metadata from Auth0 to match this format
+    (if not empty).
+    """
     groups: List[Group] = Field(default_factory=list)
     services: List[Service] = Field(default_factory=list)
 
@@ -51,6 +86,35 @@ class AppMetadata(BaseModel):
     def get_service_by_id(self, service_id: str) -> Optional[Service]:
         """Get a service by its ID."""
         return next((s for s in self.services if s.id == service_id), None)
+
+    def get_resource_by_id(self, service_id: str, resource_id: str) -> Optional[Resource]:
+        """Get a resource by its ID."""
+        service = self.get_service_by_id(service_id)
+        if service:
+            return service.get_resource_by_id(resource_id)
+        else:
+            return None
+
+    def approve_service(self, service_id: str, updated_by: str):
+        """Approve a service by its ID."""
+        service = self.get_service_by_id(service_id)
+        if service:
+            service.approve(updated_by)
+
+    def revoke_service(self, service_id: str, updated_by: str):
+        """Revoke a service by its ID."""
+        service = self.get_service_by_id(service_id)
+        if service:
+            service.revoke(updated_by=updated_by)
+
+    def approve_resource(self, service_id: str, resource_id: str):
+        """Approve a resource by its ID."""
+        resource = self.get_resource_by_id(service_id=service_id, resource_id=resource_id)
+        if resource:
+            resource.approve()
+            return resource
+        else:
+            raise ValueError("Resource not found.")
 
 
 class Identity(BaseModel):

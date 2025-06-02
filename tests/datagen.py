@@ -1,10 +1,12 @@
+import random
+
 from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 
 from auth0.schemas import Auth0UserResponse
 from routers.bpa_register import BPARegistrationRequest
 from schemas.galaxy import GalaxyRegistrationData
-from schemas.service import Auth0User
+from schemas.service import AppMetadata, Auth0User
 from schemas.tokens import AccessTokenPayload
 from schemas.user import User
 
@@ -12,7 +14,11 @@ from schemas.user import User
 class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]): ...
 
 
-class Auth0UserResponseFactory(ModelFactory[Auth0UserResponse]): ...
+class Auth0UserResponseFactory(ModelFactory[Auth0UserResponse]):
+
+    @classmethod
+    def user_id(cls) -> str:
+        return "auth0|" + ''.join(random.choices('0123456789abcdef', k=24))
 
 
 class UserFactory(ModelFactory[User]): ...
@@ -43,3 +49,6 @@ class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
             "cipps": False,
             "ausarg": True,
         }
+
+
+class AppMetadataFactory(ModelFactory[AppMetadata]): ...

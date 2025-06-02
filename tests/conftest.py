@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from auth.config import Settings, get_settings
+from auth.management import get_management_token
 from auth.validator import get_current_user
 from main import app
 from tests.datagen import AccessTokenPayloadFactory, UserFactory
@@ -63,5 +64,6 @@ def as_admin_user():
         return UserFactory.build(access_token=token)
 
     app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
     yield
     app.dependency_overrides.clear()
