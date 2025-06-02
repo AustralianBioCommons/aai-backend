@@ -12,6 +12,9 @@ class Resource(BaseModel):
     def approve(self):
         self.status = "approved"
 
+    def revoke(self):
+        self.status = "revoked"
+
 
 class Service(BaseModel):
     name: str
