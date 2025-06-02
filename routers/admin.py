@@ -97,3 +97,15 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
     update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
     resp = asyncio.run(update)
     return resp
+
+
+@router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")
+def approve_resource(user_id: Annotated[str, UserIdParam],
+                     service_id: Annotated[str, ServiceIdParam],
+                     resource_id: Annotated[str, ResourceIdParam],
+                     client: Annotated[Auth0Client, Depends(get_auth0_client)]):
+    user = client.get_user(user_id=user_id)
+    user.app_metadata.approve_resource(service_id=service_id, resource_id=resource_id)
+    update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
+    resp = asyncio.run(update)
+    return resp
