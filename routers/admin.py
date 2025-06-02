@@ -38,7 +38,10 @@ def get_pagination_params(page: int = 1, per_page: int = 100):
     try:
         return PaginationParams(page=page, per_page=per_page)
     except ValidationError:
-        raise HTTPException(status_code=422, detail="Invalid page params: page should be >= 1, per_page should be >= 1 and <= 100")
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid page params: page should be >= 1, per_page should be >= 1 and <= 100"
+        )
 
 
 router = APIRouter(prefix="/admin", tags=["admin"],
