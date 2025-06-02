@@ -55,10 +55,11 @@ def get_revoked_users(client: Auth0Client = Depends(get_auth0_client)):
     resp = client.get_revoked_users()
     return resp
 
+
 @router.get("/users/{user_id}",
             response_model=Auth0UserResponse)
 def get_user(user_id: Annotated[str, UserIdParam],
-            client: Auth0Client = Depends(get_auth0_client)):
+             client: Auth0Client = Depends(get_auth0_client)):
     return client.get_user(user_id)
 
 
@@ -74,7 +75,11 @@ def approve_service(user_id: Annotated[str, UserIdParam],
     user.app_metadata.approve_service(service_id, approved_by=str(approving_user_data.email))
     logger.info("Sending updated metadata to Auth0 API")
     # update_user_metadata is async, so run via asyncio
-    update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
+    update = update_user_metadata(
+        user_id=user_id,
+        token=client.management_token,
+        metadata=user.app_metadata.model_dump(mode="json")
+    )
     resp = asyncio.run(update)
     logger.info("Metadata updated successfully")
     return resp
@@ -94,7 +99,11 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
     service = user.app_metadata.get_service_by_id(service_id)
     for resource in service.resources:
         resource.revoke()
-    update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
+    update = update_user_metadata(
+        user_id=user_id,
+        token=client.management_token,
+        metadata=user.app_metadata.model_dump(mode="json")
+    )
     resp = asyncio.run(update)
     return resp
 
@@ -106,6 +115,10 @@ def approve_resource(user_id: Annotated[str, UserIdParam],
                      client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     user = client.get_user(user_id=user_id)
     user.app_metadata.approve_resource(service_id=service_id, resource_id=resource_id)
-    update = update_user_metadata(user_id=user_id, token=client.management_token, metadata=user.app_metadata.model_dump(mode="json"))
+    update = update_user_metadata(
+        user_id=user_id,
+        token=client.management_token,
+        metadata=user.app_metadata.model_dump(mode="json")
+    )
     resp = asyncio.run(update)
     return resp
