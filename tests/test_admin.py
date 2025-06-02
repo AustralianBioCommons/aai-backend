@@ -77,6 +77,23 @@ def test_get_users(test_client, as_admin_user, mock_auth0_client):
     assert len(resp.json()) == 3
 
 
+def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client):
+    users = Auth0UserResponseFactory.batch(3)
+    mock_auth0_client.get_users.return_value = users
+    resp = test_client.get("/admin/users?page=2&per_page=10")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 3
+
+
+def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client):
+    users = Auth0UserResponseFactory.batch(3)
+    mock_auth0_client.get_users.return_value = users
+    resp = test_client.get("/admin/users?page=0&per_page=500")
+    assert resp.status_code == 422
+    error_msg = resp.json()["detail"]
+    assert "Invalid page params" in error_msg
+
+
 def test_get_user(test_client, as_admin_user, mock_auth0_client):
     user = Auth0UserResponseFactory.build()
     mock_auth0_client.get_user.return_value = user
