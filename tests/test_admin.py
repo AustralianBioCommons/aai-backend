@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from auth.validator import get_current_user, user_is_admin
 from main import app
+from routers.admin import PaginationParams
 from schemas import Resource, Service
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -31,6 +32,15 @@ def frozen_time():
 def mock_auth0_client(mocker):
     mock_client = mocker.patch("routers.admin.Auth0Client")
     return mock_client()
+
+
+def test_pagination_params_start_index():
+    """
+    Test we can get the current start index given the page number and per_page.
+    """
+    params = PaginationParams(page=2, per_page=10)
+    # start index for page 1 is 0, for page 2 is 0 + per_page = 10
+    assert params.start_index == 10
 
 
 def test_get_users_requires_admin_unauthorized(test_client, mocker):
