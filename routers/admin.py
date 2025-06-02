@@ -39,19 +39,19 @@ def get_users(client: Auth0Client = Depends(get_auth0_client)):
 
 # NOTE: This must appear before /users/{user_id} so it takes precedence
 @router.get("/users/approved")
-def get_approved_users(client: Auth0Client = Depends(get_auth0_client)):
+def get_approved_users(client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     resp = client.get_approved_users()
     return resp
 
 
 @router.get("/users/pending")
-def get_pending_users(client: Auth0Client = Depends(get_auth0_client)):
+def get_pending_users(client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     resp = client.get_pending_users()
     return resp
 
 
 @router.get("/users/revoked")
-def get_revoked_users(client: Auth0Client = Depends(get_auth0_client)):
+def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     resp = client.get_revoked_users()
     return resp
 
@@ -59,7 +59,7 @@ def get_revoked_users(client: Auth0Client = Depends(get_auth0_client)):
 @router.get("/users/{user_id}",
             response_model=Auth0UserResponse)
 def get_user(user_id: Annotated[str, UserIdParam],
-             client: Auth0Client = Depends(get_auth0_client)):
+             client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     return client.get_user(user_id)
 
 
