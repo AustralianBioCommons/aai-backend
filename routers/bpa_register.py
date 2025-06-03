@@ -31,7 +31,6 @@ class BPARegistrationRequest(BaseModel):
         500: {"description": "Internal server error"},
     },
 )
-
 async def register_bpa_user(
     registration: BPARegistrationRequest,
     settings: Settings = Depends(get_settings),
@@ -39,8 +38,7 @@ async def register_bpa_user(
     """Register a new BPA user with selected organization resources."""
     url = f"https://{settings.auth0_domain}/api/v2/users"
     token = get_management_token(settings=settings)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type":
-    "application/json"}
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     # Create BPA resources for selected organizations
     bpa_resources = []
@@ -66,7 +64,7 @@ async def register_bpa_user(
         resources=bpa_resources,
     )
 
-    # Create Auth0 user data	    user_data = BPARegisterData.from_registration(registration, bpa_service)
+    # Create Auth0 user data
     user_data = BPARegisterData.from_registration(
         registration=registration, bpa_service=bpa_service
     )
