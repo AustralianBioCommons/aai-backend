@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from auth.validator import get_current_user, user_is_admin
 from main import app
+from routers.admin import PaginationParams
 from schemas import Resource, Service
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -31,6 +32,15 @@ def frozen_time():
 def mock_auth0_client(mocker):
     mock_client = mocker.patch("routers.admin.Auth0Client")
     return mock_client()
+
+
+def test_pagination_params_start_index():
+    """
+    Test we can get the current start index given the page number and per_page.
+    """
+    params = PaginationParams(page=2, per_page=10)
+    # start index for page 1 is 0, for page 2 is 0 + per_page = 10
+    assert params.start_index == 10
 
 
 def test_get_users_requires_admin_unauthorized(test_client, mocker):
@@ -65,6 +75,23 @@ def test_get_users(test_client, as_admin_user, mock_auth0_client):
     resp = test_client.get("/admin/users")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
+
+
+def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client):
+    users = Auth0UserResponseFactory.batch(3)
+    mock_auth0_client.get_users.return_value = users
+    resp = test_client.get("/admin/users?page=2&per_page=10")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 3
+
+
+def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client):
+    users = Auth0UserResponseFactory.batch(3)
+    mock_auth0_client.get_users.return_value = users
+    resp = test_client.get("/admin/users?page=0&per_page=500")
+    assert resp.status_code == 422
+    error_msg = resp.json()["detail"]
+    assert "Invalid page params" in error_msg
 
 
 def test_get_user(test_client, as_admin_user, mock_auth0_client):
@@ -175,13 +202,15 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
 
     Note this is currently pretty clunky due to the need to mock out asyncio.run.
     """
-    # Build test user and metadata
+    resource1 = Resource(name="Test Resource", id="resource1", status="approved")
+    resource2 = Resource(name="Test Resource", id="resource2", status="approved")
     service = Service(
         name="Test Service",
         id="service1",
         status="approved",
         last_updated=FROZEN_TIME - timedelta(hours=1),
-        updated_by=""
+        updated_by="",
+        resources=[resource1, resource2]
     )
     app_metadata = AppMetadataFactory.build(services=[service])
     user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
@@ -215,6 +244,8 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
     assert service_data["status"] == "revoked"
     assert service_data["id"] == service.id
     assert service_data["updated_by"] == revoking_user.email
+    for resource in service_data["resources"]:
+        assert resource["status"] == "revoked"
 
 
 def test_approve_resource(test_client, as_admin_user, mock_auth0_client, mocker):

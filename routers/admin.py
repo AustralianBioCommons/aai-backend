@@ -2,7 +2,9 @@ import asyncio
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path
+from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.params import Query
+from pydantic import BaseModel, ValidationError
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
@@ -19,6 +21,29 @@ UserIdParam = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$")
 ServiceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
 ResourceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
 
+
+class PaginationParams(BaseModel):
+    """
+    Query parameters for paginated endpoints. Page starts at 1.
+    """
+    page: int = Query(1, ge=1)
+    per_page: int = Query(100, ge=1, le=100)
+
+    @property
+    def start_index(self):
+        return (self.page - 1) * self.per_page
+
+
+def get_pagination_params(page: int = 1, per_page: int = 100):
+    try:
+        return PaginationParams(page=page, per_page=per_page)
+    except ValidationError:
+        raise HTTPException(
+            status_code=422,
+            detail="Invalid page params: page should be >= 1, per_page should be >= 1 and <= 100"
+        )
+
+
 router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
 
@@ -32,27 +57,31 @@ def get_auth0_client(settings: Settings = Depends(get_settings),
 #   of them
 @router.get("/users",
             response_model=list[Auth0UserResponse])
-def get_users(client: Auth0Client = Depends(get_auth0_client)):
-    resp = client.get_users()
+def get_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+              pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+    resp = client.get_users(page=pagination.page, per_page=pagination.per_page)
     return resp
 
 
 # NOTE: This must appear before /users/{user_id} so it takes precedence
 @router.get("/users/approved")
-def get_approved_users(client: Annotated[Auth0Client, Depends(get_auth0_client)]):
-    resp = client.get_approved_users()
+def get_approved_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+    resp = client.get_approved_users(page=pagination.page, per_page=pagination.per_page)
     return resp
 
 
 @router.get("/users/pending")
-def get_pending_users(client: Annotated[Auth0Client, Depends(get_auth0_client)]):
-    resp = client.get_pending_users()
+def get_pending_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                      pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+    resp = client.get_pending_users(page=pagination.page, per_page=pagination.per_page)
     return resp
 
 
 @router.get("/users/revoked")
-def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)]):
-    resp = client.get_revoked_users()
+def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                      pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+    resp = client.get_revoked_users(page=pagination.page, per_page=pagination.per_page)
     return resp
 
 
