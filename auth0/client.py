@@ -19,6 +19,13 @@ class Auth0Client:
         """Convert a list of Auth0UserResponse objects from a response."""
         return [Auth0UserResponse(**user) for user in resp.json()]
 
+    def create_user(self, user_data: dict) -> dict:
+        """Create a new user in Auth0."""
+        url = f"https://{self.domain}/api/v2/users"
+        resp = self._client.post(url, json=user_data)
+        resp.raise_for_status()
+        return resp.json()
+
     def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserResponse]:
         params = {}
         if page is not None:

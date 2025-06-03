@@ -1,3 +1,5 @@
+import httpx
+
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -7,6 +9,7 @@ from pydantic import BaseModel, EmailStr
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
+from auth0.client import Auth0Client
 from schemas.bpa import BPARegisterData
 from schemas.service import Resource, Service
 
@@ -31,29 +34,25 @@ class BPARegistrationRequest(BaseModel):
         500: {"description": "Internal server error"},
     },
 )
+
 async def register_bpa_user(
-    registration: BPARegistrationRequest, settings: Settings = Depends(get_settings)
+    registration: BPARegistrationRequest,
+    settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
     """Register a new BPA user with selected organization resources."""
-    url = f"https://{settings.auth0_domain}/api/v2/users"
-    token = get_management_token(settings=settings)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    token = get_management_token(settings)
+    auth0 = Auth0Client(domain=settings.auth0_domain, management_token=token)
 
-    # Create BPA resources for selected organizations
+    # Create BPA resources
     bpa_resources = []
     for org_id, is_selected in registration.organizations.items():
-        if not is_selected:
-            continue
-        if org_id not in settings.organizations:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid organization ID: {org_id}"
+        if is_selected:
+            if org_id not in settings.organizations:
+                raise HTTPException(status_code=400, detail=f"Invalid organization ID: {org_id}")
+            bpa_resources.append(
+                Resource(id=org_id, name=settings.organizations[org_id], status="pending").model_dump(mode="json")
             )
-        resource = Resource(
-            id=org_id, name=settings.organizations[org_id], status="pending"
-        ).model_dump(mode="json")
-        bpa_resources.append(resource)
 
-    # Create BPA service
     bpa_service = Service(
         name="BPA",
         id="bpa",
@@ -63,26 +62,12 @@ async def register_bpa_user(
         resources=bpa_resources,
     )
 
-    # Create Auth0 user data
-    user_data = BPARegisterData.from_registration(
-        registration=registration, bpa_service=bpa_service
-    )
+    user_data = BPARegisterData.from_registration(registration, bpa_service)
 
     try:
-        async with AsyncClient() as client:
-            response = await client.post(
-                url, headers=headers, json=user_data.model_dump()
-            )
-            if response.status_code != 201:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Registration failed: {response.json()['message']}",
-                )
-            return {"message": "User registered successfully", "user": response.json()}
-
-    except HTTPException:
-        raise
+        response = auth0.create_user(user_data.model_dump())
+        return {"message": "User registered successfully", "user": response}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=400, detail=f"Registration failed: {e.response.json()['message']}")
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to register user: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to register user: {str(e)}")
