@@ -56,11 +56,10 @@ def test_successful_registration(test_client, mock_auth_token, mocker, valid_reg
     assert "last_updated" in bpa_service
     assert len(bpa_service["resources"]) == 2
 
-    assert (
-        called_data["user_metadata"]["bpa"]["registration_reason"]
-        == valid_registration_data["reason"]
-    )
-
+    user_metadata = called_data["user_metadata"]
+    assert "bpa" in user_metadata
+    assert user_metadata["bpa"]["registration_reason"] == valid_registration_data["reason"]
+    assert user_metadata["bpa"]["username"] == valid_registration_data["username"]
 
 def test_registration_duplicate_user(test_client, mock_auth_token, mocker, valid_registration_data):
     """Test registration with duplicate user"""

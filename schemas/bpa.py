@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 
 
 class BPAUserMetadata(BaseModel):
-    bpa: Dict[str, str] = {"registration_reason": ""}
+    bpa: Dict[str, str] = {"registration_reason": "", "username": ""}
 
 
 class BPAAppMetadata(BaseModel):
@@ -33,7 +33,8 @@ class BPARegisterData(BaseModel):
             username=registration.username,
             name=registration.fullname,
             user_metadata=BPAUserMetadata(
-                bpa={"registration_reason": registration.reason}
+                bpa={"registration_reason": registration.reason,
+                     "username": registration.username,},
             ),
             app_metadata=BPAAppMetadata(services=[bpa_service.model_dump(mode="json")]),
         )
