@@ -67,11 +67,6 @@ def test_registration_duplicate_user(test_client, mock_auth_token, mocker, valid
     mock_error = MagicMock()
     mock_error.response.json.return_value = {"message": "User already exists"}
 
-    mock_create_user = mocker.patch(
-        "routers.bpa_register.Auth0Client.create_user",
-        side_effect=Exception("Registration failed: User already exists")
-    )
-
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 500

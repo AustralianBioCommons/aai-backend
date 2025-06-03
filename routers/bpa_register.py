@@ -1,10 +1,8 @@
-import httpx
-
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from httpx import AsyncClient
 from pydantic import BaseModel, EmailStr
 
 from auth.config import Settings, get_settings
