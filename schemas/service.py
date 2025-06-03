@@ -24,9 +24,9 @@ class Service(BaseModel):
     updated_by: str
     resources: List[Resource] = Field(default_factory=list)
 
-    def approve(self, approved_by: str):
+    def approve(self, updated_by: str):
         self.status = "approved"
-        self.updated_by = approved_by
+        self.updated_by = updated_by
         self.last_updated = datetime.now()
 
     def revoke(self, updated_by: str):
@@ -95,11 +95,11 @@ class AppMetadata(BaseModel):
         else:
             return None
 
-    def approve_service(self, service_id: str, approved_by: str):
+    def approve_service(self, service_id: str, updated_by: str):
         """Approve a service by its ID."""
         service = self.get_service_by_id(service_id)
         if service:
-            service.approve(approved_by)
+            service.approve(updated_by)
 
     def revoke_service(self, service_id: str, updated_by: str):
         """Revoke a service by its ID."""

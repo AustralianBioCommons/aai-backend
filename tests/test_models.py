@@ -24,7 +24,7 @@ def test_approve_service(frozen_time):
     """
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
-    service.approve(approved_by="admin@example.com")
+    service.approve(updated_by="admin@example.com")
     assert service.status == "approved"
     assert service.updated_by == "admin@example.com"
     assert service.last_updated == FROZEN_TIME
@@ -39,7 +39,7 @@ def test_approve_service_from_app_metadata(frozen_time):
     other = Service(name="Other Service", id="service2", status="pending",
                     last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     app_metadata = AppMetadataFactory.build(services=[service, other])
-    app_metadata.approve_service(service_id="service1", approved_by="admin@example.com")
+    app_metadata.approve_service(service_id="service1", updated_by="admin@example.com")
     assert service.status == "approved"
     assert service.updated_by == "admin@example.com"
     assert service.last_updated == FROZEN_TIME

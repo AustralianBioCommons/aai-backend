@@ -73,18 +73,11 @@ async def register_bpa_user(
             response = await client.post(
                 url, headers=headers, json=user_data.model_dump()
             )
-
-            if response.status_code == 409:
-                raise HTTPException(
-                    status_code=409,
-                    detail="User with this email or username already exists",
-                )
-
             if response.status_code != 201:
                 raise HTTPException(
-                    status_code=400, detail=f"Failed to create user: {response.text}"
+                    status_code=400,
+                    detail=f"Registration failed: {response.json()['message']}",
                 )
-
             return {"message": "User registered successfully", "user": response.json()}
 
     except HTTPException:
