@@ -41,16 +41,21 @@ async def register_bpa_user(
     token = get_management_token(settings)
     auth0 = Auth0Client(domain=settings.auth0_domain, management_token=token)
 
-    # Create BPA resources
+    # Create BPA resources for selected organizations
     bpa_resources = []
     for org_id, is_selected in registration.organizations.items():
-        if is_selected:
-            if org_id not in settings.organizations:
-                raise HTTPException(status_code=400, detail=f"Invalid organization ID: {org_id}")
-            bpa_resources.append(
-                Resource(id=org_id, name=settings.organizations[org_id], status="pending").model_dump(mode="json")
+        if not is_selected:
+            continue
+        if org_id not in settings.organizations:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid organization ID: {org_id}"
             )
+        resource = Resource(
+            id=org_id, name=settings.organizations[org_id], status="pending"
+        ).model_dump(mode="json")
+        bpa_resources.append(resource)
 
+    # Create BPA service
     bpa_service = Service(
         name="BPA",
         id="bpa",
