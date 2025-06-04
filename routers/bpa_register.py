@@ -3,23 +3,14 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
-from pydantic import BaseModel, EmailStr
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
-from schemas.bpa import BPARegisterData
+from schemas.biocommons import BiocommonsRegisterData
+from schemas.bpa import BPARegistrationRequest
 from schemas.service import Resource, Service
 
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
-
-
-class BPARegistrationRequest(BaseModel):
-    username: str
-    fullname: str
-    email: EmailStr
-    reason: str
-    password: str
-    organizations: Dict[str, bool]
 
 
 @router.post(
@@ -64,7 +55,7 @@ async def register_bpa_user(
     )
 
     # Create Auth0 user data
-    user_data = BPARegisterData.from_registration(
+    user_data = BiocommonsRegisterData.from_bpa_registration(
         registration=registration, bpa_service=bpa_service
     )
 
