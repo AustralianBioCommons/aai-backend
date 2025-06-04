@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 
 class Resource(BaseModel):
@@ -54,108 +54,8 @@ class Group(BaseModel):
     id: str
 
 
-class AppMetadata(BaseModel):
-    """
-    app_metadata we use to manage service/resource requests.
-    Note we expect all app_metadata from Auth0 to match this format
-    (if not empty).
-    """
-    groups: List[Group] = Field(default_factory=list)
-    services: List[Service] = Field(default_factory=list)
-
-    def get_pending_services(self) -> List[Service]:
-        """Get all pending services."""
-        return [s for s in self.services if s.status == "pending"]
-
-    def get_approved_services(self) -> List[Service]:
-        """Get all approved services."""
-        return [s for s in self.services if s.status == "approved"]
-
-    def get_all_resources(self) -> List[Resource]:
-        """Get all resources across services."""
-        return [r for s in self.services for r in s.resources]
-
-    def get_pending_resources(self) -> List[Resource]:
-        """Get all pending resources."""
-        return [r for s in self.services for r in s.resources if r.status == "pending"]
-
-    def get_approved_resources(self) -> List[Resource]:
-        """Get all approved resources."""
-        return [r for s in self.services for r in s.resources if r.status == "approved"]
-
-    def get_service_by_id(self, service_id: str) -> Optional[Service]:
-        """Get a service by its ID."""
-        return next((s for s in self.services if s.id == service_id), None)
-
-    def get_resource_by_id(self, service_id: str, resource_id: str) -> Optional[Resource]:
-        """Get a resource by its ID."""
-        service = self.get_service_by_id(service_id)
-        if service:
-            return service.get_resource_by_id(resource_id)
-        else:
-            return None
-
-    def approve_service(self, service_id: str, updated_by: str):
-        """Approve a service by its ID."""
-        service = self.get_service_by_id(service_id)
-        if service:
-            service.approve(updated_by)
-
-    def revoke_service(self, service_id: str, updated_by: str):
-        """Revoke a service by its ID."""
-        service = self.get_service_by_id(service_id)
-        if service:
-            service.revoke(updated_by=updated_by)
-
-    def approve_resource(self, service_id: str, resource_id: str):
-        """Approve a resource by its ID."""
-        resource = self.get_resource_by_id(service_id=service_id, resource_id=resource_id)
-        if resource:
-            resource.approve()
-            return resource
-        else:
-            raise ValueError("Resource not found.")
-
-
 class Identity(BaseModel):
     connection: str
     provider: str
     user_id: str
     isSocial: bool
-
-
-class Auth0User(BaseModel):
-    created_at: datetime
-    email: str
-    email_verified: bool
-    identities: List[Identity]
-    name: str
-    nickname: str
-    picture: HttpUrl
-    updated_at: datetime
-    user_id: str
-    user_metadata: dict = Field(default_factory=dict)
-    app_metadata: AppMetadata
-    last_ip: Optional[str] = None
-    last_login: Optional[datetime] = None
-    logins_count: Optional[int] = None
-
-    @property
-    def pending_services(self) -> List[Service]:
-        """Get all services with pending status."""
-        return self.app_metadata.get_pending_services()
-
-    @property
-    def approved_services(self) -> List[Service]:
-        """Get all services with approved status."""
-        return self.app_metadata.get_approved_services()
-
-    @property
-    def pending_resources(self) -> List[Resource]:
-        """Get all resources with pending status across all services."""
-        return self.app_metadata.get_pending_resources()
-
-    @property
-    def approved_resources(self) -> List[Resource]:
-        """Get all resources with approved status across all services."""
-        return self.app_metadata.get_approved_resources()
