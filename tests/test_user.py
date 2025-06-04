@@ -3,7 +3,8 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 
-from schemas.service import AppMetadata, Group, Resource, Service
+from schemas.biocommons import BiocommonsAppMetadata
+from schemas.service import Group, Resource, Service
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserFactory
 
 
@@ -30,7 +31,7 @@ def auth_headers():
 def mock_user_data():
     """Fixture to provide mock user data"""
     return Auth0UserFactory.build(
-        app_metadata=AppMetadata(
+        app_metadata=BiocommonsAppMetadata(
             groups=[Group(name="Australian University", id="AU")],
             services=[
                 Service(
@@ -173,7 +174,7 @@ def test_get_services_empty_metadata(
 ):
     """Test handling of empty metadata"""
     empty_user = Auth0UserFactory.build(
-        app_metadata=AppMetadata(services=[], groups=[]),
+        app_metadata=BiocommonsAppMetadata(services=[], groups=[]),
     )
     mocker.patch("routers.user.get_user_data", return_value=empty_user)
     mocker.patch(
@@ -190,7 +191,7 @@ def test_get_services_no_metadata(
         test_client
 ):
     """Test handling of missing metadata"""
-    no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
+    no_metadata_user = Auth0UserFactory.build(app_metadata=BiocommonsAppMetadata())
     mocker.patch("routers.user.get_user_data", return_value=no_metadata_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
@@ -253,8 +254,8 @@ def test_get_resources_empty_metadata(
     mock_auth_token, auth_headers, mocker, test_client
 ):
     """Test handling of empty resource metadata"""
-    empty_user = Auth0UserFactory.build(app_metadata=AppMetadata(services=[], groups=[]),
-    )
+    empty_user = Auth0UserFactory.build(app_metadata=BiocommonsAppMetadata(services=[], groups=[]),
+                                        )
     mocker.patch("routers.user.get_user_data", return_value=empty_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"
@@ -270,7 +271,7 @@ def test_get_resources_no_metadata(
         test_client
 ):
     """Test handling of missing resource metadata"""
-    no_metadata_user = Auth0UserFactory.build(app_metadata=AppMetadata())
+    no_metadata_user = Auth0UserFactory.build(app_metadata=BiocommonsAppMetadata())
     mocker.patch("routers.user.get_user_data", return_value=no_metadata_user)
     mocker.patch(
         "routers.user.get_management_token", return_value="mock_management_token"

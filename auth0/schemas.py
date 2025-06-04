@@ -3,13 +3,13 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from schemas.service import AppMetadata
+from schemas.biocommons import BiocommonsAppMetadata
 
 
 class Auth0UserResponse(BaseModel):
     """
     Response returned by Auth0's /users endpoint.
-    Note we have our own Auth0User model
+    Note we have our own BiocommonsAuth0User model
     that includes specifying the metadata fields we use.
     """
     user_id: str
@@ -21,7 +21,7 @@ class Auth0UserResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     identities: List[dict]
-    app_metadata: AppMetadata = Field(default_factory=AppMetadata)
+    app_metadata: BiocommonsAppMetadata = Field(default_factory=BiocommonsAppMetadata)
     user_metadata: Optional[dict] = None
     picture: Optional[str] = None
     name: Optional[str] = None

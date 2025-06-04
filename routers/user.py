@@ -7,8 +7,9 @@ from httpx import AsyncClient
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from schemas.biocommons import BiocommonsAuth0User
 from schemas.requests import ResourceRequest, ServiceRequest
-from schemas.service import Auth0User, Resource, Service
+from schemas.service import Resource, Service
 from schemas.user import User
 
 router = APIRouter(
@@ -16,7 +17,7 @@ router = APIRouter(
 )
 
 
-async def get_user_data(user: User, settings: Settings) -> Auth0User:
+async def get_user_data(user: User, settings: Settings) -> BiocommonsAuth0User:
     """Fetch and return user data from Auth0."""
     url = f"https://{settings.auth0_domain}/api/v2/users/{user.access_token.sub}"
     token = get_management_token(settings=settings)
@@ -30,7 +31,7 @@ async def get_user_data(user: User, settings: Settings) -> Auth0User:
                     status_code=403,
                     detail="Failed to fetch user data",
                 )
-            return Auth0User(**response.json())
+            return BiocommonsAuth0User(**response.json())
     except HTTPException:
         raise
     except Exception as e:
