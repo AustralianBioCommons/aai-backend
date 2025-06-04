@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Annotated, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
@@ -10,14 +10,14 @@ from auth.validator import get_current_user
 from schemas.biocommons import BiocommonsAuth0User
 from schemas.requests import ResourceRequest, ServiceRequest
 from schemas.service import Resource, Service
-from schemas.user import User
+from schemas.user import SessionUser
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
 )
 
 
-async def get_user_data(user: User, settings: Settings) -> BiocommonsAuth0User:
+async def get_user_data(user: SessionUser, settings: Annotated[Settings, Depends(get_settings)]) -> BiocommonsAuth0User:
     """Fetch and return user data from Auth0."""
     url = f"https://{settings.auth0_domain}/api/v2/users/{user.access_token.sub}"
     token = get_management_token(settings=settings)
@@ -70,49 +70,49 @@ async def update_user_metadata(
 
 
 @router.get("/services", response_model=Dict[str, List[Service]])
-async def get_services(user: User = Depends(get_current_user)):
+async def get_services(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get all services for the authenticated user."""
     user_data = await get_user_data(user)
     return {"services": user_data.app_metadata.services}
 
 
 @router.get("/services/approved", response_model=Dict[str, List[Service]])
-async def get_approved_services(user: User = Depends(get_current_user)):
+async def get_approved_services(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get approved services for the authenticated user."""
     user_data = await get_user_data(user)
     return {"approved_services": user_data.approved_services}
 
 
 @router.get("/services/pending", response_model=Dict[str, List[Service]])
-async def get_pending_services(user: User = Depends(get_current_user)):
+async def get_pending_services(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get pending services for the authenticated user."""
     user_data = await get_user_data(user)
     return {"pending_services": user_data.pending_services}
 
 
 @router.get("/resources", response_model=Dict[str, List[Resource]])
-async def get_resources(user: User = Depends(get_current_user)):
+async def get_resources(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get all resources for the authenticated user."""
     user_data = await get_user_data(user)
     return {"resources": user_data.app_metadata.get_all_resources()}
 
 
 @router.get("/resources/approved", response_model=Dict[str, List[Resource]])
-async def get_approved_resources(user: User = Depends(get_current_user)):
+async def get_approved_resources(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get approved resources for the authenticated user."""
     user_data = await get_user_data(user)
     return {"approved_resources": user_data.approved_resources}
 
 
 @router.get("/resources/pending", response_model=Dict[str, List[Resource]])
-async def get_pending_resources(user: User = Depends(get_current_user)):
+async def get_pending_resources(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get pending resources for the authenticated user."""
     user_data = await get_user_data(user)
     return {"pending_resources": user_data.pending_resources}
 
 
 @router.get("/all/pending", response_model=Dict[str, List[Any]])
-async def get_all_pending(user: User = Depends(get_current_user)):
+async def get_all_pending(user: Annotated[SessionUser, Depends(get_current_user)]):
     """Get all pending services and resources."""
     user_data = await get_user_data(user)
     return {
@@ -131,8 +131,8 @@ async def get_all_pending(user: User = Depends(get_current_user)):
     },
 )
 async def request_service(
-    service_request: ServiceRequest, user: User = Depends(get_current_user),
-        settings: Settings = Depends(get_settings),
+    service_request: ServiceRequest, user: Annotated[SessionUser, Depends(get_current_user)],
+        settings: Annotated[Settings, Depends(get_settings)]
 ) -> Dict[str, Any]:
     """Submit a request for a service."""
     if user.access_token.sub != service_request.user_id:
@@ -185,7 +185,7 @@ async def request_resource(
     service_id: str,
     resource_id: str,
     resource_request: ResourceRequest,
-    user: User = Depends(get_current_user),
+    user: Annotated[SessionUser, Depends(get_current_user)],
     settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
     """Submit a request for a resource within a service."""

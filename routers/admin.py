@@ -10,9 +10,9 @@ from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client
-from auth0.schemas import Auth0UserResponse
 from routers.user import update_user_metadata
-from schemas.user import User
+from schemas.biocommons import BiocommonsAuth0User
+from schemas.user import SessionUser
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -53,10 +53,8 @@ def get_auth0_client(settings: Settings = Depends(get_settings),
     return Auth0Client(settings.auth0_domain, management_token=management_token)
 
 
-# TODO: May need to paginate this response to make sure we get all
-#   of them
 @router.get("/users",
-            response_model=list[Auth0UserResponse])
+            response_model=list[BiocommonsAuth0User],)
 def get_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
     resp = client.get_users(page=pagination.page, per_page=pagination.per_page)
@@ -86,7 +84,7 @@ def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
 
 
 @router.get("/users/{user_id}",
-            response_model=Auth0UserResponse)
+            response_model=BiocommonsAuth0User)
 def get_user(user_id: Annotated[str, UserIdParam],
              client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     return client.get_user(user_id)
@@ -96,7 +94,7 @@ def get_user(user_id: Annotated[str, UserIdParam],
 def approve_service(user_id: Annotated[str, UserIdParam],
                     service_id: Annotated[str, ServiceIdParam],
                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                    approving_user: Annotated[User, Depends(get_current_user)]):
+                    approving_user: Annotated[SessionUser, Depends(get_current_user)]):
     user = client.get_user(user_id=user_id)
     # Need to fetch full user info currently to get email address, not in access token
     approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
@@ -118,7 +116,7 @@ def approve_service(user_id: Annotated[str, UserIdParam],
 def revoke_service(user_id: Annotated[str, UserIdParam],
                    service_id: Annotated[str, ServiceIdParam],
                    client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                   revoking_user: Annotated[User, Depends(get_current_user)]):
+                   revoking_user: Annotated[SessionUser, Depends(get_current_user)]):
     """
     Revoke a service and all associated resources for a user.
     """
