@@ -147,7 +147,7 @@ class BiocommonsRegisterData(BaseModel):
 class BiocommonsAuth0User(BaseModel):
     """
     Represents the user data we get back from Auth0 for Biocommons users
-    (with our user and app metadata).
+    (with our user and app metadata, if defined).
     """
     created_at: datetime
     email: EmailStr
@@ -158,8 +158,10 @@ class BiocommonsAuth0User(BaseModel):
     picture: HttpUrl
     updated_at: datetime
     user_id: str
-    user_metadata: BiocommonsUserMetadata
-    app_metadata: BiocommonsAppMetadata
+    # Auth0 will not include user/app metadata in the response when
+    #   empty, so make it optional
+    user_metadata: Optional[BiocommonsUserMetadata] = None
+    app_metadata: Optional[BiocommonsAppMetadata] = None
     last_ip: Optional[str] = None
     last_login: Optional[datetime] = None
     logins_count: Optional[int] = None
