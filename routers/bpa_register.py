@@ -62,7 +62,7 @@ async def register_bpa_user(
     try:
         async with AsyncClient() as client:
             response = await client.post(
-                url, headers=headers, json=user_data.model_dump()
+                url, headers=headers, json=user_data.model_dump(mode="json")
             )
             if response.status_code != 201:
                 raise HTTPException(

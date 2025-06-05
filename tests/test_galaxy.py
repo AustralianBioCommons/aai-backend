@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
+from httpx import Response
 from jose import jwt
 from pydantic import ValidationError
 
@@ -11,7 +12,11 @@ import register
 from register.tokens import verify_registration_token
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
-from tests.datagen import AccessTokenPayloadFactory, GalaxyRegistrationDataFactory
+from tests.datagen import (
+    AccessTokenPayloadFactory,
+    BiocommonsAuth0UserFactory,
+    GalaxyRegistrationDataFactory,
+)
 
 
 @pytest.fixture
@@ -107,9 +112,30 @@ def test_register(mocker, mock_auth_token, mock_settings, test_client):
     register_data = BiocommonsRegisterData.from_galaxy_registration(user_data)
     mock_post.assert_called_once_with(
         url,
-        json=register_data.model_dump(),
+        json=register_data.model_dump(mode="json"),
         headers=headers
     )
+
+
+@pytest.mark.respx(base_url="https://mock-domain")
+def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_client):
+    """
+    Test how we handle datetimes in the response data: if we don't
+    use model_dump(mode="json") when providing json data, we can get errors
+    """
+    url = f"https://{mock_settings.auth0_domain}/api/v2/users"
+    # Generate user data to be returned in the response
+    # (doesn't have to match the registration data for now)
+    user = BiocommonsAuth0UserFactory.build(created_at=datetime.now(UTC))
+    respx_mock.post(url).mock(return_value=Response(
+        status_code=201,
+        json=user.model_dump(mode="json"))
+    )
+    user_data = GalaxyRegistrationDataFactory.build()
+    token_resp = test_client.get("/galaxy/get-registration-token")
+    headers = {"registration-token": token_resp.json()["token"]}
+    resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
+    assert resp.status_code == 200
 
 
 def test_register_requires_token(test_client):

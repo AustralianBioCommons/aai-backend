@@ -162,7 +162,7 @@ async def request_service(
     await update_user_metadata(
         user.access_token.sub,
         get_management_token(settings=settings),
-        user_data.app_metadata.model_dump(),
+        user_data.app_metadata.model_dump(mode="json"),
     )
 
     return {
@@ -231,7 +231,7 @@ async def request_resource(
     await update_user_metadata(
         user.access_token.sub,
         get_management_token(settings=settings),
-        user_data.app_metadata.model_dump(),
+        user_data.app_metadata.model_dump(mode="json"),
     )
 
     return {
