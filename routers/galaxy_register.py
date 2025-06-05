@@ -41,7 +41,7 @@ def register(
     headers = {"Authorization": f"Bearer {management_token}"}
     user_data = BiocommonsRegisterData.from_galaxy_registration(registration_data)
     logger.debug("Registering with Auth0 management API")
-    resp = httpx.post(url, json=user_data.model_dump(), headers=headers)
+    resp = httpx.post(url, json=user_data.model_dump(mode="json"), headers=headers)
     if resp.status_code != 201:
         raise HTTPException(status_code=400, detail=f'Registration failed: {resp.json()["message"]}')
     return {"message": "User registered successfully", "user": resp.json()}
