@@ -3,7 +3,7 @@ import respx
 from httpx import Response
 
 from auth0.client import Auth0Client
-from tests.datagen import Auth0UserResponseFactory
+from tests.datagen import BiocommonsAuth0UserFactory
 
 
 @pytest.fixture
@@ -13,7 +13,7 @@ def auth0_client():
 
 @respx.mock
 def test_get_users_no_pagination(auth0_client):
-    user = Auth0UserResponseFactory.build()
+    user = BiocommonsAuth0UserFactory.build()
     route = respx.get("https://example.auth0.com/api/v2/users").mock(
         return_value=Response(200, json=[user.model_dump(mode="json")])
     )
@@ -26,7 +26,7 @@ def test_get_users_no_pagination(auth0_client):
 
 @respx.mock
 def test_get_users_with_pagination(auth0_client):
-    user = Auth0UserResponseFactory.build()
+    user = BiocommonsAuth0UserFactory.build()
     route = respx.get("https://example.auth0.com/api/v2/users").respond(
         200, json=[user.model_dump(mode="json")]
     )
@@ -44,7 +44,7 @@ def test_get_users_with_pagination(auth0_client):
 @respx.mock
 def test_get_user_by_id(auth0_client):
     user_id = "auth0|789"
-    user = Auth0UserResponseFactory.build(user_id=user_id)
+    user = BiocommonsAuth0UserFactory.build(user_id=user_id)
     route = respx.get(f"https://example.auth0.com/api/v2/users/{user_id}").mock(
         return_value=Response(200, json=user.model_dump(mode="json"))
     )
@@ -65,7 +65,7 @@ def test_get_user_by_id(auth0_client):
 )
 @respx.mock
 def test_search_users_methods(auth0_client, method, query):
-    user = Auth0UserResponseFactory.build()
+    user = BiocommonsAuth0UserFactory.build()
     route = respx.get("https://example.auth0.com/api/v2/users").respond(
         200, json=[user.model_dump(mode="json")]
     )

@@ -8,6 +8,7 @@ from fastapi.params import Depends
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from register.tokens import create_registration_token, verify_registration_token
+from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
 
 logger = logging.getLogger(__name__)
@@ -38,7 +39,7 @@ def register(
     logger.debug("Getting management token.")
     management_token = get_management_token(settings=settings)
     headers = {"Authorization": f"Bearer {management_token}"}
-    user_data = registration_data.to_auth0_create_user_data()
+    user_data = BiocommonsRegisterData.from_galaxy_registration(registration_data)
     logger.debug("Registering with Auth0 management API")
     resp = httpx.post(url, json=user_data.model_dump(), headers=headers)
     if resp.status_code != 201:

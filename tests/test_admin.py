@@ -12,8 +12,8 @@ from schemas import Resource, Service
 from tests.datagen import (
     AccessTokenPayloadFactory,
     AppMetadataFactory,
-    Auth0UserResponseFactory,
-    UserFactory,
+    BiocommonsAuth0UserFactory,
+    SessionUserFactory,
 )
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
@@ -46,7 +46,7 @@ def test_pagination_params_start_index():
 def test_get_users_requires_admin_unauthorized(test_client, mocker):
     def get_nonadmin_user():
         payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
-        return UserFactory.build(access_token=payload)
+        return SessionUserFactory.build(access_token=payload)
 
     app.dependency_overrides[get_current_user] = get_nonadmin_user
     mocker.patch("routers.admin.get_management_token", return_value="mock_token")
@@ -58,19 +58,19 @@ def test_get_users_requires_admin_unauthorized(test_client, mocker):
 
 def test_user_is_admin(mock_settings):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
-    admin_user = UserFactory.build(access_token=payload)
+    admin_user = SessionUserFactory.build(access_token=payload)
     assert user_is_admin(current_user=admin_user, settings=mock_settings)
 
 
 def test_user_is_admin_nonadmin_user(mock_settings):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
-    user = UserFactory.build(access_token=payload)
+    user = SessionUserFactory.build(access_token=payload)
     with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
         user_is_admin(current_user=user, settings=mock_settings)
 
 
 def test_get_users(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserResponseFactory.batch(3)
+    users = BiocommonsAuth0UserFactory.batch(3)
     mock_auth0_client.get_users.return_value = users
     resp = test_client.get("/admin/users")
     assert resp.status_code == 200
@@ -78,7 +78,7 @@ def test_get_users(test_client, as_admin_user, mock_auth0_client):
 
 
 def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserResponseFactory.batch(3)
+    users = BiocommonsAuth0UserFactory.batch(3)
     mock_auth0_client.get_users.return_value = users
     resp = test_client.get("/admin/users?page=2&per_page=10")
     assert resp.status_code == 200
@@ -86,7 +86,7 @@ def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_clie
 
 
 def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserResponseFactory.batch(3)
+    users = BiocommonsAuth0UserFactory.batch(3)
     mock_auth0_client.get_users.return_value = users
     resp = test_client.get("/admin/users?page=0&per_page=500")
     assert resp.status_code == 422
@@ -95,7 +95,7 @@ def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client)
 
 
 def test_get_user(test_client, as_admin_user, mock_auth0_client):
-    user = Auth0UserResponseFactory.build()
+    user = BiocommonsAuth0UserFactory.build()
     mock_auth0_client.get_user.return_value = user
     resp = test_client.get(f"/admin/users/{user.user_id}")
     assert resp.status_code == 200
@@ -103,7 +103,7 @@ def test_get_user(test_client, as_admin_user, mock_auth0_client):
 
 
 def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
-    approved_users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "approved"}]})
+    approved_users = BiocommonsAuth0UserFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "approved"}]})
     mock_auth0_client.get_approved_users.return_value = approved_users
     resp = test_client.get("/admin/users/approved")
     assert resp.status_code == 200
@@ -115,7 +115,7 @@ def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
 
 
 def test_get_pending_users(test_client, as_admin_user, mock_auth0_client):
-    pending_users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "pending"}]})
+    pending_users = BiocommonsAuth0UserFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "pending"}]})
     mock_auth0_client.get_pending_users.return_value = pending_users
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
@@ -127,7 +127,7 @@ def test_get_pending_users(test_client, as_admin_user, mock_auth0_client):
 
 
 def test_get_revoked(test_client, as_admin_user, mock_auth0_client):
-    revoked_users = Auth0UserResponseFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "revoked"}]})
+    revoked_users = BiocommonsAuth0UserFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "revoked"}]})
     mock_auth0_client.get_revoked_users.return_value = revoked_users
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
@@ -163,8 +163,8 @@ def test_approve_service(test_client, as_admin_user, mock_auth0_client, mocker):
         updated_by=""
     )
     app_metadata = AppMetadataFactory.build(services=[service])
-    user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
-    approving_user = Auth0UserResponseFactory.build()
+    user = BiocommonsAuth0UserFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
+    approving_user = BiocommonsAuth0UserFactory.build()
 
     # Mock Auth0 client behavior
     mock_auth0_client.get_user.side_effect = [user, approving_user]
@@ -213,8 +213,8 @@ def test_revoke_service(test_client, as_admin_user, mock_auth0_client, mocker):
         resources=[resource1, resource2]
     )
     app_metadata = AppMetadataFactory.build(services=[service])
-    user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
-    revoking_user = Auth0UserResponseFactory.build()
+    user = BiocommonsAuth0UserFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
+    revoking_user = BiocommonsAuth0UserFactory.build()
 
     # Mock Auth0 client behavior
     mock_auth0_client.get_user.side_effect = [user, revoking_user]
@@ -263,7 +263,7 @@ def test_approve_resource(test_client, as_admin_user, mock_auth0_client, mocker)
         updated_by=""
     )
     app_metadata = AppMetadataFactory.build(services=[service])
-    user = Auth0UserResponseFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
+    user = BiocommonsAuth0UserFactory.build(app_metadata=app_metadata.model_dump(mode="json"))
 
     # Mock Auth0 client behavior
     mock_auth0_client.get_user.return_value = user

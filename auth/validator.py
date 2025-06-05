@@ -8,7 +8,7 @@ from jose.exceptions import JWTError
 
 from auth.config import Settings, get_settings
 from schemas.tokens import AccessTokenPayload
-from schemas.user import User
+from schemas.user import SessionUser
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -58,13 +58,13 @@ def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: i
 
 
 def get_current_user(token: str = Depends(oauth2_scheme),
-                     settings: Settings = Depends(get_settings)) -> User:
+                     settings: Settings = Depends(get_settings)) -> SessionUser:
     access_token = verify_jwt(token, settings=settings)
-    return User(access_token=access_token)
+    return SessionUser(access_token=access_token)
 
 
-def user_is_admin(current_user: Annotated[User, Depends(get_current_user)],
-                  settings: Annotated[Settings, Depends(get_settings)]) -> User:
+def user_is_admin(current_user: Annotated[SessionUser, Depends(get_current_user)],
+                  settings: Annotated[Settings, Depends(get_settings)]) -> SessionUser:
     if not current_user.is_admin(settings=settings):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

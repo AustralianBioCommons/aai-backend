@@ -3,11 +3,13 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
+from freezegun import freeze_time
 from jose import jwt
 from pydantic import ValidationError
 
 import register
 from register.tokens import verify_registration_token
+from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
 from tests.datagen import AccessTokenPayloadFactory, GalaxyRegistrationDataFactory
 
@@ -58,7 +60,7 @@ def test_registration_token_invalid_purpose(mock_settings):
         verify_registration_token(token, mock_settings)
 
 
-def test_to_auth0_create_user_data_valid():
+def test_to_biocommons_register_data():
     """
     Test we can convert GalaxyRegistrationData to the data expected by Auth0
     """
@@ -69,7 +71,7 @@ def test_to_auth0_create_user_data_valid():
         public_name="valid_username"
     )
 
-    auth0_data = data.to_auth0_create_user_data()
+    auth0_data = BiocommonsRegisterData.from_galaxy_registration(data)
 
     assert auth0_data.email == "user@example.com"
     assert auth0_data.password == "securepassword"
@@ -78,6 +80,7 @@ def test_to_auth0_create_user_data_valid():
     assert auth0_data.user_metadata.galaxy_username == "valid_username"
 
 
+@freeze_time("2025-01-01")
 def test_register(mocker, mock_auth_token, mock_settings, test_client):
     """
     Try to test our register endpoint. Since we don't want to call
@@ -101,9 +104,10 @@ def test_register(mocker, mock_auth_token, mock_settings, test_client):
 
     url = f"https://{mock_settings.auth0_domain}/api/v2/users"
     headers = {"Authorization": "Bearer mock_token"}
+    register_data = BiocommonsRegisterData.from_galaxy_registration(user_data)
     mock_post.assert_called_once_with(
         url,
-        json=user_data.to_auth0_create_user_data().model_dump(),
+        json=register_data.model_dump(),
         headers=headers
     )
 
