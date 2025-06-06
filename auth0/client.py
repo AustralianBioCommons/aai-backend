@@ -36,6 +36,11 @@ class Auth0Client:
         resp = self._client.get(url)
         return BiocommonsAuth0User(**resp.json())
 
+    def search_users_by_email(self, email: str) -> list[BiocommonsAuth0User]:
+        url = f"https://{self.domain}/api/v2/users-by-email"
+        resp = self._client.get(url, params={"email": email})
+        return self._convert_users(resp)
+
     def _search_users(self, query: str, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
         params = {"q": query, "search_engine": "v3"}
         if page is not None:
