@@ -6,10 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, ValidationError
 
-from auth.config import Settings, get_settings
-from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, get_auth0_client
 from routers.user import update_user_metadata
 from schemas.biocommons import BiocommonsAuth0User
 from schemas.user import SessionUser
@@ -46,11 +44,6 @@ def get_pagination_params(page: int = 1, per_page: int = 100):
 
 router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
-
-
-def get_auth0_client(settings: Settings = Depends(get_settings),
-                     management_token: str = Depends(get_management_token)):
-    return Auth0Client(settings.auth0_domain, management_token=management_token)
 
 
 @router.get("/users",
