@@ -5,11 +5,12 @@ from auth.config import Settings
 from .tokens import AccessTokenPayload
 
 
-class User(BaseModel):
+class SessionUser(BaseModel):
     """
-    Define our user model so we can implement any required
-    permissions checks here, instead of doing individual
-    checks in different places.
+    Represents the current user of the AAI Portal, and their session data (e.g. access token).
+
+    NOTE: doesn't represent a user in the Auth0 database - see the schemas
+    in schemas.biocommons for that
     """
 
     access_token: AccessTokenPayload

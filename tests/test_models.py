@@ -32,7 +32,7 @@ def test_approve_service(frozen_time):
 
 def test_approve_service_from_app_metadata(frozen_time):
     """
-    Test we can approve a service by ID from AppMetadata.
+    Test we can approve a service by ID from BiocommonsAppMetadata.
     """
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
@@ -60,7 +60,7 @@ def test_revoke_service(frozen_time):
 
 def test_revoke_service_from_app_metadata(frozen_time):
     """
-    Test we can revoke a service by ID from AppMetadata.
+    Test we can revoke a service by ID from BiocommonsAppMetadata.
     """
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")

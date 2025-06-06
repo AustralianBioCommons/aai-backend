@@ -1,7 +1,10 @@
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 import pytest
 
+from schemas import Service
+from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import AccessTokenPayloadFactory, BPARegistrationDataFactory
 
 
@@ -28,6 +31,25 @@ def mock_auth_token(mocker):
     mocker.patch("auth.management.get_management_token", return_value="mock_token")
     mocker.patch("routers.bpa_register.get_management_token", return_value="mock_token")
     return token
+
+
+def test_to_biocommons_register_data(valid_registration_data):
+    bpa_data = BPARegistrationDataFactory.build()
+    bpa_service = Service(
+        name="Bioplatforms Australia",
+        id="bpa",
+        status="approved",
+        last_updated=datetime.now(UTC),
+        updated_by=''
+    )
+    register_data = BiocommonsRegisterData.from_bpa_registration(
+        bpa_data,
+        bpa_service=bpa_service
+    )
+    assert register_data.username == bpa_data.username
+    assert register_data.name == bpa_data.fullname
+    # Test we fill the registration_from field in app_metadata
+    assert register_data.app_metadata.registration_from == "bpa"
 
 
 def test_successful_registration(
