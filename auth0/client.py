@@ -3,7 +3,10 @@ __all__ = ["Auth0Client"]
 from typing import Optional
 
 import httpx
+from fastapi import Depends
 
+from auth.config import Settings, get_settings
+from auth.management import get_management_token
 from schemas.biocommons import BiocommonsAuth0User
 
 
@@ -75,3 +78,8 @@ class Auth0Client:
     def get_revoked_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
         revoked_query = 'app_metadata.services.status:"revoked"'
         return self._search_users(revoked_query, page, per_page)
+
+
+def get_auth0_client(settings: Settings = Depends(get_settings),
+                     management_token: str = Depends(get_management_token)):
+    return Auth0Client(settings.auth0_domain, management_token=management_token)
