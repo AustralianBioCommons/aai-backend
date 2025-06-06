@@ -122,7 +122,10 @@ class BiocommonsRegisterData(BaseModel):
                 bpa=BPAMetadata(registration_reason=registration.reason,
                                 username=registration.username,),
             ),
-            app_metadata=BiocommonsAppMetadata(services=[bpa_service]),
+            app_metadata=BiocommonsAppMetadata(
+                services=[bpa_service],
+                signup_from="bpa"
+            ),
         )
 
     @classmethod
@@ -143,7 +146,10 @@ class BiocommonsRegisterData(BaseModel):
             password=registration.password,
             email_verified=False,
             connection="Username-Password-Authentication",
-            app_metadata=BiocommonsAppMetadata(services=[galaxy_service]),
+            app_metadata=BiocommonsAppMetadata(
+                services=[galaxy_service],
+                signup_from='galaxy'
+            ),
         )
 
 
