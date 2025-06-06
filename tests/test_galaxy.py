@@ -83,6 +83,7 @@ def test_to_biocommons_register_data():
     assert auth0_data.connection == "Username-Password-Authentication"
     assert not auth0_data.email_verified
     assert auth0_data.user_metadata.galaxy_username == "valid_username"
+    assert auth0_data.app_metadata.registration_from == "galaxy"
 
 
 def test_to_biocommons_register_data_empty_fields():

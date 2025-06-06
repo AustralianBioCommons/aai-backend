@@ -5,7 +5,7 @@ These are the core schemas we use for storing/representing users
 and their metadata
 """
 from datetime import datetime
-from typing import List, Optional, Self
+from typing import List, Literal, Optional, Self
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
 
@@ -13,6 +13,8 @@ from schemas import Resource, Service
 from schemas.bpa import BPARegistrationRequest
 from schemas.galaxy import GalaxyRegistrationData
 from schemas.service import Group, Identity
+
+AppId = Literal["biocommons", "galaxy", "bpa"]
 
 
 class BPAMetadata(BaseModel):
@@ -37,6 +39,7 @@ class BiocommonsAppMetadata(BaseModel):
     """
     groups: List[Group] = Field(default_factory=list)
     services: List[Service] = Field(default_factory=list)
+    registration_from: Optional[AppId] = None
 
     def get_pending_services(self) -> List[Service]:
         """Get all pending services."""
@@ -119,7 +122,10 @@ class BiocommonsRegisterData(BaseModel):
                 bpa=BPAMetadata(registration_reason=registration.reason,
                                 username=registration.username,),
             ),
-            app_metadata=BiocommonsAppMetadata(services=[bpa_service]),
+            app_metadata=BiocommonsAppMetadata(
+                services=[bpa_service],
+                registration_from="bpa"
+            ),
         )
 
     @classmethod
@@ -140,7 +146,10 @@ class BiocommonsRegisterData(BaseModel):
             password=registration.password,
             email_verified=False,
             connection="Username-Password-Authentication",
-            app_metadata=BiocommonsAppMetadata(services=[galaxy_service]),
+            app_metadata=BiocommonsAppMetadata(
+                services=[galaxy_service],
+                registration_from='galaxy'
+            ),
         )
 
 
