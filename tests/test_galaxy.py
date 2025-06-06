@@ -85,6 +85,25 @@ def test_to_biocommons_register_data():
     assert auth0_data.user_metadata.galaxy_username == "valid_username"
 
 
+def test_to_biocommons_register_data_empty_fields():
+    """
+    Test 'username' and 'name' are left out of dumped data,
+    since we don't use these in Galaxy registration,
+    and the Auth0 API doesn't like them being included
+    """
+    data = GalaxyRegistrationData(
+        email="user@example.com",
+        password="securepassword",
+        password_confirmation="securepassword",
+        public_name="valid_username"
+    )
+
+    auth0_data = BiocommonsRegisterData.from_galaxy_registration(data)
+    dumped = auth0_data.model_dump(mode="json", exclude_none=True)
+    assert "username" not in dumped
+    assert "name" not in dumped
+
+
 @freeze_time("2025-01-01")
 def test_register(mocker, mock_auth_token, mock_settings, test_client):
     """
@@ -112,7 +131,7 @@ def test_register(mocker, mock_auth_token, mock_settings, test_client):
     register_data = BiocommonsRegisterData.from_galaxy_registration(user_data)
     mock_post.assert_called_once_with(
         url,
-        json=register_data.model_dump(mode="json"),
+        json=register_data.model_dump(mode="json", exclude_none=True),
         headers=headers
     )
 
