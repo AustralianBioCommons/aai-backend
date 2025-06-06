@@ -48,8 +48,8 @@ def test_to_biocommons_register_data(valid_registration_data):
     )
     assert register_data.username == bpa_data.username
     assert register_data.name == bpa_data.fullname
-    # Test we fill the signup_from field in app_metadata
-    assert register_data.app_metadata.signup_from == "bpa"
+    # Test we fill the registration_from field in app_metadata
+    assert register_data.app_metadata.registration_from == "bpa"
 
 
 def test_successful_registration(

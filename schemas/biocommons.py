@@ -39,7 +39,7 @@ class BiocommonsAppMetadata(BaseModel):
     """
     groups: List[Group] = Field(default_factory=list)
     services: List[Service] = Field(default_factory=list)
-    signup_from: Optional[AppId] = None
+    registration_from: Optional[AppId] = None
 
     def get_pending_services(self) -> List[Service]:
         """Get all pending services."""
@@ -124,7 +124,7 @@ class BiocommonsRegisterData(BaseModel):
             ),
             app_metadata=BiocommonsAppMetadata(
                 services=[bpa_service],
-                signup_from="bpa"
+                registration_from="bpa"
             ),
         )
 
@@ -148,7 +148,7 @@ class BiocommonsRegisterData(BaseModel):
             connection="Username-Password-Authentication",
             app_metadata=BiocommonsAppMetadata(
                 services=[galaxy_service],
-                signup_from='galaxy'
+                registration_from='galaxy'
             ),
         )
 
