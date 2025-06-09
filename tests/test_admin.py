@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
 
+from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
 from main import app
 from routers.admin import PaginationParams
@@ -48,8 +49,11 @@ def test_get_users_requires_admin_unauthorized(test_client, mocker):
         payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
         return SessionUserFactory.build(access_token=payload)
 
+    def mock_admin_token():
+        return "mock_token"
+
     app.dependency_overrides[get_current_user] = get_nonadmin_user
-    mocker.patch("routers.admin.get_management_token", return_value="mock_token")
+    app.dependency_overrides[get_management_token] = mock_admin_token
     resp = test_client.get("/admin/users")
     assert resp.status_code == 403
     assert resp.json() == {"detail": "You must be an admin to access this endpoint."}
