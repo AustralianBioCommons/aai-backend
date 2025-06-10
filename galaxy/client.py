@@ -4,8 +4,15 @@ from galaxy.schemas import GalaxyUserModel
 
 
 class GalaxyClient:
+    """
+    Client for making requests to the Galaxy API.
+    """
 
     def __init__(self, galaxy_url: str, api_key: str):
+        """
+        :param galaxy_url: Base URL of the Galaxy instance.
+        :param api_key: API key for a galaxy user.
+        """
         self.url = galaxy_url
         self.api_key = api_key
         self.client = Client(base_url=self.url, headers={'x-api-key': self.api_key})
