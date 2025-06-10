@@ -19,7 +19,7 @@ async def get_registration_info(
         user_email: str,
         client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     """
-    Return the app a user used to sign up, if available in app_metadata.
+    Return the app a user used to register, if available in app_metadata.
     """
     results = client.search_users_by_email(email=user_email)
     for user in results:
