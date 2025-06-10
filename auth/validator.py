@@ -57,17 +57,20 @@ def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: i
     return None
 
 
-def get_current_user(token: str = Depends(oauth2_scheme),
-                     settings: Settings = Depends(get_settings)) -> SessionUser:
+def get_current_user(
+    token: str = Depends(oauth2_scheme), settings: Settings = Depends(get_settings)
+) -> SessionUser:
     access_token = verify_jwt(token, settings=settings)
     return SessionUser(access_token=access_token)
 
 
-def user_is_admin(current_user: Annotated[SessionUser, Depends(get_current_user)],
-                  settings: Annotated[Settings, Depends(get_settings)]) -> SessionUser:
+def user_is_admin(
+    current_user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SessionUser:
     if not current_user.is_admin(settings=settings):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You must be an admin to access this endpoint."
+            detail="You must be an admin to access this endpoint.",
         )
     return current_user

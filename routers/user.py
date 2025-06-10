@@ -17,7 +17,9 @@ router = APIRouter(
 )
 
 
-async def get_user_data(user: SessionUser, settings: Annotated[Settings, Depends(get_settings)]) -> BiocommonsAuth0User:
+async def get_user_data(
+    user: SessionUser, settings: Annotated[Settings, Depends(get_settings)]
+) -> BiocommonsAuth0User:
     """Fetch and return user data from Auth0."""
     url = f"https://{settings.auth0_domain}/api/v2/users/{user.access_token.sub}"
     token = get_management_token(settings=settings)
@@ -70,51 +72,72 @@ async def update_user_metadata(
 
 
 @router.get("/services", response_model=Dict[str, List[Service]])
-async def get_services(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_services(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get all services for the authenticated user."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {"services": user_data.app_metadata.services}
 
 
 @router.get("/services/approved", response_model=Dict[str, List[Service]])
-async def get_approved_services(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_approved_services(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get approved services for the authenticated user."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {"approved_services": user_data.approved_services}
 
 
 @router.get("/services/pending", response_model=Dict[str, List[Service]])
-async def get_pending_services(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_pending_services(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get pending services for the authenticated user."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {"pending_services": user_data.pending_services}
 
 
 @router.get("/resources", response_model=Dict[str, List[Resource]])
-async def get_resources(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_resources(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get all resources for the authenticated user."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {"resources": user_data.app_metadata.get_all_resources()}
 
 
 @router.get("/resources/approved", response_model=Dict[str, List[Resource]])
-async def get_approved_resources(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_approved_resources(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get approved resources for the authenticated user."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {"approved_resources": user_data.approved_resources}
 
 
 @router.get("/resources/pending", response_model=Dict[str, List[Resource]])
-async def get_pending_resources(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_pending_resources(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get pending resources for the authenticated user."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {"pending_resources": user_data.pending_resources}
 
 
 @router.get("/all/pending", response_model=Dict[str, List[Any]])
-async def get_all_pending(user: Annotated[SessionUser, Depends(get_current_user)]):
+async def get_all_pending(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
     """Get all pending services and resources."""
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     return {
         "pending_services": user_data.pending_services,
         "pending_resources": user_data.pending_resources,
@@ -131,8 +154,9 @@ async def get_all_pending(user: Annotated[SessionUser, Depends(get_current_user)
     },
 )
 async def request_service(
-    service_request: ServiceRequest, user: Annotated[SessionUser, Depends(get_current_user)],
-        settings: Annotated[Settings, Depends(get_settings)]
+    service_request: ServiceRequest,
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Dict[str, Any]:
     """Submit a request for a service."""
     if user.access_token.sub != service_request.user_id:
@@ -186,7 +210,7 @@ async def request_resource(
     resource_id: str,
     resource_request: ResourceRequest,
     user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Settings = Depends(get_settings),
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> Dict[str, Any]:
     """Submit a request for a resource within a service."""
     if user.access_token.sub != resource_request.user_id:
@@ -200,7 +224,7 @@ async def request_resource(
             status_code=400, detail="Service ID in path does not match request body"
         )
 
-    user_data = await get_user_data(user)
+    user_data = await get_user_data(user, settings)
     service = user_data.app_metadata.get_service_by_id(service_id)
 
     if not service:
