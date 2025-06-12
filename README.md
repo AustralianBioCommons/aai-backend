@@ -35,7 +35,7 @@ Follow these steps to set up the project:
 
    For dev:
    ```bash
-   uv pip install --group dev
+   uv sync --extra dev
    ```
 
 4. **Install pre-commit**:
