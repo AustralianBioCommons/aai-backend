@@ -11,7 +11,7 @@ dependencies = [
     "python-jose>=3.4.0"
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
@@ -20,7 +20,7 @@ dev = [
     "polyfactory>=2.21.0",
     "pre-commit>=3.7.0",
     "freezegun>=1.5.2",
-    "respx>=0.22.0",
+    "respx>=0.22.0"
 ]
 
 [tool.pytest.ini_options]
