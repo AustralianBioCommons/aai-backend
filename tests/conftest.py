@@ -1,9 +1,12 @@
+from unittest.mock import MagicMock
+
 import pytest
 from fastapi.testclient import TestClient
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from galaxy.client import GalaxyClient, get_galaxy_client
 from main import app
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
 
@@ -66,4 +69,12 @@ def as_admin_user():
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
     yield
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def mock_galaxy_client():
+    client = MagicMock(GalaxyClient)
+    app.dependency_overrides[get_galaxy_client] = lambda: client
+    yield client
     app.dependency_overrides.clear()
