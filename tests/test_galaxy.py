@@ -138,7 +138,7 @@ def test_register(mocker, mock_auth_token, mock_settings, test_client):
 
 
 @pytest.mark.respx(base_url="https://mock-domain")
-def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_client):
+def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_client, mock_galaxy_client):
     """
     Test how we handle datetimes in the response data: if we don't
     use model_dump(mode="json") when providing json data, we can get errors
@@ -154,6 +154,7 @@ def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_cl
     user_data = GalaxyRegistrationDataFactory.build()
     token_resp = test_client.get("/galaxy/get-registration-token")
     headers = {"registration-token": token_resp.json()["token"]}
+    mock_galaxy_client.username_exists.return_value = False
     resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
     assert resp.status_code == 200
 
