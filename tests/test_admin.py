@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
+from auth0.client import get_auth0_client
 from main import app
 from routers.admin import PaginationParams
 from schemas import Resource, Service
@@ -31,8 +32,10 @@ def frozen_time():
 
 @pytest.fixture
 def mock_auth0_client(mocker):
-    mock_client = mocker.patch("routers.admin.Auth0Client")
-    return mock_client()
+    mock_client = mocker.patch("auth0.client.Auth0Client")
+    app.dependency_overrides[get_auth0_client] = lambda: mock_client
+    yield mock_client
+    app.dependency_overrides.clear()
 
 
 def test_pagination_params_start_index():
@@ -49,11 +52,8 @@ def test_get_users_requires_admin_unauthorized(test_client, mocker):
         payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
         return SessionUserFactory.build(access_token=payload)
 
-    def mock_admin_token():
-        return "mock_token"
-
     app.dependency_overrides[get_current_user] = get_nonadmin_user
-    app.dependency_overrides[get_management_token] = mock_admin_token
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
     resp = test_client.get("/admin/users")
     assert resp.status_code == 403
     assert resp.json() == {"detail": "You must be an admin to access this endpoint."}
