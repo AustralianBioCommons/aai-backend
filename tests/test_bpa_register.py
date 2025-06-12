@@ -40,11 +40,10 @@ def test_to_biocommons_register_data(valid_registration_data):
         id="bpa",
         status="approved",
         last_updated=datetime.now(UTC),
-        updated_by=''
+        updated_by="",
     )
     register_data = BiocommonsRegisterData.from_bpa_registration(
-        bpa_data,
-        bpa_service=bpa_service
+        bpa_data, bpa_service=bpa_service
     )
     assert register_data.username == bpa_data.username
     assert register_data.name == bpa_data.fullname
@@ -53,7 +52,7 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 
 def test_successful_registration(
-        test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test successful user registration with BPA service"""
     mock_response = MagicMock()
@@ -62,9 +61,7 @@ def test_successful_registration(
 
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = test_client.post(
-        "/bpa/register", json=valid_registration_data
-    )
+    response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
@@ -77,7 +74,7 @@ def test_successful_registration(
     app_metadata = called_data["app_metadata"]
     assert len(app_metadata["services"]) == 1
     bpa_service = app_metadata["services"][0]
-    assert bpa_service["name"] == "BPA"
+    assert bpa_service["name"] == "Bioplatforms Australia Data Portal"
     assert bpa_service["status"] == "pending"
     assert len(bpa_service["resources"]) == 2
 
@@ -88,7 +85,7 @@ def test_successful_registration(
 
 
 def test_registration_duplicate_user(
-        test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with duplicate user"""
     mock_response = MagicMock()
@@ -97,16 +94,14 @@ def test_registration_duplicate_user(
 
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = test_client.post(
-        "/bpa/register", json=valid_registration_data
-    )
+    response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Registration failed: User already exists"
 
 
 def test_registration_auth0_error(
-        test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with Auth0 API error"""
     mock_response = MagicMock()
@@ -115,16 +110,14 @@ def test_registration_auth0_error(
 
     mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
-    response = test_client.post(
-        "/bpa/register", json=valid_registration_data
-    )
+    response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Registration failed: Invalid request"
 
 
 def test_registration_with_invalid_organization(
-        test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with invalid organization ID"""
     data = valid_registration_data.copy()
@@ -150,7 +143,7 @@ def test_registration_request_validation(test_client):
 
 
 def test_no_selected_organizations(
-        test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with no organizations selected"""
     data = valid_registration_data.copy()
@@ -175,7 +168,7 @@ def test_no_selected_organizations(
 
 
 def test_empty_organizations_dict(
-        test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test registration with empty organizations dictionary"""
     data = valid_registration_data.copy()
@@ -195,9 +188,7 @@ def test_empty_organizations_dict(
     assert len(bpa_service["resources"]) == 0
 
 
-def test_registration_email_format(
-        test_client, valid_registration_data
-):
+def test_registration_email_format(test_client, valid_registration_data):
     """Test email format validation"""
     data = valid_registration_data.copy()
     data["email"] = "invalid-email"
@@ -209,7 +200,7 @@ def test_registration_email_format(
 
 
 def test_all_organizations_selected(
-        test_client,
+    test_client,
     mock_auth_token,
     mock_settings,
     mocker,
