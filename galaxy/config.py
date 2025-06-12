@@ -13,7 +13,7 @@ class GalaxySettings(BaseSettings):
     galaxy_url: str
     galaxy_api_key: str
 
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 @lru_cache
