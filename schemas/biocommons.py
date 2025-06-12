@@ -4,7 +4,7 @@ Schemas for how we represent users in Auth0 for BioCommons.
 These are the core schemas we use for storing/representing users
 and their metadata
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Literal, Optional, Self
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
@@ -85,14 +85,16 @@ class BiocommonsAppMetadata(BaseModel):
         if service:
             service.revoke(updated_by=updated_by)
 
-    def approve_resource(self, service_id: str, resource_id: str):
-        """Approve a resource by its ID."""
-        resource = self.get_resource_by_id(service_id=service_id, resource_id=resource_id)
-        if resource:
-            resource.approve()
-            return resource
-        else:
-            raise ValueError("Resource not found.")
+    def approve_resource(self, service_id: str, resource_id: str, updated_by: str):
+        service = self.get_service_by_id(service_id)
+        if service:
+            for resource in service.resources:
+                if resource.id == resource_id:
+                    resource.status = "approved"
+                    resource.last_updated = datetime.now(timezone.utc)
+                    resource.updated_by = updated_by
+                    return
+        raise ValueError(f"Service '{service_id}' or resource '{resource_id}' not found.")
 
 
 class BiocommonsRegisterData(BaseModel):

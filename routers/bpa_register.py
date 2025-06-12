@@ -31,7 +31,6 @@ async def register_bpa_user(
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     now = datetime.now(timezone.utc)
-    updated_by = registration.email
 
     # Create BPA resources for selected organizations
     bpa_resources = []
@@ -47,7 +46,7 @@ async def register_bpa_user(
             name=settings.organizations[org_id],
             status="pending",
             last_updated=now,
-            updated_by=updated_by,
+            updated_by="system",
         ).model_dump(mode="json")
         bpa_resources.append(resource)
 
@@ -57,7 +56,7 @@ async def register_bpa_user(
         id="bpa",
         status="pending",
         last_updated=now,
-        updated_by=updated_by,
+        updated_by="system",
         resources=bpa_resources,
     )
 

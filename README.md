@@ -28,9 +28,14 @@ Follow these steps to set up the project:
    source .venv/bin/activate
    ```
 
-3. **Install Dependencies for dev**:
+3. **Install Dependencies**:
    ```bash
-   uv pip install .[dev]
+   uv pip install
+   ```
+
+   For dev:
+   ```bash
+   uv pip install --group dev
    ```
 
 4. **Install pre-commit**:

@@ -11,7 +11,7 @@ dependencies = [
     "python-jose>=3.4.0"
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
@@ -22,15 +22,6 @@ dev = [
     "freezegun>=1.5.2",
     "respx>=0.22.0",
 ]
-
-[tool.pytest.ini_options]
-pythonpath = ["."]
-testpaths = ["tests"]
-addopts = "--cov=auth --cov=routers --cov=schemas --cov-report=term --cov-report=xml"
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["auth*", "routers*", "schemas*"]
