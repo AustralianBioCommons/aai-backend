@@ -28,11 +28,9 @@ Follow these steps to set up the project:
    source .venv/bin/activate
    ```
 
-3. **Install Dependencies**:
-   (aai-backend) uv sync
-
+3. **Install Dependencies for dev**:
    ```bash
-   uv sync
+   uv pip install .[dev]
    ```
 
 4. **Install pre-commit**:

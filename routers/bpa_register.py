@@ -30,6 +30,9 @@ async def register_bpa_user(
     token = get_management_token(settings=settings)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
+    now = datetime.now(timezone.utc)
+    updated_by = registration.email
+
     # Create BPA resources for selected organizations
     bpa_resources = []
     for org_id, is_selected in registration.organizations.items():
@@ -40,7 +43,11 @@ async def register_bpa_user(
                 status_code=400, detail=f"Invalid organization ID: {org_id}"
             )
         resource = Resource(
-            id=org_id, name=settings.organizations[org_id], status="pending"
+            id=org_id,
+            name=settings.organizations[org_id],
+            status="pending",
+            last_updated=now,
+            updated_by=updated_by,
         ).model_dump(mode="json")
         bpa_resources.append(resource)
 
@@ -49,8 +56,8 @@ async def register_bpa_user(
         name="Bioplatforms Australia Data Portal",
         id="bpa",
         status="pending",
-        last_updated=datetime.now(timezone.utc),
-        updated_by="system",
+        last_updated=now,
+        updated_by=updated_by,
         resources=bpa_resources,
     )
 
