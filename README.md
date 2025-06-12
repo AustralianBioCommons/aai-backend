@@ -30,7 +30,7 @@ Follow these steps to set up the project:
 
 3. **Install Dependencies**:
    ```bash
-   uv pip install
+   uv sync
    ```
 
    For dev:
