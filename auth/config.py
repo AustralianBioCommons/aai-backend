@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         "bpa-wheat-pathogens-transcript": "Wheat Pathogens Transcript",
     }
 
-    model_config = SettingsConfigDict(env_file=".env")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 @lru_cache()
