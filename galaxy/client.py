@@ -1,5 +1,9 @@
+from typing import Annotated
+
+from fastapi import Depends
 from httpx import Client
 
+from galaxy.config import GalaxySettings, get_galaxy_settings
 from galaxy.schemas import GalaxyUserModel
 
 
@@ -30,3 +34,7 @@ class GalaxyClient:
             if user.username == username:
                 return True
         return False
+
+
+def get_galaxy_client(settings: Annotated[GalaxySettings, Depends(get_galaxy_settings)]):
+    return GalaxyClient(galaxy_url=settings.galaxy_url, api_key=settings.galaxy_api_key)
