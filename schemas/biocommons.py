@@ -87,15 +87,16 @@ class BiocommonsAppMetadata(BaseModel):
 
     def approve_resource(self, service_id: str, resource_id: str, updated_by: str):
         service = self.get_service_by_id(service_id)
-        if service:
-            for resource in service.resources:
-                if resource.id == resource_id:
-                    resource.status = "approved"
-                    resource.last_updated = datetime.now(timezone.utc)
-                    resource.updated_by = updated_by
-                    return
-        raise ValueError(f"Service '{service_id}' or resource '{resource_id}' not found.")
+        if not service:
+            raise ValueError(f"Service '{service_id}' not found.")
 
+        resource = service.get_resource_by_id(resource_id)
+        if not resource:
+            raise ValueError(f"Resource '{resource_id}' not found in service '{service_id}'.")
+
+        resource.status = "approved"
+        resource.last_updated = datetime.now(timezone.utc)
+        resource.updated_by = updated_by
 
 class BiocommonsRegisterData(BaseModel):
     """
