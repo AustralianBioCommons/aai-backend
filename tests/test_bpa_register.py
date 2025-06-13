@@ -40,7 +40,7 @@ def test_to_biocommons_register_data(valid_registration_data):
         id="bpa",
         status="approved",
         last_updated=datetime.now(UTC),
-        updated_by="",
+        updated_by="system",
     )
     register_data = BiocommonsRegisterData.from_bpa_registration(
         bpa_data, bpa_service=bpa_service
@@ -76,12 +76,41 @@ def test_successful_registration(
     bpa_service = app_metadata["services"][0]
     assert bpa_service["name"] == "Bioplatforms Australia Data Portal"
     assert bpa_service["status"] == "pending"
+    assert "last_updated" in bpa_service
+    assert "updated_by" in bpa_service
+    assert bpa_service["updated_by"] == "system"
     assert len(bpa_service["resources"]) == 2
+
+    for resource in bpa_service["resources"]:
+        assert "last_updated" in resource
+        assert "updated_by" in resource
+        assert resource["updated_by"] == "system"
 
     assert (
         called_data["user_metadata"]["bpa"]["registration_reason"]
         == valid_registration_data["reason"]
     )
+
+
+def test_service_and_resources_have_updated_by_system():
+    service = Service(
+        name="Test Service",
+        id="svc1",
+        status="pending",
+        last_updated=datetime.now(UTC),
+        updated_by="system",
+        resources=[
+            {
+                "id": "res1",
+                "name": "Test Resource",
+                "status": "pending",
+                "last_updated": datetime.now(UTC),
+                "updated_by": "system",
+            }
+        ],
+    )
+    assert service.updated_by == "system"
+    assert service.resources[0].updated_by == "system"
 
 
 def test_registration_duplicate_user(

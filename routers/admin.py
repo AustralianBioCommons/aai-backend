@@ -132,9 +132,17 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
 def approve_resource(user_id: Annotated[str, UserIdParam],
                      service_id: Annotated[str, ServiceIdParam],
                      resource_id: Annotated[str, ResourceIdParam],
-                     client: Annotated[Auth0Client, Depends(get_auth0_client)]):
+                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                     approving_user: Annotated[SessionUser, Depends(get_current_user)]):
     user = client.get_user(user_id=user_id)
-    user.app_metadata.approve_resource(service_id=service_id, resource_id=resource_id)
+    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
+
+    user.app_metadata.approve_resource(
+        service_id=service_id,
+        resource_id=resource_id,
+        updated_by=approving_user_data.email
+    )
+
     update = update_user_metadata(
         user_id=user_id,
         token=client.management_token,

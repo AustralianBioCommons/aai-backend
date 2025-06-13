@@ -107,5 +107,5 @@ def test_approve_resource_from_app_metadata():
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="",
                       resources=[resource])
     app_metadata = AppMetadataFactory.build(services=[service])
-    app_metadata.approve_resource(service_id="service1", resource_id="resource1")
+    app_metadata.approve_resource(service_id="service1", resource_id="resource1", updated_by="admin@example.com")
     assert resource.status == "approved"

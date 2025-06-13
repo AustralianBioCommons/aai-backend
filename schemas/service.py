@@ -8,6 +8,8 @@ class Resource(BaseModel):
     name: str
     status: Literal["approved", "revoked", "pending"]
     id: str
+    last_updated: Optional[datetime] = None
+    updated_by: Optional[str] = None
 
     def approve(self):
         self.status = "approved"

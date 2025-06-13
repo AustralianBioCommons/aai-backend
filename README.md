@@ -29,10 +29,13 @@ Follow these steps to set up the project:
    ```
 
 3. **Install Dependencies**:
-   (aai-backend) uv sync
-
    ```bash
    uv sync
+   ```
+
+   For dev:
+   ```bash
+   uv sync --extra dev
    ```
 
 4. **Install pre-commit**:
