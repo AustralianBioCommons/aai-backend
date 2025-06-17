@@ -46,6 +46,7 @@ async def register_bpa_user(
             name=settings.organizations[org_id],
             status="pending",
             last_updated=now,
+            initial_request_time=now,
             updated_by="system",
         ).model_dump(mode="json")
         bpa_resources.append(resource)
@@ -54,6 +55,7 @@ async def register_bpa_user(
     bpa_service = Service(
         name="Bioplatforms Australia Data Portal",
         id="bpa",
+        initial_request_time=now,
         status="pending",
         last_updated=now,
         updated_by="system",

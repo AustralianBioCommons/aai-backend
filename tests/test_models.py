@@ -19,9 +19,7 @@ def frozen_time():
 
 
 def test_approve_service(frozen_time):
-    """
-    Test we can approve a service and set metadata correctly.
-    """
+    """Test we can approve a service and set metadata correctly."""
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     service.approve(updated_by="admin@example.com")
@@ -31,9 +29,7 @@ def test_approve_service(frozen_time):
 
 
 def test_approve_service_from_app_metadata(frozen_time):
-    """
-    Test we can approve a service by ID from BiocommonsAppMetadata.
-    """
+    """Test we can approve a service by ID from BiocommonsAppMetadata."""
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     other = Service(name="Other Service", id="service2", status="pending",
@@ -47,9 +43,7 @@ def test_approve_service_from_app_metadata(frozen_time):
 
 
 def test_revoke_service(frozen_time):
-    """
-    Test we can revoke a service and set metadata correctly.
-    """
+    """Test we can revoke a service and set metadata correctly."""
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     service.revoke(updated_by="admin@example.com")
@@ -59,9 +53,7 @@ def test_revoke_service(frozen_time):
 
 
 def test_revoke_service_from_app_metadata(frozen_time):
-    """
-    Test we can revoke a service by ID from BiocommonsAppMetadata.
-    """
+    """Test we can revoke a service by ID from BiocommonsAppMetadata."""
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     other = Service(name="Other Service", id="service2", status="approved",
@@ -73,39 +65,65 @@ def test_revoke_service_from_app_metadata(frozen_time):
     assert service.last_updated == FROZEN_TIME
     assert other.status == "approved"
 
-def test_approve_resource():
-    resource = Resource(name="Test Resource", id="resource1", status="pending")
+
+def test_approve_resource(frozen_time):
+    resource = Resource(
+        name="Test Resource",
+        id="resource1",
+        status="pending",
+        initial_request_time=FROZEN_TIME
+    )
     resource.approve()
     assert resource.status == "approved"
+    assert resource.initial_request_time == FROZEN_TIME
 
 
-def test_approve_resource_from_service():
-    resource = Resource(name="Test Resource", id="resource1", status="pending")
+def test_approve_resource_from_service(frozen_time):
+    """Test that trying to approve a resource from a pending service raises an error."""
+    resource = Resource(
+        name="Test Resource",
+        id="resource1",
+        status="pending",
+        initial_request_time=FROZEN_TIME
+    )
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="",
                       resources=[resource])
     service.approve_resource(resource_id="resource1")
     assert resource.status == "approved"
+    assert resource.initial_request_time == FROZEN_TIME
 
 
-def test_approve_resource_from_pending_service():
-    """
-    Test that trying to approve a resource from a pending service raises an error.
-    """
-    resource = Resource(name="Test Resource", id="resource1", status="pending")
+def test_approve_resource_from_pending_service(frozen_time):
+    """Test that trying to approve a resource from a pending service raises an error."""
+    resource = Resource(
+        name="Test Resource",
+        id="resource1",
+        status="pending",
+        initial_request_time=FROZEN_TIME
+    )
+
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="",
                       resources=[resource])
     with pytest.raises(PermissionError, match="Service must be approved before approving a resource."):
         service.approve_resource(resource_id="resource1")
     assert resource.status == "pending"
+    assert resource.initial_request_time == FROZEN_TIME
 
 
-def test_approve_resource_from_app_metadata():
-    resource = Resource(name="Test Resource", id="resource1", status="pending")
+def test_approve_resource_from_app_metadata(frozen_time):
+    resource = Resource(
+        name="Test Resource",
+        id="resource1",
+        status="pending",
+        initial_request_time=FROZEN_TIME
+    )
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="",
                       resources=[resource])
     app_metadata = AppMetadataFactory.build(services=[service])
     app_metadata.approve_resource(service_id="service1", resource_id="resource1", updated_by="admin@example.com")
+
     assert resource.status == "approved"
+    assert resource.initial_request_time == FROZEN_TIME

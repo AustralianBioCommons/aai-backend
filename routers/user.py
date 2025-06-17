@@ -176,6 +176,7 @@ async def request_service(
     new_service = Service(
         name=service_request.name,
         id=service_request.id,
+        initial_request_time=datetime.now(timezone.utc),
         status="pending",
         last_updated=datetime.now(timezone.utc),
         updated_by=user.access_token.sub,

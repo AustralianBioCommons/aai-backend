@@ -47,7 +47,6 @@ def test_to_biocommons_register_data(valid_registration_data):
     )
     assert register_data.username == bpa_data.username
     assert register_data.name == bpa_data.fullname
-    # Test we fill the registration_from field in app_metadata
     assert register_data.app_metadata.registration_from == "bpa"
 
 
@@ -84,6 +83,7 @@ def test_successful_registration(
     for resource in bpa_service["resources"]:
         assert "last_updated" in resource
         assert "updated_by" in resource
+        assert "initial_request_time" in resource
         assert resource["updated_by"] == "system"
 
     assert (
@@ -106,12 +106,14 @@ def test_service_and_resources_have_updated_by_system():
                 "status": "pending",
                 "last_updated": datetime.now(UTC),
                 "updated_by": "system",
+                "initial_request_time": datetime.now(UTC),
             }
         ],
     )
     assert service.updated_by == "system"
     assert service.resources[0].updated_by == "system"
-
+    assert hasattr(service.resources[0], "initial_request_time")
+    assert isinstance(service.resources[0].initial_request_time, datetime)
 
 def test_registration_duplicate_user(
     test_client, mock_auth_token, mocker, valid_registration_data
