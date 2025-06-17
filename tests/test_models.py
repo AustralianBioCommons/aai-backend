@@ -19,6 +19,7 @@ def frozen_time():
 
 
 def test_approve_service(frozen_time):
+    """Test we can approve a service and set metadata correctly."""
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     service.approve(updated_by="admin@example.com")
@@ -28,6 +29,7 @@ def test_approve_service(frozen_time):
 
 
 def test_approve_service_from_app_metadata(frozen_time):
+    """Test we can approve a service by ID from BiocommonsAppMetadata."""
     service = Service(name="Test Service", id="service1", status="pending",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     other = Service(name="Other Service", id="service2", status="pending",
@@ -41,6 +43,7 @@ def test_approve_service_from_app_metadata(frozen_time):
 
 
 def test_revoke_service(frozen_time):
+    """Test we can revoke a service and set metadata correctly."""
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     service.revoke(updated_by="admin@example.com")
@@ -50,6 +53,7 @@ def test_revoke_service(frozen_time):
 
 
 def test_revoke_service_from_app_metadata(frozen_time):
+    """Test we can revoke a service by ID from BiocommonsAppMetadata."""
     service = Service(name="Test Service", id="service1", status="approved",
                       last_updated=FROZEN_TIME - timedelta(hours=1), updated_by="")
     other = Service(name="Other Service", id="service2", status="approved",
@@ -75,6 +79,7 @@ def test_approve_resource(frozen_time):
 
 
 def test_approve_resource_from_service(frozen_time):
+    """Test that trying to approve a resource from a pending service raises an error."""
     resource = Resource(
         name="Test Resource",
         id="resource1",
@@ -90,9 +95,7 @@ def test_approve_resource_from_service(frozen_time):
 
 
 def test_approve_resource_from_pending_service(frozen_time):
-    """
-    Test that trying to approve a resource from a pending service raises an error.
-    """
+    """Test that trying to approve a resource from a pending service raises an error."""
     resource = Resource(
         name="Test Resource",
         id="resource1",
