@@ -22,9 +22,9 @@ class Resource(BaseModel):
 class Service(BaseModel):
     name: str
     id: str
+    initial_request_time: Optional[datetime] = None
     status: Literal["approved", "revoked", "pending"]
     last_updated: datetime
-    initial_request_time: Optional[datetime] = None
     updated_by: str
     resources: List[Resource] = Field(default_factory=list)
 

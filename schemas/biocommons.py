@@ -139,6 +139,7 @@ class BiocommonsRegisterData(BaseModel):
         galaxy_service = Service(
             name="Galaxy Australia",
             id="galaxy",
+            initial_request_time=datetime.now(),
             status="approved",
             last_updated=datetime.now(),
             updated_by=""

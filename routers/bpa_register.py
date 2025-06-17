@@ -55,9 +55,9 @@ async def register_bpa_user(
     bpa_service = Service(
         name="Bioplatforms Australia Data Portal",
         id="bpa",
+        initial_request_time=now,
         status="pending",
         last_updated=now,
-        initial_request_time=now,
         updated_by="system",
         resources=bpa_resources,
     )
