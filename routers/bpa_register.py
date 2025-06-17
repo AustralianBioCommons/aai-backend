@@ -46,6 +46,7 @@ async def register_bpa_user(
             name=settings.organizations[org_id],
             status="pending",
             last_updated=now,
+            initial_request_time=now,
             updated_by="system",
         ).model_dump(mode="json")
         bpa_resources.append(resource)
@@ -56,6 +57,7 @@ async def register_bpa_user(
         id="bpa",
         status="pending",
         last_updated=now,
+        initial_request_time=now,
         updated_by="system",
         resources=bpa_resources,
     )

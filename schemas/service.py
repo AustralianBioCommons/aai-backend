@@ -9,6 +9,7 @@ class Resource(BaseModel):
     status: Literal["approved", "revoked", "pending"]
     id: str
     last_updated: Optional[datetime] = None
+    initial_request_time: Optional[datetime] = None
     updated_by: Optional[str] = None
 
     def approve(self):
@@ -23,6 +24,7 @@ class Service(BaseModel):
     id: str
     status: Literal["approved", "revoked", "pending"]
     last_updated: datetime
+    initial_request_time: Optional[datetime] = None
     updated_by: str
     resources: List[Resource] = Field(default_factory=list)
 
