@@ -90,7 +90,7 @@ async def register_bpa_user(
 
             body_html = f"""
                 <p>A new user has requested access to one or more organizations in the BPA service.</p>
-                <p><strong>User:</strong> {registration.name} ({registration.email})</p>
+                <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
                 <p><strong>Requested access to:</strong></p>
                 <ul>{org_list_html}</ul>
                 <p>Please log into the AAI Admin Portal to review and approve access.</p>
@@ -104,6 +104,7 @@ async def register_bpa_user(
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Exception occurred during registration: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to register user: {str(e)}"
         )

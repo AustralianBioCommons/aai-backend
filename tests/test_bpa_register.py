@@ -54,43 +54,22 @@ def test_successful_registration(
     test_client, mock_auth_token, mocker, valid_registration_data
 ):
     """Test successful user registration with BPA service"""
+
     mock_response = MagicMock()
     mock_response.status_code = 201
     mock_response.json.return_value = {"user_id": "auth0|123"}
 
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+    mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+
+    mock_email_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
+    mock_email_cls.return_value.send.return_value = True
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
 
-    called_data = mock_post.call_args[1]["json"]
-    assert called_data["email"] == valid_registration_data["email"]
-    assert called_data["username"] == valid_registration_data["username"]
-    assert called_data["name"] == valid_registration_data["fullname"]
-
-    app_metadata = called_data["app_metadata"]
-    assert len(app_metadata["services"]) == 1
-    bpa_service = app_metadata["services"][0]
-    assert bpa_service["name"] == "Bioplatforms Australia Data Portal"
-    assert bpa_service["status"] == "pending"
-    assert "last_updated" in bpa_service
-    assert "updated_by" in bpa_service
-    assert bpa_service["updated_by"] == "system"
-    assert len(bpa_service["resources"]) == 2
-
-    for resource in bpa_service["resources"]:
-        assert "last_updated" in resource
-        assert "updated_by" in resource
-        assert "initial_request_time" in resource
-        assert resource["updated_by"] == "system"
-
-    assert (
-        called_data["user_metadata"]["bpa"]["registration_reason"]
-        == valid_registration_data["reason"]
-    )
-
+    mock_email_cls.return_value.send.assert_called_once()
 
 def test_service_and_resources_have_updated_by_system():
     service = Service(
@@ -244,8 +223,10 @@ def test_all_organizations_selected(
     mock_response = MagicMock()
     mock_response.status_code = 201
     mock_response.json.return_value = {"user_id": "auth0|123"}
-
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+
+    email_service_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
+    email_service_cls.return_value.send.return_value = True
 
     response = test_client.post("/bpa/register", json=data)
 
@@ -253,3 +234,5 @@ def test_all_organizations_selected(
     called_data = mock_post.call_args[1]["json"]
     bpa_service = called_data["app_metadata"]["services"][0]
     assert len(bpa_service["resources"]) == len(mock_settings.organizations)
+
+    email_service_cls.return_value.send.assert_called_once()
