@@ -11,7 +11,11 @@ dependencies = [
     "psycopg[binary]>=3.2.9",
     "pydantic-settings>=2.8.1",
     "python-jose>=3.4.0",
+<<<<<<< HEAD
     "sqlmodel>=0.0.24",
+=======
+    "boto3>=1.34.0"
+>>>>>>> e89ffa1 (make ruff happy)
 ]
 
 [project.optional-dependencies]

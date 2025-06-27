@@ -8,19 +8,27 @@ on:
     branches:
       - main
 
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
-    env:
-      AUTH0_DOMAIN: "mock-domain"
-      AUTH0_AUDIENCE: "mock-audience"
-      AUTH0_MANAGEMENT_ID: "mock-id"
-      AUTH0_MANAGEMENT_SECRET: "mock-secret"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::232870232581:role/aai-backend-deploy
+          role-session-name: github-test-session
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -42,6 +50,12 @@ jobs:
           uv run -- ruff check .
 
       - name: Run tests and generate Cobertura coverage report
+        env:
+          AUTH0_DOMAIN: "mock-domain"
+          AUTH0_AUDIENCE: "mock-audience"
+          AUTH0_MANAGEMENT_ID: "mock-id"
+          AUTH0_MANAGEMENT_SECRET: "mock-secret"
+          AWS_REGION: ap-southeast-2
         run: |
           mkdir -p coverage
           PYTHONPATH=. uv run pytest \

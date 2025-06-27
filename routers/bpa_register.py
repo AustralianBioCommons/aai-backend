@@ -6,6 +6,7 @@ from httpx import AsyncClient
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
+from auth.ses import EmailService
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.service import Resource, Service
@@ -77,7 +78,28 @@ async def register_bpa_user(
                     status_code=400,
                     detail=f"Registration failed: {response.json()['message']}",
                 )
-            return {"message": "User registered successfully", "user": response.json()}
+
+        if bpa_resources:
+            email_service = EmailService()
+            approver_email = "aai-dev@biocommons.org.au"  # ideally move to settings
+            subject = "New BPA User Access Request"
+
+            org_list_html = "".join(
+                f"<li>{res['name']} (ID: {res['id']})</li>" for res in bpa_resources
+            )
+
+            body_html = f"""
+                <p>A new user has requested access to one or more organizations in the BPA service.</p>
+                <p><strong>User:</strong> {registration.name} ({registration.email})</p>
+                <p><strong>Requested access to:</strong></p>
+                <ul>{org_list_html}</ul>
+                <p>Please log into the AAI Admin Portal to review and approve access.</p>
+            """
+
+            email_service.send(approver_email, subject, body_html)
+
+        return {"message": "User registered successfully", "user": response.json()}
+
 
     except HTTPException:
         raise
