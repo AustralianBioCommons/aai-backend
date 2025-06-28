@@ -104,7 +104,6 @@ async def register_bpa_user(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Exception occurred during registration: {e}")
         raise HTTPException(
             status_code=500, detail=f"Failed to register user: {str(e)}"
         )
