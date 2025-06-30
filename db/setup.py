@@ -1,3 +1,5 @@
+import os
+
 from dotenv import dotenv_values
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -5,8 +7,9 @@ from sqlmodel import Session, SQLModel, create_engine
 # Doing this separately from pydantic-settings as we
 # need this before loading the FastAPI app
 env_values = dotenv_values(".env")
-# Fall back to in-memory SQLite if no DB in env file
-DB_URL = env_values.get("DB_URL", "sqlite://")
+# Prefer the explicitly set value in .env, then environment variable,
+#   fallback to in-memory DB
+DB_URL = env_values.get("DB_URL") or os.getenv("DB_URL") or "sqlite://"
 
 connect_args = {"check_same_thread": False}
 engine = create_engine(DB_URL, connect_args=connect_args)
