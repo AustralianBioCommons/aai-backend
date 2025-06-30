@@ -55,6 +55,7 @@ jobs:
           AWS_CERTIFICATE_ARN=${{ secrets.AWS_CERTIFICATE_ARN }}
           AWS_ZONE_ID=${{ secrets.AWS_ZONE_ID }}
           AWS_ZONE_DOMAIN=${{ secrets.AWS_ZONE_DOMAIN }}
+          AWS_DB_HOST=${{ secrets.AWS_DB_HOST }}
           EOF
 
       - name: CDK Deploy
