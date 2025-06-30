@@ -18,7 +18,7 @@ def get_db_config() -> Tuple[str, dict]:
     if host is not None:
         user = os.getenv("DB_USER")
         password = os.getenv("DB_PASSWORD")
-        db_url = f"postgresql+psycopg2://{user}:{password}@{host}"
+        db_url = f"postgresql+psycopg://{user}:{password}@{host}"
         return db_url, {}
     # Case 2: we have DB_URL set in the .env file, or we just want
     #   an in-memory DB for dev/testing
