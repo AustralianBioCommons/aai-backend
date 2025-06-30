@@ -2,14 +2,50 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlmodel import Session, SQLModel, StaticPool, create_engine
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from galaxy.config import GalaxySettings, get_galaxy_settings
 from main import app
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
+
+
+@pytest.fixture(scope="session")
+def test_db_engine():
+    from db import models  # noqa: F401
+    engine = create_engine(
+        # Use in-memory DB by default
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    SQLModel.metadata.create_all(engine)
+    return engine
+
+
+@pytest.fixture(name="session")
+def session_fixture(test_db_engine):
+    session = Session(test_db_engine)
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+@pytest.fixture(autouse=True)
+def use_test_db(session):
+    """
+    Ensure we always use the test database
+    """
+    def get_db_session_override():
+        yield session
+    app.dependency_overrides[get_db_session] = get_db_session_override
+    yield
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
