@@ -10,6 +10,10 @@ from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 
+def random_auth0_id() -> str:
+    return "auth0|" + ''.join(random.choices('0123456789abcdef', k=24))
+
+
 class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]): ...
 
 
@@ -20,7 +24,7 @@ class BiocommonsAuth0UserFactory(ModelFactory[BiocommonsAuth0User]):
 
     @classmethod
     def user_id(cls) -> str:
-        return "auth0|" + ''.join(random.choices('0123456789abcdef', k=24))
+        return random_auth0_id()
 
 
 class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
