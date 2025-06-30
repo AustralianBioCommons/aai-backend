@@ -21,7 +21,8 @@ dev = [
     "polyfactory>=2.21.0",
     "pre-commit>=3.7.0",
     "freezegun>=1.5.2",
-    "respx>=0.22.0"
+    "respx>=0.22.0",
+    "mimesis~=18.0"
 ]
 
 [tool.pytest.ini_options]
