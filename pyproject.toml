@@ -8,7 +8,8 @@ dependencies = [
     "fastapi[standard]>=0.115.12",
     "httpx>=0.28.1",
     "pydantic-settings>=2.8.1",
-    "python-jose>=3.4.0"
+    "python-jose>=3.4.0",
+    "sqlmodel>=0.0.24",
 ]
 
 [project.optional-dependencies]
