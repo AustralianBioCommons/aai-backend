@@ -17,9 +17,13 @@ def run(cmd, env=None):
 
 
 @click.command()
-@click.option('--revision-message', '-m', required=True, help="Message for Alembic revision.")
-def generate_migrations(revision_message):
-    """Spin up a temp Postgres DB, apply migrations, and generate a new Alembic revision."""
+@click.option('--revision-message', '-m', required=False, help="Message for Alembic revision.")
+@click.option('--check', is_flag=True, help="Only run 'alembic check' after DB container is up.")
+def generate_migrations(revision_message, check):
+    """Spin up a temp Postgres DB, apply migrations or run alembic check."""
+    if not check and not revision_message:
+        raise click.UsageError("Missing option '-m' / '--revision-message'. Required unless using --check.")
+
     database_url = f"localhost:{DEFAULT_PORT}"
     os.environ["DB_HOST"] = database_url
     os.environ["DB_USER"] = POSTGRES_USER
@@ -35,13 +39,17 @@ def generate_migrations(revision_message):
         )
 
         print("⏳ Waiting for database to be ready...")
-        time.sleep(5)  # Optionally: poll with pg_isready
+        time.sleep(5)  # Could be enhanced with pg_isready
 
-        print("🧱 Applying existing Alembic migrations...")
-        run("alembic upgrade head")
+        if check:
+            print("🔍 Running 'alembic check'...")
+            run("alembic check")
+        else:
+            print("🧱 Applying existing Alembic migrations...")
+            run("alembic upgrade head")
 
-        print("📝 Generating new Alembic revision...")
-        run(f"alembic revision --autogenerate -m \"{revision_message}\"")
+            print("📝 Generating new Alembic revision...")
+            run(f"alembic revision --autogenerate -m \"{revision_message}\"")
 
     finally:
         print("🧹 Cleaning up: stopping container...")
