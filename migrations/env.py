@@ -13,7 +13,6 @@ from db.setup import get_db_config
 # access to the values within the .ini file in use.
 config = context.config
 db_url, _ = get_db_config()
-print(f"Database URL: {db_url}")
 config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
