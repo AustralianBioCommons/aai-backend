@@ -71,6 +71,23 @@ uv run -- ruff check . --fix
 pre-commit run --all-files
 ```
 
+# Database management
+
+The deployed service uses a Postgres database on AWS RDS.
+In order to generate migrations for the database locally,
+we use a Postgres docker container to generate migrations against.
+
+After making any changes to the database models, run the
+`generate_migrations.py` script to create migrations:
+
+```shell
+python generate_migrations.py -m migration_name
+```
+
+and commit them to git. Once your updated code has been
+deployed on AWS, you can use `aws ecs execute-command`
+to run the migrations.
+
 # Deployment
 
 Currently the service is deployed to AWS via the CDK scripts in `deploy/`,
