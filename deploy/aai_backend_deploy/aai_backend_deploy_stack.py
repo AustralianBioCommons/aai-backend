@@ -22,6 +22,7 @@ from aws_cdk import (
 from aws_cdk import (
     aws_elasticloadbalancingv2 as elbv2,
 )
+from aws_cdk import aws_iam as iam
 from aws_cdk import (
     aws_route53 as route53,
 )
@@ -60,6 +61,10 @@ class AaiBackendDeployStack(Stack):
         task_definition = ecs.FargateTaskDefinition(self, "AaiBackendTaskDef",
                                                     memory_limit_mib=1024,
                                                     cpu=512)
+        # Allow executing comands in the ECS container
+        task_definition.task_role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore")
+        )
 
         container = task_definition.add_container(
             "FastAPIContainer",
@@ -101,6 +106,7 @@ class AaiBackendDeployStack(Stack):
             domain_zone=route53.HostedZone.from_lookup(
                 self, "AaiBackendZone", domain_name=self.zone_domain
             ),
+            enable_execute_command=True
         )
 
         service.target_group.configure_health_check(path="/", healthy_http_codes="200-399")
