@@ -25,6 +25,9 @@ from aws_cdk import (
 from aws_cdk import (
     aws_route53 as route53,
 )
+from aws_cdk import (
+    aws_secretsmanager as secretsmanager,
+)
 from constructs import Construct
 
 
@@ -36,8 +39,13 @@ class AaiBackendDeployStack(Stack):
             self.certificate_arn = config["AWS_CERTIFICATE_ARN"]
             self.zone_id = config["AWS_ZONE_ID"]
             self.zone_domain = config["AWS_ZONE_DOMAIN"]
+            self.db_host = config["AWS_DB_HOST"]
         except KeyError as e:
             raise ValueError(f"Missing required configuration: {e}. These should be set in .env locally, or GitHub Secrets.")
+
+        db_secret = secretsmanager.Secret.from_secret_name_v2(
+            self, "DbCredentials", "aai-backend-db-credentials"
+        )
 
         # VPC
         vpc = ec2.Vpc(self, "AaiBackendVPC", max_azs=2)
@@ -63,6 +71,11 @@ class AaiBackendDeployStack(Stack):
             #   might be better to use an image tag in future
             environment={
                 "FORCE_REDEPLOY": str(datetime.datetime.now())
+            },
+            secrets={
+                "DB_USER": ecs.Secret.from_secrets_manager(db_secret, field="username"),
+                "DB_PASSWORD": ecs.Secret.from_secrets_manager(db_secret, field="password"),
+                "DB_HOST": self.db_host,
             },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="FastAPI"),
         )

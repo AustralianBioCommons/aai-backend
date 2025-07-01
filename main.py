@@ -1,8 +1,12 @@
+from contextlib import asynccontextmanager
 
 from dotenv import dotenv_values
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+# This has to be imported even if unused
+from db import models  # noqa: F401
+from db.setup import create_db_and_tables
 from routers import admin, bpa_register, galaxy_register, user, utils
 
 # Load .env to get CORS_ALLOWED_ORIGINS.
@@ -14,7 +18,13 @@ ALLOWED_ORIGINS = [
     origin.strip() for origin in env_values.get("CORS_ALLOWED_ORIGINS", "").split(",")
 ]
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    create_db_and_tables()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

@@ -12,6 +12,7 @@ def get_dotenv_config():
         "AWS_CERTIFICATE_ARN": os.getenv("AWS_CERTIFICATE_ARN"),
         "AWS_ZONE_ID": os.getenv("AWS_ZONE_ID"),
         "AWS_ZONE_DOMAIN": os.getenv("AWS_ZONE_DOMAIN"),
+        "AWS_DB_HOST": os.getenv("AWS_DB_HOST"),
     }
 
 config = get_dotenv_config()

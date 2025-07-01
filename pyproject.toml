@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.16.2",
     "fastapi[standard]>=0.115.12",
     "httpx>=0.28.1",
+    "psycopg[binary]>=3.2.9",
     "pydantic-settings>=2.8.1",
-    "python-jose>=3.4.0"
+    "python-jose>=3.4.0",
+    "sqlmodel>=0.0.24",
 ]
 
 [project.optional-dependencies]
@@ -20,7 +23,8 @@ dev = [
     "polyfactory>=2.21.0",
     "pre-commit>=3.7.0",
     "freezegun>=1.5.2",
-    "respx>=0.22.0"
+    "respx>=0.22.0",
+    "mimesis~=18.0"
 ]
 
 [tool.pytest.ini_options]
