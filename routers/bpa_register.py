@@ -1,16 +1,37 @@
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import AsyncClient
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
+from auth.ses import EmailService
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.service import Resource, Service
 
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
+
+
+def send_approval_email(registration: BPARegistrationRequest, bpa_resources: list):
+    email_service = EmailService()
+    approver_email = "aai-dev@biocommons.org.au"
+    subject = "New BPA User Access Request"
+
+    org_list_html = "".join(
+        f"<li>{res['name']} (ID: {res['id']})</li>" for res in bpa_resources
+    )
+
+    body_html = f"""
+        <p>A new user has requested access to one or more organizations in the BPA service.</p>
+        <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
+        <p><strong>Requested access to:</strong></p>
+        <ul>{org_list_html}</ul>
+        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
+    """
+
+    email_service.send(approver_email, subject, body_html)
 
 
 @router.post(
@@ -23,7 +44,9 @@ router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
     },
 )
 async def register_bpa_user(
-    registration: BPARegistrationRequest, settings: Settings = Depends(get_settings)
+    registration: BPARegistrationRequest,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings)
 ) -> Dict[str, Any]:
     """Register a new BPA user with selected organization resources."""
     url = f"https://{settings.auth0_domain}/api/v2/users"
@@ -32,7 +55,7 @@ async def register_bpa_user(
 
     now = datetime.now(timezone.utc)
 
-    # Create BPA resources for selected organizations
+    # Create BPA resources
     bpa_resources = []
     for org_id, is_selected in registration.organizations.items():
         if not is_selected:
@@ -77,7 +100,12 @@ async def register_bpa_user(
                     status_code=400,
                     detail=f"Registration failed: {response.json()['message']}",
                 )
-            return {"message": "User registered successfully", "user": response.json()}
+
+        if bpa_resources:
+            background_tasks.add_task(send_approval_email, registration, bpa_resources)
+
+
+        return {"message": "User registered successfully", "user": response.json()}
 
     except HTTPException:
         raise
