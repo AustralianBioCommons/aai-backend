@@ -31,7 +31,7 @@ def send_approver_email(
         <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
         <p><strong>Requested access to:</strong></p>
         <ul>{org_list_html}</ul>
-        <p>Please log into the AAI Admin Portal to review and approve access.</p>
+        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the Biocommons AAI Portal</a> to review and approve access.</p>
     """
 
     email_service.send(approver_email, subject, body_html)
