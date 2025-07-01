@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from jose import jwt
-from jose.backends.rsa_backend import RSAKey
+from jose.backends.cryptography_backend import CryptographyRSAKey
 
 from auth.config import Settings
 from auth.validator import get_rsa_key
@@ -26,4 +26,4 @@ def test_get_rsa_key_returns_key(mock_settings: Settings):
 
         key = get_rsa_key(token, settings=mock_settings)
         assert key is not None
-        assert isinstance(key, RSAKey)
+        assert isinstance(key, CryptographyRSAKey)

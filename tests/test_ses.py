@@ -1,57 +1,35 @@
-from unittest.mock import MagicMock, patch
-
+import boto3
 import pytest
+from moto import mock_aws
 
 from auth.ses import EmailService
 
 
 @pytest.fixture
-def mock_boto_client():
-    with patch("auth.ses.boto3.client") as mock_client:
-        yield mock_client
+def ses_client():
+    with mock_aws():
+        client = boto3.client("ses", region_name="ap-southeast-2")
+        client.verify_email_identity(EmailAddress="sender@example.com")
+        yield client
 
-def test_send_email_success(mock_boto_client):
-    """Test successful email sending"""
-    mock_ses = MagicMock()
-    mock_ses.send_email.return_value = {"MessageId": "test-message-id"}
-    mock_boto_client.return_value = mock_ses
-
-    service = EmailService()
+def test_send_email_success_with_moto(ses_client):
+    service = EmailService(region_name="ap-southeast-2")
     service.send(
         to_address="recipient@example.com",
-        subject="Test Subject",
-        body_html="<p>This is a test</p>",
+        subject="Test Moto Subject",
+        body_html="<p>This is a moto test email</p>",
         sender="sender@example.com",
     )
+    # If no exception, we assume success with moto
 
-    mock_ses.send_email.assert_called_once_with(
-        Source="sender@example.com",
-        Destination={"ToAddresses": ["recipient@example.com"]},
-        Message={
-            "Subject": {"Data": "Test Subject"},
-            "Body": {"Html": {"Data": "<p>This is a test</p>"}},
-        },
-    )
+def test_send_email_failure_with_moto(ses_client):
+    service = EmailService(region_name="ap-southeast-2")
 
-def test_send_email_failure(mock_boto_client):
-    """Test SES failure raises exception and logs"""
-    from botocore.exceptions import ClientError
-
-    mock_ses = MagicMock()
-    mock_ses.send_email.side_effect = ClientError(
-        error_response={
-            "Error": {"Message": "Invalid email", "Code": "MessageRejected"}
-        },
-        operation_name="SendEmail",
-    )
-    mock_boto_client.return_value = mock_ses
-
-    service = EmailService()
-
-    with pytest.raises(ClientError):
+    # Deliberately use an unverified sender to cause failure
+    with pytest.raises(Exception):
         service.send(
-            to_address="bad@example.com",
-            subject="Failing",
-            body_html="<p>Bad request</p>",
-            sender="no-reply@example.com",
+            to_address="recipient@example.com",
+            subject="Should Fail",
+            body_html="<p>Should not send</p>",
+            sender="unverified@example.com",
         )

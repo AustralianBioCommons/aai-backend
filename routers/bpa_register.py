@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import AsyncClient
 
 from auth.config import Settings, get_settings
@@ -14,6 +14,29 @@ from schemas.service import Resource, Service
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
 
 
+def send_approver_email(
+    email_service: EmailService,
+    approver_email: str,
+    registration: BPARegistrationRequest,
+    bpa_resources: list[Dict[str, Any]],
+) -> None:
+    subject = "New BPA User Access Request"
+
+    org_list_html = "".join(
+        f"<li>{res['name']} (ID: {res['id']})</li>" for res in bpa_resources
+    )
+
+    body_html = f"""
+        <p>A new user has requested access to one or more organizations in the BPA service.</p>
+        <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
+        <p><strong>Requested access to:</strong></p>
+        <ul>{org_list_html}</ul>
+        <p>Please log into the AAI Admin Portal to review and approve access.</p>
+    """
+
+    email_service.send(approver_email, subject, body_html)
+
+
 @router.post(
     "/register",
     response_model=Dict[str, Any],
@@ -24,7 +47,9 @@ router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
     },
 )
 async def register_bpa_user(
-    registration: BPARegistrationRequest, settings: Settings = Depends(get_settings)
+    registration: BPARegistrationRequest,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
 ) -> Dict[str, Any]:
     """Register a new BPA user with selected organization resources."""
     url = f"https://{settings.auth0_domain}/api/v2/users"
@@ -82,24 +107,13 @@ async def register_bpa_user(
         if bpa_resources:
             email_service = EmailService()
             approver_email = "aai-dev@biocommons.org.au"  # ideally move to settings
-            subject = "New BPA User Access Request"
 
-            org_list_html = "".join(
-                f"<li>{res['name']} (ID: {res['id']})</li>" for res in bpa_resources
+            # Add email sending as a background task
+            background_tasks.add_task(
+                send_approver_email, email_service, approver_email, registration, bpa_resources
             )
 
-            body_html = f"""
-                <p>A new user has requested access to one or more organizations in the BPA service.</p>
-                <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
-                <p><strong>Requested access to:</strong></p>
-                <ul>{org_list_html}</ul>
-                <p>Please log into the AAI Admin Portal to review and approve access.</p>
-            """
-
-            email_service.send(approver_email, subject, body_html)
-
         return {"message": "User registered successfully", "user": response.json()}
-
 
     except HTTPException:
         raise
