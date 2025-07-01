@@ -14,12 +14,9 @@ from schemas.service import Resource, Service
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
 
 
-def send_approver_email(
-    email_service: EmailService,
-    approver_email: str,
-    registration: BPARegistrationRequest,
-    bpa_resources: list[Dict[str, Any]],
-) -> None:
+def send_approval_email(registration: BPARegistrationRequest, bpa_resources: list):
+    email_service = EmailService()
+    approver_email = "aai-dev@biocommons.org.au"
     subject = "New BPA User Access Request"
 
     org_list_html = "".join(
@@ -31,7 +28,7 @@ def send_approver_email(
         <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
         <p><strong>Requested access to:</strong></p>
         <ul>{org_list_html}</ul>
-        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the Biocommons AAI Portal</a> to review and approve access.</p>
+        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
     email_service.send(approver_email, subject, body_html)
@@ -49,7 +46,7 @@ def send_approver_email(
 async def register_bpa_user(
     registration: BPARegistrationRequest,
     background_tasks: BackgroundTasks,
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(get_settings)
 ) -> Dict[str, Any]:
     """Register a new BPA user with selected organization resources."""
     url = f"https://{settings.auth0_domain}/api/v2/users"
@@ -58,7 +55,7 @@ async def register_bpa_user(
 
     now = datetime.now(timezone.utc)
 
-    # Create BPA resources for selected organizations
+    # Create BPA resources
     bpa_resources = []
     for org_id, is_selected in registration.organizations.items():
         if not is_selected:
@@ -105,13 +102,8 @@ async def register_bpa_user(
                 )
 
         if bpa_resources:
-            email_service = EmailService()
-            approver_email = "aai-dev@biocommons.org.au"  # ideally move to settings
+            background_tasks.add_task(send_approval_email, registration, bpa_resources)
 
-            # Add email sending as a background task
-            background_tasks.add_task(
-                send_approver_email, email_service, approver_email, registration, bpa_resources
-            )
 
         return {"message": "User registered successfully", "user": response.json()}
 

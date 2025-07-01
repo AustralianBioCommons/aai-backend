@@ -62,7 +62,7 @@ def test_successful_registration(
     mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     mock_email_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
-    mock_email_cls.return_value.send.return_value = True
+    mock_email_cls.return_value.send.return_value = None
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
