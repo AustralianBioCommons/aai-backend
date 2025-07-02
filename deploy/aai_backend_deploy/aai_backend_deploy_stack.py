@@ -41,11 +41,12 @@ class AaiBackendDeployStack(Stack):
             self.zone_id = config["AWS_ZONE_ID"]
             self.zone_domain = config["AWS_ZONE_DOMAIN"]
             self.db_host = config["AWS_DB_HOST"]
+            self.db_secret = config["AWS_DB_SECRET"]
         except KeyError as e:
             raise ValueError(f"Missing required configuration: {e}. These should be set in .env locally, or GitHub Secrets.")
 
         db_secret = secretsmanager.Secret.from_secret_name_v2(
-            self, "DbCredentials", "aai-backend-db-credentials"
+            self, "DbCredentials", secret_name=self.db_secret
         )
 
         # VPC
