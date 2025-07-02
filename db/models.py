@@ -1,11 +1,16 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from enum import Enum
 
 from pydantic import AwareDatetime
-from sqlmodel import AutoString, DateTime, Field, SQLModel
+from sqlmodel import DateTime, Field, SQLModel
+from sqlmodel import Enum as DbEnum
 
-ApprovalStatus = Literal["approved", "pending", "revoked"]
+
+class ApprovalStatusEnum(str, Enum):
+    APPROVED = "approved"
+    PENDING = "pending"
+    REVOKED = "revoked"
 
 
 class GroupMembership(SQLModel, table=True):
@@ -16,7 +21,9 @@ class GroupMembership(SQLModel, table=True):
     group: str
     user_id: str
     user_email: str
-    approval_status: ApprovalStatus = Field(sa_type=AutoString)
+    approval_status: ApprovalStatusEnum = Field(
+        sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
+    )
     updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
     updated_by_id: str
     updated_by_email: str
