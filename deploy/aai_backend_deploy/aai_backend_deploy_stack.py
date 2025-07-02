@@ -75,12 +75,12 @@ class AaiBackendDeployStack(Stack):
             # Set an env variable to the current time to force redeploy -
             #   might be better to use an image tag in future
             environment={
-                "FORCE_REDEPLOY": str(datetime.datetime.now())
+                "FORCE_REDEPLOY": str(datetime.datetime.now()),
+                "DB_HOST": self.db_host,
             },
             secrets={
                 "DB_USER": ecs.Secret.from_secrets_manager(db_secret, field="username"),
                 "DB_PASSWORD": ecs.Secret.from_secrets_manager(db_secret, field="password"),
-                "DB_HOST": self.db_host,
             },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="FastAPI"),
         )
