@@ -13,6 +13,8 @@ def get_dotenv_config():
         "AWS_ZONE_ID": os.getenv("AWS_ZONE_ID"),
         "AWS_ZONE_DOMAIN": os.getenv("AWS_ZONE_DOMAIN"),
         "AWS_DB_HOST": os.getenv("AWS_DB_HOST"),
+        # Secret name for the secret storing DB username and password
+        "AWS_DB_SECRET": os.getenv("AWS_DB_SECRET"),
     }
 
 config = get_dotenv_config()
