@@ -42,6 +42,8 @@ def generate_migrations(revision_message, check):
         time.sleep(5)  # Could be enhanced with pg_isready
 
         if check:
+            print("🧱 Applying existing Alembic migrations...")
+            run("alembic upgrade head")
             print("🔍 Running 'alembic check'...")
             run("alembic check")
         else:
