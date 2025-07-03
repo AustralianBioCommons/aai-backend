@@ -7,6 +7,7 @@ from sqlmodel import Session, SQLModel, create_engine
 
 log = logging.getLogger('uvicorn.error')
 
+
 def get_db_config() -> Tuple[str, dict]:
     """
     Get database configuration from environment variables
