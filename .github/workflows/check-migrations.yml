@@ -1,4 +1,4 @@
-name: check-migrations.yml
+name: Check DB migrations
 on:
   push:
     branches:
