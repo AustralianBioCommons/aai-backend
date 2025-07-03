@@ -30,8 +30,8 @@ jobs:
         run: |
           uv venv
           uv sync --extra dev
-          source .venv/bin/activate
 
       - name: Run migration checks
         run: |
+          source .venv/bin/activate
           python generate_migrations.py --check
