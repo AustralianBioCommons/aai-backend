@@ -1,9 +1,11 @@
+import logging
 import os
 from typing import Tuple
 
 from dotenv import dotenv_values
 from sqlmodel import Session, SQLModel, create_engine
 
+log = logging.getLogger('uvicorn.error')
 
 def get_db_config() -> Tuple[str, dict]:
     """
@@ -40,7 +42,12 @@ engine = create_engine(DB_URL, connect_args=db_connect_args)
 
 
 def create_db_and_tables():
-    SQLModel.metadata.create_all(engine)
+    # NOTE: we only do this in dev (with sqlite).
+    # For production, we manage the DB schema with alembic
+    db_url, connect_args = get_db_config()
+    if db_url.startswith("sqlite://"):
+        log.info("Automatically creating DB tables for sqlite")
+        SQLModel.metadata.create_all(engine)
 
 
 def get_db_session():
