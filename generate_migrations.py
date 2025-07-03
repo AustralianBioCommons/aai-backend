@@ -16,11 +16,29 @@ def run(cmd, env=None):
     subprocess.run(cmd, shell=True, check=True, env=env or os.environ)
 
 
+def print_db_schema():
+    print("📦 Printing database schema...")
+    query = """
+        SELECT table_name, column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+        ORDER BY table_name, ordinal_position;
+    """
+    psql_cmd = (
+        f'psql -h localhost -p {DEFAULT_PORT} -U {POSTGRES_USER} '
+        f'-c "{query.strip()}"'
+    )
+    env = os.environ.copy()
+    env["PGPASSWORD"] = POSTGRES_PASSWORD
+    run(psql_cmd, env=env)
+
+
 @click.command()
 @click.option('--revision-message', '-m', required=False, help="Message for Alembic revision.")
 @click.option('--check', is_flag=True, help="Only run 'alembic check' after DB container is up.")
-def generate_migrations(revision_message, check):
-    """Spin up a temp Postgres DB, apply migrations or run alembic check."""
+@click.option('--print-schema', is_flag=True, help="Print the schema of the database after upgrade/check.")
+def generate_migrations(revision_message, check, print_schema):
+    """Spin up a temp Postgres DB, apply migrations or run alembic check, optionally print schema."""
     if not check and not revision_message:
         raise click.UsageError("Missing option '-m' / '--revision-message'. Required unless using --check.")
 
@@ -39,19 +57,21 @@ def generate_migrations(revision_message, check):
         )
 
         print("⏳ Waiting for database to be ready...")
-        time.sleep(5)  # Could be enhanced with pg_isready
+        time.sleep(5)
+
+        print("🧱 Applying existing Alembic migrations...")
+        run("alembic upgrade head")
 
         if check:
-            print("🧱 Applying existing Alembic migrations...")
-            run("alembic upgrade head")
             print("🔍 Running 'alembic check'...")
             run("alembic check")
-        else:
-            print("🧱 Applying existing Alembic migrations...")
-            run("alembic upgrade head")
 
+        elif revision_message:
             print("📝 Generating new Alembic revision...")
-            run(f"alembic revision --autogenerate -m \"{revision_message}\"")
+            run(f'alembic revision --autogenerate -m "{revision_message}"')
+
+        if print_schema:
+            print_db_schema()
 
     finally:
         print("🧹 Cleaning up: stopping container...")

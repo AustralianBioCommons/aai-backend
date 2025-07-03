@@ -1,8 +1,8 @@
-"""add_group_membership
+"""group_membership
 
-Revision ID: 101f45395233
+Revision ID: 07161e26f537
 Revises:
-Create Date: 2025-07-01 16:29:48.072722
+Create Date: 2025-07-03 11:48:44.293471
 
 """
 from typing import Sequence, Union
@@ -13,7 +13,7 @@ import sqlmodel
 
 
 # revision identifiers, used by Alembic.
-revision: str = '101f45395233'
+revision: str = '07161e26f537'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -26,7 +26,7 @@ def upgrade() -> None:
     sa.Column('group', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('user_id', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('user_email', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('approval_status', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('approval_status', sa.Enum('APPROVED', 'PENDING', 'REVOKED', name='ApprovalStatusEnum'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
     sa.Column('updated_by_id', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('updated_by_email', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
