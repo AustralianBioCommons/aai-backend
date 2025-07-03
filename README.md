@@ -86,7 +86,22 @@ python generate_migrations.py -m migration_name
 
 and commit them to git. Once your updated code has been
 deployed on AWS, you can use `aws ecs execute-command`
-to run the migrations.
+to access a shell in the container:
+
+```shell
+aws ecs execute-command \
+--cluster <cluster-id> \
+--task <task-id> \
+--container FastAPIContainer \
+--command "/bin/sh" \
+--interactive
+```
+
+and run the migrations:
+
+```shell
+uv run alembic upgrade head
+```
 
 # Deployment
 
