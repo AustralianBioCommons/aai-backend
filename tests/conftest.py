@@ -14,7 +14,7 @@ from main import app
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture()
 def test_db_engine():
     from db import models  # noqa: F401
     engine = create_engine(
@@ -29,20 +29,26 @@ def test_db_engine():
 
 @pytest.fixture(name="session")
 def session_fixture(test_db_engine):
-    session = Session(test_db_engine)
-    try:
+    with Session(test_db_engine) as session:
         yield session
-    finally:
-        session.close()
 
 
 @pytest.fixture(autouse=True)
-def use_test_db(session):
+def use_test_db():
     """
     Ensure we always use the test database
     """
     def get_db_session_override():
-        yield session
+        from db import models  # noqa: F401
+        engine = create_engine(
+            # Use in-memory DB by default
+            "sqlite://",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        SQLModel.metadata.create_all(engine)
+        with Session(engine) as session:
+            yield session
     app.dependency_overrides[get_db_session] = get_db_session_override
     yield
     app.dependency_overrides.clear()
