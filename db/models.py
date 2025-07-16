@@ -4,8 +4,10 @@ from enum import Enum
 
 from pydantic import AwareDatetime
 from sqlalchemy import UniqueConstraint
-from sqlmodel import DateTime, Field, Relationship, SQLModel
+from sqlmodel import DateTime, Field, Relationship
 from sqlmodel import Enum as DbEnum
+
+from db.core import BaseModel
 
 
 class ApprovalStatusEnum(str, Enum):
@@ -14,7 +16,7 @@ class ApprovalStatusEnum(str, Enum):
     REVOKED = "revoked"
 
 
-class GroupMembership(SQLModel, table=True):
+class GroupMembership(BaseModel, table=True):
     """
     Stores the current approval status for a user/group pairing.
     Note: only one row per user/group, the approval history
@@ -37,7 +39,7 @@ class GroupMembership(SQLModel, table=True):
     updated_by_email: str
 
 
-class ApprovalHistory(SQLModel, table=True):
+class ApprovalHistory(BaseModel, table=True):
     """
     Stores the full history of approval decisions for each user
     """
@@ -54,18 +56,18 @@ class ApprovalHistory(SQLModel, table=True):
     updated_by_email: str
 
 
-class GroupRoleLink(SQLModel, table=True):
+class GroupRoleLink(BaseModel, table=True):
     group_id: str = Field(primary_key=True, foreign_key="biocommonsgroup.group_id")
     role_id: str = Field(primary_key=True, foreign_key="auth0role.auth0_id")
 
 
-class Auth0Role(SQLModel, table=True):
+class Auth0Role(BaseModel, table=True):
     auth0_id: str = Field(primary_key=True, unique=True)
     name: str
     admin_groups: list["BiocommonsGroup"] = Relationship(back_populates="admin_roles", link_model=GroupRoleLink)
 
 
-class BiocommonsGroup(SQLModel, table=True):
+class BiocommonsGroup(BaseModel, table=True):
     # Name of the group / role name in Auth0, e.g. biocommons/group/tsi
     group_id: str = Field(primary_key=True, unique=True)
     # Human-readable name for the group
