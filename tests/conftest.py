@@ -2,11 +2,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session, SQLModel, StaticPool, create_engine
+from sqlmodel import Session, StaticPool, create_engine
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from db.core import BaseModel
 from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from galaxy.config import GalaxySettings, get_galaxy_settings
@@ -23,7 +24,7 @@ def test_db_engine():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    SQLModel.metadata.create_all(engine)
+    BaseModel.metadata.create_all(engine)
     return engine
 
 
@@ -46,7 +47,7 @@ def use_test_db():
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
-        SQLModel.metadata.create_all(engine)
+        BaseModel.metadata.create_all(engine)
         with Session(engine) as session:
             yield session
     app.dependency_overrides[get_db_session] = get_db_session_override
