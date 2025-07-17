@@ -2,8 +2,9 @@ import re
 from typing import Annotated
 
 from pydantic import StringConstraints
-from sqlmodel import Session, select
+from sqlmodel import Session
 
+from auth0.client import Auth0Client
 from db.core import BaseModel
 from db.models import Auth0Role, BiocommonsGroup
 
@@ -33,15 +34,17 @@ class BiocommonsGroupCreate(BaseModel):
 
     # TODO: currently requires the roles to exist in the DB
     #   already, probably want to get_or_create them
-    def save(self, session: Session):
+    def save(self, session: Session, auth0_client: Auth0Client):
         db_roles = []
         for role in self.admin_roles:
             if isinstance(role, Auth0Role):
                 db_roles.append(role)
             else:
-                query = select(Auth0Role).where(Auth0Role.name == role)
-                auth0_role = session.exec(query).one()
-                db_roles.append(auth0_role)
+                role = Auth0Role.get_or_create_by_name(
+                    role,
+                    session,
+                    auth0_client=auth0_client
+                )
         group = BiocommonsGroup(
             group_id=self.group_id,
             name=self.name,
