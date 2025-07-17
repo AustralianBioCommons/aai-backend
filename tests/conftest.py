@@ -7,6 +7,7 @@ from sqlmodel import Session, StaticPool, create_engine
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from auth0.client import Auth0Client
 from db.core import BaseModel
 from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
@@ -133,3 +134,8 @@ def mock_galaxy_client():
     app.dependency_overrides[get_galaxy_client] = lambda: client
     yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def auth0_client():
+    return Auth0Client(domain="example.auth0.com", management_token="dummy-token")

@@ -2,13 +2,7 @@ import pytest
 import respx
 from httpx import Response
 
-from auth0.client import Auth0Client
 from tests.datagen import BiocommonsAuth0UserFactory
-
-
-@pytest.fixture
-def auth0_client():
-    return Auth0Client(domain="example.auth0.com", management_token="dummy-token")
 
 
 @respx.mock
