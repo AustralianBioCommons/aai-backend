@@ -1,13 +1,27 @@
 __all__ = ["Auth0Client"]
 
-from typing import Optional
+from typing import Optional, Type, TypeVar
 
 import httpx
 from fastapi import Depends
+from pydantic import BaseModel
 
 from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from schemas.biocommons import BiocommonsAuth0User
+
+
+class Role(BaseModel):
+    id: str
+    name: str
+    description: str
+
+
+class RolesWithTotals(BaseModel):
+    roles: list[Role]
+    start: int
+    limit: int
+    total: int
 
 
 class Auth0Client:
@@ -17,10 +31,20 @@ class Auth0Client:
         self.management_token = management_token
         self._client = httpx.Client(headers={"Authorization": f"Bearer {management_token}"})
 
+    T = TypeVar('T', bound=BaseModel)
+
+    @staticmethod
+    def _convert_list(resp: httpx.Response, model: Type[T]) -> list[T]:
+        """Convert a list of data to the given pydantic model."""
+        return [model(**item) for item in resp.json()]
+
     @staticmethod
     def _convert_users(resp: httpx.Response):
-        """Convert a list of Auth0UserResponse objects from a response."""
-        return [BiocommonsAuth0User(**user) for user in resp.json()]
+        return Auth0Client._convert_list(resp, BiocommonsAuth0User)
+
+    @staticmethod
+    def _convert_roles(resp: httpx.Response):
+        return Auth0Client._convert_list(resp, Role)
 
     def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
         params = {}
@@ -78,6 +102,46 @@ class Auth0Client:
     def get_revoked_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
         revoked_query = 'app_metadata.services.status:"revoked"'
         return self._search_users(revoked_query, page, per_page)
+
+    def get_roles(self,
+                  name_filter: Optional[str] = None,
+                  include_totals: Optional[bool] = None,
+                  page: Optional[int] = None,
+                  per_page: Optional[int] = None) -> list[Role] | RolesWithTotals:
+        params = {}
+        if name_filter is not None:
+            params["name_filter"] = name_filter
+        if include_totals is not None:
+            params["include_totals"] = include_totals
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        url = f"https://{self.domain}/api/v2/roles"
+        resp = self._client.get(url, params=params)
+        resp.raise_for_status()
+        if include_totals:
+            return RolesWithTotals(**resp.json())
+        else:
+            return self._convert_roles(resp)
+
+    def get_role_by_name(self, name: str) -> Role:
+        """
+        Get a role by name.
+        Raises ValueError if not found, or multiple roles are found.
+        """
+        roles: list[Role] = self.get_roles(name_filter=name)
+        if len(roles) == 0:
+            raise ValueError(f"Role with name {name} not found.")
+        elif len(roles) > 1:
+            raise ValueError(f"Multiple roles with name {name} found.")
+        return roles[0]
+
+    def get_role_by_id(self, role_id: str) -> Role:
+        url = f"https://{self.domain}/api/v2/roles/{role_id}"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return Role(**resp.json())
 
 
 def get_auth0_client(settings: Settings = Depends(get_settings),
