@@ -1,12 +1,14 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Self
 
 from pydantic import AwareDatetime
 from sqlalchemy import UniqueConstraint
-from sqlmodel import DateTime, Field, Relationship
+from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 
+from auth0.client import Auth0Client
 from db.core import BaseModel
 
 
@@ -65,6 +67,43 @@ class Auth0Role(BaseModel, table=True):
     auth0_id: str = Field(primary_key=True, unique=True)
     name: str
     admin_groups: list["BiocommonsGroup"] = Relationship(back_populates="admin_roles", link_model=GroupRoleLink)
+
+    @classmethod
+    def get_or_create_by_id(cls, auth0_id: str, session: Session, auth0_client: Auth0Client) -> Self:
+        # Try to get from the DB
+        role = session.get(Auth0Role, auth0_id)
+        if role is not None:
+            return role
+        # Try to get from the API and save to the DB
+        role_data = auth0_client.get_role_by_id(role_id=auth0_id)
+        role = cls(
+            auth0_id=role_data.id,
+            name=role_data.name,
+            description=role_data.description
+        )
+        session.add(role)
+        session.commit()
+        return role
+
+    @classmethod
+    def get_or_create_by_name(cls, name: str, session: Session, auth0_client: Auth0Client = None) -> Self:
+        # Try to get from the DB
+        role = session.exec(select(Auth0Role).where(Auth0Role.name == name)).one_or_none()
+        if role is not None:
+            return role
+        # Try to get from the API and save to the DB
+        role_data = auth0_client.get_role_by_name(name=name)
+        role = cls(
+            auth0_id=role_data.id,
+            name=role_data.name,
+            description=role_data.description
+        )
+        session.add(role)
+        session.commit()
+        return role
+
+
+
 
 
 class BiocommonsGroup(BaseModel, table=True):
