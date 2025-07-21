@@ -34,7 +34,7 @@ class BiocommonsGroupCreate(BaseModel):
 
     # TODO: currently requires the roles to exist in the DB
     #   already, probably want to get_or_create them
-    def save(self, session: Session, auth0_client: Auth0Client):
+    def save(self, session: Session, auth0_client: Auth0Client) -> BiocommonsGroup:
         db_roles = []
         for role in self.admin_roles:
             if isinstance(role, Auth0Role):
@@ -45,6 +45,7 @@ class BiocommonsGroupCreate(BaseModel):
                     session,
                     auth0_client=auth0_client
                 )
+                db_roles.append(role)
         group = BiocommonsGroup(
             group_id=self.group_id,
             name=self.name,
@@ -52,3 +53,4 @@ class BiocommonsGroupCreate(BaseModel):
         )
         session.add(group)
         session.commit()
+        return group
