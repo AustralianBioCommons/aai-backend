@@ -103,9 +103,6 @@ class Auth0Role(BaseModel, table=True):
         return role
 
 
-
-
-
 class BiocommonsGroup(BaseModel, table=True):
     # Name of the group / role name in Auth0, e.g. biocommons/group/tsi
     group_id: str = Field(primary_key=True, unique=True)
