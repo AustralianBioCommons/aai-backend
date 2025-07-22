@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -68,6 +69,9 @@ def ignore_env_file():
         return GalaxySettings(_env_file=None)
     app.dependency_overrides[get_settings] = get_settings_no_env_file
     app.dependency_overrides[get_galaxy_settings] = get_galaxy_settings_no_env_file
+    # Make sure we always use in-memory DB for test DB
+    os.environ.pop("DB_HOST", None)
+    os.environ["DB_URL"] = "sqlite://"
 
 
 @pytest.fixture
