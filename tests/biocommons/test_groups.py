@@ -51,7 +51,7 @@ def test_biocommons_group_create():
     assert group.group_id == "biocommons/group/tsi"
 
 
-def test_biocommons_group_create_save(session, auth0_client):
+def test_biocommons_group_create_save(test_db_session, auth0_client):
     """
     Test saving BiocommonsGroupCreate object to the DB
     """
@@ -63,15 +63,15 @@ def test_biocommons_group_create_save(session, auth0_client):
         name="Threatened Species Initiative",
         admin_roles=[tsi_admin, sysadmin]
     )
-    group.save(session, auth0_client=auth0_client)
-    group_from_db = session.exec(
+    group.save(test_db_session, auth0_client=auth0_client)
+    group_from_db = test_db_session.exec(
         select(BiocommonsGroup).where(BiocommonsGroup.group_id == group.group_id)
     ).one()
     assert group_from_db.group_id == group.group_id
 
 
 @respx.mock
-def test_biocommons_group_save_get_roles(session, auth0_client, mocker):
+def test_biocommons_group_save_get_roles(test_db_session, auth0_client, mocker):
     """
     Test saving BiocommonsGroupCreate to the DB when
     roles have to be fetched from Auth0.
@@ -85,12 +85,12 @@ def test_biocommons_group_save_get_roles(session, auth0_client, mocker):
         name="Threatened Species Initiative",
         admin_roles=["biocommons/role/tsi/admin"]
     )
-    group.save(session, auth0_client=auth0_client)
-    group_from_db = session.exec(
+    group.save(test_db_session, auth0_client=auth0_client)
+    group_from_db = test_db_session.exec(
         select(BiocommonsGroup).where(BiocommonsGroup.group_id == group.group_id)
     ).one()
     assert group_from_db.group_id == group.group_id
-    role_from_db = session.exec(
+    role_from_db = test_db_session.exec(
         select(Auth0Role).where(Auth0Role.auth0_id == role.id)
     ).first()
     assert route.called
