@@ -36,25 +36,17 @@ def session_fixture(test_db_engine):
         yield session
 
 
-@pytest.fixture(autouse=True)
-def use_test_db():
+@pytest.fixture()
+def test_db_session(session):
     """
-    Ensure we always use the test database
+    Override the get_db_session dependency to return the test DB.
     """
     def get_db_session_override():
-        from db import models  # noqa: F401
-        engine = create_engine(
-            # Use in-memory DB by default
-            "sqlite://",
-            connect_args={"check_same_thread": False},
-            poolclass=StaticPool,
-        )
-        BaseModel.metadata.create_all(engine)
-        with Session(engine) as session:
-            yield session
+        yield session
     app.dependency_overrides[get_db_session] = get_db_session_override
-    yield
+    yield session
     app.dependency_overrides.clear()
+    session.close()
 
 
 @pytest.fixture(autouse=True)
