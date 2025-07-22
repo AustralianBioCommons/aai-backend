@@ -60,12 +60,13 @@ class ApprovalHistory(BaseModel, table=True):
 
 class GroupRoleLink(BaseModel, table=True):
     group_id: str = Field(primary_key=True, foreign_key="biocommonsgroup.group_id")
-    role_id: str = Field(primary_key=True, foreign_key="auth0role.auth0_id")
+    role_id: str = Field(primary_key=True, foreign_key="auth0role.id")
 
 
 class Auth0Role(BaseModel, table=True):
-    auth0_id: str = Field(primary_key=True, unique=True)
+    id: str = Field(primary_key=True, unique=True)
     name: str
+    description: str = Field(default="")
     admin_groups: list["BiocommonsGroup"] = Relationship(back_populates="admin_roles", link_model=GroupRoleLink)
 
     @classmethod
@@ -77,7 +78,7 @@ class Auth0Role(BaseModel, table=True):
         # Try to get from the API and save to the DB
         role_data = auth0_client.get_role_by_id(role_id=auth0_id)
         role = cls(
-            auth0_id=role_data.id,
+            id=role_data.id,
             name=role_data.name,
             description=role_data.description
         )
@@ -93,11 +94,7 @@ class Auth0Role(BaseModel, table=True):
             return role
         # Try to get from the API and save to the DB
         role_data = auth0_client.get_role_by_name(name=name)
-        role = cls(
-            auth0_id=role_data.id,
-            name=role_data.name,
-            description=role_data.description
-        )
+        role = cls(**role_data.model_dump())
         session.add(role)
         session.commit()
         return role

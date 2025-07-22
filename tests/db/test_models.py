@@ -87,7 +87,7 @@ def test_create_auth0_role(test_db_session):
     """
     Test creating an auth0 role
     """
-    role = Auth0Role(auth0_id=random_auth0_id(), name="Example group")
+    role = Auth0Role(id=random_auth0_id(), name="Example group")
     test_db_session.add(role)
     test_db_session.commit()
     test_db_session.refresh(role)
@@ -109,7 +109,7 @@ def test_create_auth0_role_by_name(test_db_session, auth0_client):
         auth0_client=auth0_client
     )
     role_from_db = test_db_session.exec(
-        select(Auth0Role).where(Auth0Role.auth0_id == role_data.id)
+        select(Auth0Role).where(Auth0Role.id == role_data.id)
     ).first()
     assert role_from_db.name == role_data.name
 
@@ -129,7 +129,7 @@ def test_create_auth0_role_by_id(test_db_session, auth0_client):
         auth0_client=auth0_client
     )
     role_from_db = test_db_session.exec(
-        select(Auth0Role).where(Auth0Role.auth0_id == role_data.id)
+        select(Auth0Role).where(Auth0Role.id == role_data.id)
     ).first()
     assert role_from_db.name == role_data.name
 

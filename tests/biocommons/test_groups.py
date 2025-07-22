@@ -91,7 +91,7 @@ def test_biocommons_group_save_get_roles(test_db_session, auth0_client, mocker):
     ).one()
     assert group_from_db.group_id == group.group_id
     role_from_db = test_db_session.exec(
-        select(Auth0Role).where(Auth0Role.auth0_id == role.id)
+        select(Auth0Role).where(Auth0Role.id == role.id)
     ).first()
     assert route.called
     assert role_from_db is not None
