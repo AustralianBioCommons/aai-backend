@@ -6,10 +6,10 @@ from httpx import Response
 from sqlmodel import select
 
 from auth0.client import get_auth0_client
-from db.models import Auth0Role, BiocommonsGroup
+from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
 from main import app
 from tests.biocommons.datagen import RoleFactory
-from tests.db.datagen import Auth0RoleFactory
+from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory
 
 
 @pytest.fixture
@@ -63,3 +63,24 @@ def test_create_role(test_client, as_admin_user, override_auth0_client, test_db_
     assert route.called
     role_from_db = test_db_session.exec(select(Auth0Role).where(Auth0Role.name == "biocommons/role/tsi/admin")).one()
     assert role_from_db.name == "biocommons/role/tsi/admin"
+
+
+# TODO: test that approval emails are sent
+@respx.mock
+def test_request_group_membership(test_client, admin_user, as_admin_user, override_auth0_client, test_db_session):
+    BiocommonsGroupFactory.__session__ = test_db_session
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    resp = test_client.post(
+        "/biocommons/groups/request",
+        json={
+            "group_id": group.group_id,
+        }
+    )
+    assert resp.status_code == 200
+    assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
+    membership = GroupMembership.get_by_user_id(user_id=admin_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    assert membership.approval_status == "pending"
+    history = ApprovalHistory.get_by_user_id(user_id=admin_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    assert len(history) == 1
+    assert history[0].approval_status == "pending"
+    BiocommonsGroupFactory.__session__ = None
