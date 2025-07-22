@@ -90,6 +90,15 @@ class ApprovalHistory(BaseModel, table=True):
     updated_by_id: str
     updated_by_email: str
 
+    @classmethod
+    def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> list[Self] | None:
+        return session.exec(
+            select(ApprovalHistory)
+            .where(ApprovalHistory.user_id == user_id,
+                   ApprovalHistory.group_id == group_id)
+            .order_by(ApprovalHistory.updated_at.desc())
+        ).all()
+
 
 class GroupRoleLink(BaseModel, table=True):
     group_id: str = Field(primary_key=True, foreign_key="biocommonsgroup.group_id")
