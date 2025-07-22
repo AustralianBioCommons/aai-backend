@@ -107,16 +107,20 @@ def test_client(mock_settings, mock_galaxy_settings):
     # Reset override
     app.dependency_overrides.clear()
 
+@pytest.fixture
+def admin_user():
+    token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
+    return SessionUserFactory.build(access_token=token)
+
 
 @pytest.fixture
-def as_admin_user():
+def as_admin_user(admin_user):
     """
     Override the get_current_user dependency to return a User object with admin role,
     so admin check will pass.
     """
     def override_user():
-        token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
-        return SessionUserFactory.build(access_token=token)
+        return admin_user
 
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
