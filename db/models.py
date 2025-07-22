@@ -40,6 +40,39 @@ class GroupMembership(BaseModel, table=True):
     updated_by_id: str
     updated_by_email: str
 
+    @classmethod
+    def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> Self | None:
+        return session.exec(
+            select(GroupMembership)
+            .where(GroupMembership.user_id == user_id,
+                   GroupMembership.group_id == group_id)
+        ).one_or_none()
+
+    def save(self, session: Session, commit: bool = True) -> Self:
+        """
+        Save the current object, and create a new ApprovalHistory row for it
+        """
+        session.add(self)
+        self.save_history(session, commit=False)
+        if commit:
+            session.commit()
+        return self
+
+    def save_history(self, session: Session, commit: bool = True) -> 'ApprovalHistory':
+        history = ApprovalHistory(
+            group_id=self.group_id,
+            user_id=self.user_id,
+            user_email=self.user_email,
+            approval_status=self.approval_status,
+            updated_at=self.updated_at,
+            updated_by_id=self.updated_by_id,
+            updated_by_email=self.updated_by_email
+        )
+        session.add(history)
+        if commit:
+            session.commit()
+        return history
+
 
 class ApprovalHistory(BaseModel, table=True):
     """
