@@ -143,6 +143,12 @@ class Auth0Client:
         resp.raise_for_status()
         return Role(**resp.json())
 
+    def create_role(self, name: str, description: str) -> Role:
+        url = f"https://{self.domain}/api/v2/roles"
+        resp = self._client.post(url, json={"name": name, "description": description})
+        resp.raise_for_status()
+        return Role(**resp.json())
+
 
 def get_auth0_client(settings: Settings = Depends(get_settings),
                      management_token: str = Depends(get_management_token)):
