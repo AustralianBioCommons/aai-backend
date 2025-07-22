@@ -7,8 +7,7 @@ from sqlmodel import Session
 
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
-from biocommons.groups import BiocommonsGroupCreate
-from db.models import BiocommonsGroupResponse
+from biocommons.groups import BiocommonsGroupCreate, BiocommonsGroupResponse
 from db.setup import get_db_session
 
 logger = logging.getLogger('uvicorn.error')

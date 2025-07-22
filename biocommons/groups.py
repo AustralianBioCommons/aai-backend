@@ -54,3 +54,12 @@ class BiocommonsGroupCreate(BaseModel):
         session.add(group)
         session.commit()
         return group
+
+
+class BiocommonsGroupResponse(BaseModel):
+    """
+    Data to return in API responses for BiocommonsGroup
+    """
+    group_id: str
+    name: str
+    admin_roles: list[str]
