@@ -14,7 +14,8 @@ def random_auth0_id() -> str:
     return "auth0|" + ''.join(random.choices('0123456789abcdef', k=24))
 
 
-class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]): ...
+class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]):
+    __allow_none_optionals__ = False
 
 
 class SessionUserFactory(ModelFactory[SessionUser]): ...
