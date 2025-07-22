@@ -151,3 +151,11 @@ class BiocommonsGroup(BaseModel, table=True):
     admin_roles: list[Auth0Role] = Relationship(back_populates="admin_groups", link_model=GroupRoleLink)
     members: list[GroupMembership] = Relationship(back_populates="group")
     approval_history: list[ApprovalHistory] = Relationship(back_populates="group")
+
+    def get_admins(self, auth0_client: Auth0Client) -> set[str]:
+        admins = set()
+        for role in self.admin_roles:
+            role_admins = auth0_client.get_all_role_users(role_id=role.id)
+            for admin in role_admins:
+                admins.add(admin.email)
+        return admins
