@@ -24,6 +24,13 @@ class RolesWithTotals(BaseModel):
     total: int
 
 
+class UsersWithTotals(BaseModel):
+    users: list[BiocommonsAuth0User]
+    start: int
+    limit: int
+    total: int
+
+
 class Auth0Client:
 
     def __init__(self, domain: str, management_token: str):
@@ -46,7 +53,7 @@ class Auth0Client:
     def _convert_roles(resp: httpx.Response):
         return Auth0Client._convert_list(resp, Role)
 
-    def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
+    def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None) -> list[BiocommonsAuth0User] | UsersWithTotals:
         params = {}
         if page is not None:
             # Convert from 1-based pagination to 0-based.
@@ -54,8 +61,12 @@ class Auth0Client:
             params["page"] = page
         if per_page is not None:
             params["per_page"] = per_page
+        if include_totals is not None:
+            params["include_totals"] = include_totals
         url = f"https://{self.domain}/api/v2/users"
         resp = self._client.get(url, params=params)
+        if include_totals:
+            return UsersWithTotals(**resp.json())
         return self._convert_users(resp)
 
     def get_user(self, user_id: str) -> BiocommonsAuth0User:
@@ -142,6 +153,33 @@ class Auth0Client:
         resp = self._client.get(url)
         resp.raise_for_status()
         return Role(**resp.json())
+
+    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[BiocommonsAuth0User] | UsersWithTotals:
+        url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
+        params = {}
+        if page is not None:
+            params["page"] = page
+        if per_page is not None:
+            params["per_page"] = per_page
+        if include_totals is not None:
+            params["include_totals"] = include_totals
+        resp = self._client.get(url, params=params or None)
+        resp.raise_for_status()
+        if include_totals:
+            return UsersWithTotals(**resp.json())
+        return self._convert_users(resp)
+
+    def get_all_role_users(self, role_id: str) -> list[BiocommonsAuth0User]:
+        page = 0
+        per_page = 100
+        users = []
+        while True:
+            page_users: UsersWithTotals = self.get_role_users(role_id, page=page, per_page=per_page, include_totals=True)
+            users.extend(page_users.users)
+            if len(users) >= page_users.total:
+                break
+            page += 1
+        return users
 
     def create_role(self, name: str, description: str) -> Role:
         url = f"https://{self.domain}/api/v2/roles"
