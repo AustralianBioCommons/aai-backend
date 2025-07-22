@@ -101,9 +101,8 @@ async def register_bpa_user(
                     detail=f"Registration failed: {response.json()['message']}",
                 )
 
-        if bpa_resources:
+        if bpa_resources and settings.send_email:
             background_tasks.add_task(send_approval_email, registration, bpa_resources)
-
 
         return {"message": "User registered successfully", "user": response.json()}
 
