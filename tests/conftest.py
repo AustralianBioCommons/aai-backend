@@ -140,6 +140,27 @@ def test_client_with_email(mock_settings, mock_galaxy_settings):
 
 
 @pytest.fixture
+def normal_user():
+    """
+    Non-admin user with no special privileges
+    """
+    token = AccessTokenPayloadFactory.build(biocommons_roles=[])
+    return SessionUserFactory.build(access_token=token)
+
+
+@pytest.fixture
+def as_normal_user(normal_user):
+    """
+    Override the get_current_user dependency to return a normal user
+    """
+    def override_user():
+        return normal_user
+
+    app.dependency_overrides[get_current_user] = override_user
+    yield
+    app.dependency_overrides.clear()
+
+@pytest.fixture
 def admin_user():
     token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     return SessionUserFactory.build(access_token=token)
