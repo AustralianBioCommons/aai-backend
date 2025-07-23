@@ -51,10 +51,10 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 
 def test_successful_registration(
-    test_client, mock_auth_token, mocker, valid_registration_data
+    test_client_with_email, mock_auth_token, mocker, valid_registration_data,
 ):
     """Test successful user registration with BPA service"""
-
+    test_client = test_client_with_email
     mock_response = MagicMock()
     mock_response.status_code = 201
     mock_response.json.return_value = {"user_id": "auth0|123"}
@@ -236,13 +236,14 @@ def test_registration_email_format(test_client, valid_registration_data):
 
 
 def test_all_organizations_selected(
-    test_client,
+    test_client_with_email,
     mock_auth_token,
     mock_settings,
     mocker,
     valid_registration_data,
 ):
     """Test registration with all organizations selected"""
+    test_client = test_client_with_email
     data = valid_registration_data.copy()
     data["organizations"] = {k: True for k in mock_settings.organizations.keys()}
 

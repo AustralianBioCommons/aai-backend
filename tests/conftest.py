@@ -76,6 +76,7 @@ def mock_settings():
         auth0_audience="mock-audience",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
+        send_email=False,
         admin_roles=["Admin"],
         auth0_algorithms=["HS256"]
     )
@@ -92,6 +93,28 @@ def test_client(mock_settings, mock_galaxy_settings):
     """
     Override the get_settings dependency to return a mocked Settings object.
     """
+    # Define override
+    def override_settings():
+        return mock_settings
+
+    # Apply override
+    app.dependency_overrides[get_settings] = override_settings
+    app.dependency_overrides[get_galaxy_settings] = lambda: mock_galaxy_settings
+
+    # Create client
+    client = TestClient(app)
+    yield client
+
+    # Reset override
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def test_client_with_email(mock_settings, mock_galaxy_settings):
+    """
+    Create a test client with email sending enabled.
+    """
+    mock_settings.send_email = True
     # Define override
     def override_settings():
         return mock_settings
