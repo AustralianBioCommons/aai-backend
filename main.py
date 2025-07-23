@@ -11,7 +11,7 @@ from routers import admin, biocommons_groups, bpa_register, galaxy_register, use
 
 # Load .env to get CORS_ALLOWED_ORIGINS.
 # Note that for most env variables, we use pydantic-settings
-#   and load them via auth.config. But we need the
+#   and load them via config.py. But we need the
 #   allowed_origins before we load the app
 env_values = dotenv_values(".env")
 ALLOWED_ORIGINS = [
