@@ -10,6 +10,7 @@ from sqlmodel import Enum as DbEnum
 
 from auth0.client import Auth0Client
 from db.core import BaseModel
+from schemas.user import SessionUser
 
 
 class ApprovalStatusEnum(str, Enum):
@@ -153,9 +154,20 @@ class BiocommonsGroup(BaseModel, table=True):
     approval_history: list[ApprovalHistory] = Relationship(back_populates="group")
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
+        """
+        Get all admin emails for this group from the Auth0 API, returning a set of emails.
+        """
         admins = set()
         for role in self.admin_roles:
             role_admins = auth0_client.get_all_role_users(role_id=role.id)
             for admin in role_admins:
                 admins.add(admin.email)
         return admins
+
+    def user_is_admin(self, user: SessionUser) -> bool:
+        user_roles = user.access_token.biocommons_roles
+        admin_role_names = [role.name for role in self.admin_roles]
+        for role in user_roles:
+            if role in admin_role_names:
+                return True
+        return False
