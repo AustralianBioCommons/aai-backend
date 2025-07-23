@@ -46,6 +46,8 @@ jobs:
           ADMIN_ROLES=${{ secrets.ADMIN_ROLES }}
           CORS_ALLOWED_ORIGINS=${{ secrets.CORS_ALLOWED_ORIGINS }}
           SEND_EMAIL=True
+          GALAXY_URL=${{ secrets.GALAXY_URL }}
+          GALAXY_API_KEY=${{ secrets.GALAXY_API_KEY }}
           EOF
 
       - name: Build, Tag, and Push Docker image
