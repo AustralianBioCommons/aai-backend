@@ -5,10 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, StaticPool, create_engine
 
-from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
 from auth0.client import Auth0Client
+from config import Settings, get_settings
 from db.core import BaseModel
 from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client

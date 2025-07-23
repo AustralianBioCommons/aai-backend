@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from fastapi import HTTPException
 from jose import JWTError, jwt
 
-from auth.config import Settings
+from config import Settings
 
 ALGORITHM = "HS256"
 TOKEN_EXPIRATION_MINUTES = 5

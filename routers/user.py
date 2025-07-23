@@ -4,9 +4,9 @@ from typing import Annotated, Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
 
-from auth.config import Settings, get_settings
 from auth.management import get_management_token
 from auth.validator import get_current_user
+from config import Settings, get_settings
 from schemas.biocommons import BiocommonsAuth0User
 from schemas.requests import ResourceRequest, ServiceRequest
 from schemas.service import Resource, Service

@@ -6,8 +6,8 @@ import httpx
 from fastapi import Depends
 from pydantic import BaseModel
 
-from auth.config import Settings, get_settings
 from auth.management import get_management_token
+from config import Settings, get_settings
 from schemas.biocommons import BiocommonsAuth0User
 
 

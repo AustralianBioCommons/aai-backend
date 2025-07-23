@@ -6,7 +6,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from auth.config import Settings, get_settings
 from auth.ses import EmailService
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
@@ -16,6 +15,7 @@ from biocommons.groups import (
     GroupId,
     RoleId,
 )
+from config import Settings, get_settings
 from db.models import ApprovalStatusEnum, Auth0Role, GroupMembership
 from db.setup import get_db_session
 from schemas.user import SessionUser

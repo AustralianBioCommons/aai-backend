@@ -5,8 +5,8 @@ import httpx
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.params import Depends
 
-from auth.config import Settings, get_settings
 from auth.management import get_management_token
+from config import Settings, get_settings
 from galaxy.client import GalaxyClient, get_galaxy_client
 from register.tokens import create_registration_token, verify_registration_token
 from schemas.biocommons import BiocommonsRegisterData

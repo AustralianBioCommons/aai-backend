@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from auth.config import Settings
+from config import Settings
 
 from .tokens import AccessTokenPayload
 

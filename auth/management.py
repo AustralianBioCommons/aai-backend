@@ -3,7 +3,7 @@ from typing import Annotated
 import httpx
 from fastapi import Depends
 
-from .config import Settings, get_settings
+from config import Settings, get_settings
 
 
 def get_management_token(settings: Annotated[Settings, Depends(get_settings)]):
