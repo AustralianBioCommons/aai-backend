@@ -1,3 +1,4 @@
+from http import HTTPStatus
 from unittest.mock import ANY
 
 import pytest
@@ -5,13 +6,20 @@ import respx
 from httpx import Response
 from sqlmodel import select
 
+from auth.validator import get_current_user
 from auth0.client import get_auth0_client
 from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
 from main import app
 from tests.biocommons.datagen import RoleDataFactory
+from tests.datagen import (
+    AccessTokenPayloadFactory,
+    BiocommonsAuth0UserFactory,
+    SessionUserFactory,
+)
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
+    GroupMembershipFactory,
 )
 
 
@@ -88,4 +96,47 @@ def test_request_group_membership(test_client, admin_user, as_admin_user, overri
     history = ApprovalHistory.get_by_user_id(user_id=admin_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
-    BiocommonsGroupFactory.__session__ = None
+
+
+def test_approve_group_membership(test_client, test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
+    access_token = AccessTokenPayloadFactory.build(biocommons_roles=[admin_role.name])
+    group_admin = SessionUserFactory.build(access_token=access_token)
+    user = BiocommonsAuth0UserFactory.build()
+    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="pending")
+    # Override get_current_user to return the group admin
+    app.dependency_overrides[get_current_user] = lambda: group_admin
+    resp = test_client.post(
+        "/biocommons/groups/approve",
+        json={
+            "group_id": group.group_id,
+            "user_id": user.user_id
+        }
+    )
+    assert resp.status_code == 200
+    assert resp.json()["message"] == f"Group membership for {group.name} approved successfully."
+    test_db_session.refresh(membership_request)
+    assert membership_request.approval_status == "approved"
+    assert membership_request.updated_by_id == group_admin.access_token.sub
+    assert membership_request.updated_by_email == group_admin.access_token.email
+
+
+def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
+    access_token = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/biocommons/sysadmin"])
+    unauth_admin = SessionUserFactory.build(access_token=access_token)
+    user = BiocommonsAuth0UserFactory.build()
+    GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="pending")
+    # Override get_current_user to return the group admin
+    app.dependency_overrides[get_current_user] = lambda: unauth_admin
+    resp = test_client.post(
+        "/biocommons/groups/approve",
+        json={
+            "group_id": group.group_id,
+            "user_id": user.user_id
+        }
+    )
+    assert resp.status_code == HTTPStatus.UNAUTHORIZED
+    assert resp.json()["detail"] == f"You do not have permission to approve group memberships for {group.name}"
