@@ -4,6 +4,8 @@ from unittest.mock import ANY
 import pytest
 import respx
 from httpx import Response
+from moto.core import DEFAULT_ACCOUNT_ID
+from moto.ses import ses_backends
 from sqlmodel import select
 
 from auth.validator import get_current_user
@@ -79,10 +81,19 @@ def test_create_role(role_name, test_client, as_admin_user, override_auth0_clien
     assert role_from_db.name == role_name
 
 
-# TODO: test that approval emails are sent
 @respx.mock
-def test_request_group_membership(test_client, admin_user, as_admin_user, override_auth0_client, test_db_session, persistent_factories):
-    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+def test_request_group_membership(test_client_with_email, normal_user, as_normal_user, override_auth0_client, test_db_session, persistent_factories, mock_email_service, mocker):
+    """
+    Test the full process of requesting group membership - request membership for a user
+    and send approval email to the relevant admins.
+    """
+    test_client = test_client_with_email
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
+    # Mock an admin that has the required admin role (to send approval email to)
+    admin_info = BiocommonsAuth0UserFactory.build(email="admin@example.com")
+    mocker.patch("db.models.Auth0Client.get_all_role_users", return_value=[admin_info])
+    # Request membership
     resp = test_client.post(
         "/biocommons/groups/request",
         json={
@@ -91,11 +102,17 @@ def test_request_group_membership(test_client, admin_user, as_admin_user, overri
     )
     assert resp.status_code == 200
     assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
-    membership = GroupMembership.get_by_user_id(user_id=admin_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    # Check membership request is created along with history entry
+    membership = GroupMembership.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
-    history = ApprovalHistory.get_by_user_id(user_id=admin_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    history = ApprovalHistory.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
+    # Check approval email is sent to admins
+    ses_backend = ses_backends[DEFAULT_ACCOUNT_ID]["us-east-1"]
+    assert len(ses_backend.sent_messages) == 1
+    to_addresses = ses_backend.sent_messages[0].destinations['ToAddresses']
+    assert admin_info.email in to_addresses
 
 
 def test_approve_group_membership(test_client, test_db_session, persistent_factories):
