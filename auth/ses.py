@@ -5,6 +5,7 @@ from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
+
 class EmailService:
     def __init__(self, region_name="ap-southeast-2"):
         self.client = boto3.client("ses", region_name=region_name)
@@ -23,3 +24,7 @@ class EmailService:
         except ClientError as e:
             logger.error(f"Failed to send email: {e.response['Error']['Message']}")
             raise
+
+
+def get_email_service():
+    return EmailService()
