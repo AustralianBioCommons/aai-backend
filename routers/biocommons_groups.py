@@ -113,7 +113,7 @@ def send_group_approval_email(approver_email: str, request: GroupMembership):
 
 
 class CreateRoleData(BaseModel):
-    name: RoleId
+    name: RoleId | GroupId
     description: str
 
 
@@ -126,7 +126,7 @@ def create_role(
     ):
     """
     Create a new role in Auth0 and add it to the DB.
-    Note that our "RoleId" is actually the
+    Note that our "RoleId/GroupId" is actually the
     Auth0 role name - Auth0 has its own internal IDs
     """
     logger.info(f"Creating role {role_data.name} in Auth0")

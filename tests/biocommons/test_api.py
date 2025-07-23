@@ -46,23 +46,27 @@ def test_create_group(test_client, as_admin_user, override_auth0_client, test_db
     assert admin_role in group_from_db.admin_roles
 
 
+@pytest.mark.parametrize("role_name", ["biocommons/role/tsi/admin", "biocommons/group/tsi"])
 @respx.mock
-def test_create_role(test_client, as_admin_user, override_auth0_client, test_db_session):
-    mock_resp = RoleFactory.build(name="biocommons/role/tsi/admin")
+def test_create_role(role_name, test_client, as_admin_user, override_auth0_client, test_db_session):
+    """
+    Test we can create Auth0 roles using either the format for roles or groups.
+    """
+    mock_resp = RoleFactory.build(name=role_name)
     route = respx.post("https://example.auth0.com/api/v2/roles").mock(
         return_value=Response(200, json=mock_resp.model_dump(mode="json"))
     )
     resp = test_client.post(
         "/biocommons/roles/create",
         json={
-            "name": "biocommons/role/tsi/admin",
+            "name": role_name,
             "description": "Admin role for Threatened Species Initiative"
         }
     )
     assert resp.status_code == 200
     assert route.called
-    role_from_db = test_db_session.exec(select(Auth0Role).where(Auth0Role.name == "biocommons/role/tsi/admin")).one()
-    assert role_from_db.name == "biocommons/role/tsi/admin"
+    role_from_db = test_db_session.exec(select(Auth0Role).where(Auth0Role.name == role_name)).one()
+    assert role_from_db.name == role_name
 
 
 # TODO: test that approval emails are sent
