@@ -92,7 +92,7 @@ def test_create_auth0_role_by_name(test_db_session, auth0_client):
     Test when can create an auth0 role by name, looking up the role in Auth0 first
     """
     role_data = RoleDataFactory.build(name="biocommons/role/tsi/admin")
-    respx.get("https://example.auth0.com/api/v2/roles", params={"name_filter": ANY}).mock(
+    respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[role_data.model_dump(mode="json")])
     )
     Auth0Role.get_or_create_by_name(
@@ -112,7 +112,7 @@ def test_create_auth0_role_by_id(test_db_session, auth0_client):
     Test when can create an auth0 role by id, looking up the role in Auth0 first
     """
     role_data = RoleDataFactory.build(name="biocommons/role/tsi/admin")
-    respx.get(f"https://example.auth0.com/api/v2/roles/{role_data.id}").mock(
+    respx.get(f"https://auth0.example.com/api/v2/roles/{role_data.id}").mock(
         return_value=Response(200, json=role_data.model_dump(mode="json"))
     )
     Auth0Role.get_or_create_by_id(

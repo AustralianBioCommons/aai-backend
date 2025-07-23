@@ -9,7 +9,7 @@ from tests.datagen import BiocommonsAuth0UserFactory
 @respx.mock
 def test_get_users_no_pagination(auth0_client):
     user = BiocommonsAuth0UserFactory.build()
-    route = respx.get("https://example.auth0.com/api/v2/users").mock(
+    route = respx.get("https://auth0.example.com/api/v2/users").mock(
         return_value=Response(200, json=[user.model_dump(mode="json")])
     )
 
@@ -22,7 +22,7 @@ def test_get_users_no_pagination(auth0_client):
 @respx.mock
 def test_get_users_with_pagination(auth0_client):
     user = BiocommonsAuth0UserFactory.build()
-    route = respx.get("https://example.auth0.com/api/v2/users").respond(
+    route = respx.get("https://auth0.example.com/api/v2/users").respond(
         200, json=[user.model_dump(mode="json")]
     )
 
@@ -40,7 +40,7 @@ def test_get_users_with_pagination(auth0_client):
 def test_get_user_by_id(auth0_client):
     user_id = "auth0|789"
     user = BiocommonsAuth0UserFactory.build(user_id=user_id)
-    route = respx.get(f"https://example.auth0.com/api/v2/users/{user_id}").mock(
+    route = respx.get(f"https://auth0.example.com/api/v2/users/{user_id}").mock(
         return_value=Response(200, json=user.model_dump(mode="json"))
     )
 
@@ -61,7 +61,7 @@ def test_get_user_by_id(auth0_client):
 @respx.mock
 def test_search_users_methods(auth0_client, method, query):
     user = BiocommonsAuth0UserFactory.build()
-    route = respx.get("https://example.auth0.com/api/v2/users").respond(
+    route = respx.get("https://auth0.example.com/api/v2/users").respond(
         200, json=[user.model_dump(mode="json")]
     )
 
@@ -83,7 +83,7 @@ def test_get_role_users(auth0_client):
     """
     role_id = "auth0|role_id"
     users = BiocommonsAuth0UserFactory.batch(size=3)
-    route = respx.get(f"https://example.auth0.com/api/v2/roles/{role_id}/users").respond(
+    route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").respond(
         200, json=[u.model_dump(mode="json") for u in users]
     )
     result = auth0_client.get_role_users(role_id)
@@ -104,7 +104,7 @@ def test_get_all_role_users(auth0_client):
     users = BiocommonsAuth0UserFactory.batch(size=150)
     batch1 = UsersWithTotals(users=users[:100], total=150, start=0, limit=100)
     batch2 = UsersWithTotals(users=users[100:], total=150, start=100, limit=100)
-    route = respx.get(f"https://example.auth0.com/api/v2/roles/{role_id}/users").mock(
+    route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").mock(
         side_effect=[Response(200, json=batch1.model_dump(mode="json")),
                      Response(200, json=batch2.model_dump(mode="json"))]
     )

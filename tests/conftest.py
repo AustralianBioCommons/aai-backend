@@ -191,7 +191,7 @@ def mock_galaxy_client():
 
 @pytest.fixture
 def auth0_client():
-    return Auth0Client(domain="example.auth0.com", management_token="dummy-token")
+    return Auth0Client(domain="auth0.example.com", management_token="dummy-token")
 
 
 @pytest.fixture

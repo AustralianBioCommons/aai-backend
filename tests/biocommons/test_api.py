@@ -36,7 +36,7 @@ def override_auth0_client(auth0_client):
 def test_create_group(test_client, as_admin_user, override_auth0_client, test_db_session, persistent_factories):
     # Mock Auth0 response to check group exists
     mock_group = RoleDataFactory.build(name="biocommons/group/tsi")
-    route = respx.get("https://example.auth0.com/api/v2/roles", params={"name_filter": ANY}).mock(
+    route = respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[mock_group.model_dump(mode="json")])
     )
 
@@ -65,7 +65,7 @@ def test_create_role(role_name, test_client, as_admin_user, override_auth0_clien
     Test we can create Auth0 roles using either the format for roles or groups.
     """
     mock_resp = RoleDataFactory.build(name=role_name)
-    route = respx.post("https://example.auth0.com/api/v2/roles").mock(
+    route = respx.post("https://auth0.example.com/api/v2/roles").mock(
         return_value=Response(200, json=mock_resp.model_dump(mode="json"))
     )
     resp = test_client.post(

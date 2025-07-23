@@ -77,7 +77,7 @@ def test_biocommons_group_save_get_roles(test_db_session, auth0_client, mocker):
     roles have to be fetched from Auth0.
     """
     role = RoleDataFactory.build(name="biocommons/role/tsi/admin")
-    route = respx.get("https://example.auth0.com/api/v2/roles", params={"name_filter": ANY}).mock(
+    route = respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[role.model_dump(mode="json")])
     )
     group = BiocommonsGroupCreate(
