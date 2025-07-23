@@ -3,9 +3,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from moto import mock_aws
+from moto.core import patch_client
 from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
+from auth.ses import EmailService, get_email_service
 from auth.validator import get_current_user
 from auth0.client import Auth0Client
 from config import Settings, get_settings
@@ -185,3 +188,23 @@ def persistent_factories(test_db_session):
     yield
     for factory in factories:
         factory.__session__ = None
+
+@pytest.fixture(scope="function")
+def aws_credentials():
+    """Mocked AWS Credentials for moto."""
+    os.environ["AWS_ACCESS_KEY_ID"] = "testing"
+    os.environ["AWS_SECRET_ACCESS_KEY"] = "testing"
+    os.environ["AWS_SECURITY_TOKEN"] = "testing"
+    os.environ["AWS_SESSION_TOKEN"] = "testing"
+    os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+
+
+@pytest.fixture(scope="function")
+def mock_email_service(aws_credentials):
+    with mock_aws():
+        email_service = EmailService(region_name="us-east-1")
+        patch_client(email_service.client)
+        email_service.client.verify_email_identity(EmailAddress="amanda@biocommons.org.au")
+        app.dependency_overrides[get_email_service] = lambda: email_service
+        yield email_service
+        app.dependency_overrides.clear()
