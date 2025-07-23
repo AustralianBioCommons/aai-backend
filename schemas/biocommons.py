@@ -98,6 +98,7 @@ class BiocommonsAppMetadata(BaseModel):
         resource.last_updated = datetime.now(timezone.utc)
         resource.updated_by = updated_by
 
+
 class BiocommonsRegisterData(BaseModel):
     """
     Data we send to the /api/v2/users endpoint to register a user

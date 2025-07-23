@@ -7,7 +7,7 @@ from sqlmodel import select
 
 from biocommons.groups import BiocommonsGroupCreate, is_valid_group_id, is_valid_role_id
 from db.models import Auth0Role, BiocommonsGroup
-from tests.biocommons.datagen import RoleFactory
+from tests.biocommons.datagen import RoleDataFactory
 from tests.db.datagen import Auth0RoleFactory
 
 
@@ -76,7 +76,7 @@ def test_biocommons_group_save_get_roles(test_db_session, auth0_client, mocker):
     Test saving BiocommonsGroupCreate to the DB when
     roles have to be fetched from Auth0.
     """
-    role = RoleFactory.build(name="biocommons/role/tsi/admin")
+    role = RoleDataFactory.build(name="biocommons/role/tsi/admin")
     route = respx.get("https://example.auth0.com/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[role.model_dump(mode="json")])
     )

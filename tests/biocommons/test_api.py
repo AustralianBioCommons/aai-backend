@@ -8,7 +8,7 @@ from sqlmodel import select
 from auth0.client import get_auth0_client
 from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
 from main import app
-from tests.biocommons.datagen import RoleFactory
+from tests.biocommons.datagen import RoleDataFactory
 from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory
 
 
@@ -23,7 +23,7 @@ def override_auth0_client(auth0_client):
 def test_create_group(test_client, as_admin_user, override_auth0_client, test_db_session):
     Auth0RoleFactory.__session__ = test_db_session
     # Mock Auth0 response to check group exists
-    mock_group = RoleFactory.build(name="biocommons/group/tsi")
+    mock_group = RoleDataFactory.build(name="biocommons/group/tsi")
     route = respx.get("https://example.auth0.com/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[mock_group.model_dump(mode="json")])
     )
@@ -52,7 +52,7 @@ def test_create_role(role_name, test_client, as_admin_user, override_auth0_clien
     """
     Test we can create Auth0 roles using either the format for roles or groups.
     """
-    mock_resp = RoleFactory.build(name=role_name)
+    mock_resp = RoleDataFactory.build(name=role_name)
     route = respx.post("https://example.auth0.com/api/v2/roles").mock(
         return_value=Response(200, json=mock_resp.model_dump(mode="json"))
     )

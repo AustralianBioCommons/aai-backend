@@ -11,20 +11,29 @@ from auth.management import get_management_token
 from schemas.biocommons import BiocommonsAuth0User
 
 
-class Role(BaseModel):
+class RoleData(BaseModel):
+    """
+    Data returned by Auth0 API for a role.
+    """
     id: str
     name: str
     description: str
 
 
 class RolesWithTotals(BaseModel):
-    roles: list[Role]
+    """
+    Response from Auth0 roles API when include_totals is True.
+    """
+    roles: list[RoleData]
     start: int
     limit: int
     total: int
 
 
 class UsersWithTotals(BaseModel):
+    """
+    Response from Auth0 users API when include_totals is True.
+    """
     users: list[BiocommonsAuth0User]
     start: int
     limit: int
@@ -32,6 +41,9 @@ class UsersWithTotals(BaseModel):
 
 
 class Auth0Client:
+    """
+    Implements the Auth0 management API.
+    """
 
     def __init__(self, domain: str, management_token: str):
         self.domain = domain
@@ -51,7 +63,7 @@ class Auth0Client:
 
     @staticmethod
     def _convert_roles(resp: httpx.Response):
-        return Auth0Client._convert_list(resp, Role)
+        return Auth0Client._convert_list(resp, RoleData)
 
     def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None) -> list[BiocommonsAuth0User] | UsersWithTotals:
         params = {}
@@ -118,7 +130,7 @@ class Auth0Client:
                   name_filter: Optional[str] = None,
                   include_totals: Optional[bool] = None,
                   page: Optional[int] = None,
-                  per_page: Optional[int] = None) -> list[Role] | RolesWithTotals:
+                  per_page: Optional[int] = None) -> list[RoleData] | RolesWithTotals:
         params = {}
         if name_filter is not None:
             params["name_filter"] = name_filter
@@ -136,23 +148,23 @@ class Auth0Client:
         else:
             return self._convert_roles(resp)
 
-    def get_role_by_name(self, name: str) -> Role:
+    def get_role_by_name(self, name: str) -> RoleData:
         """
         Get a role by name.
         Raises ValueError if not found, or multiple roles are found.
         """
-        roles: list[Role] = self.get_roles(name_filter=name)
+        roles: list[RoleData] = self.get_roles(name_filter=name)
         if len(roles) == 0:
             raise ValueError(f"Role with name {name} not found.")
         elif len(roles) > 1:
             raise ValueError(f"Multiple roles with name {name} found.")
         return roles[0]
 
-    def get_role_by_id(self, role_id: str) -> Role:
+    def get_role_by_id(self, role_id: str) -> RoleData:
         url = f"https://{self.domain}/api/v2/roles/{role_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
-        return Role(**resp.json())
+        return RoleData(**resp.json())
 
     def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[BiocommonsAuth0User] | UsersWithTotals:
         url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
@@ -181,11 +193,11 @@ class Auth0Client:
             page += 1
         return users
 
-    def create_role(self, name: str, description: str) -> Role:
+    def create_role(self, name: str, description: str) -> RoleData:
         url = f"https://{self.domain}/api/v2/roles"
         resp = self._client.post(url, json={"name": name, "description": description})
         resp.raise_for_status()
-        return Role(**resp.json())
+        return RoleData(**resp.json())
 
 
 def get_auth0_client(settings: Settings = Depends(get_settings),

@@ -1,6 +1,6 @@
 from polyfactory.factories.pydantic_factory import ModelFactory
 
-from auth0.client import Role
+from auth0.client import RoleData
 
 
-class RoleFactory(ModelFactory[Role]): ...
+class RoleDataFactory(ModelFactory[RoleData]): ...
