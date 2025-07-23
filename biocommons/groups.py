@@ -32,8 +32,6 @@ class BiocommonsGroupCreate(BaseModel):
     name: str
     admin_roles: list[RoleId | Auth0Role]
 
-    # TODO: currently requires the roles to exist in the DB
-    #   already, probably want to get_or_create them
     def save(self, session: Session, auth0_client: Auth0Client) -> BiocommonsGroup:
         db_roles = []
         for role in self.admin_roles:
