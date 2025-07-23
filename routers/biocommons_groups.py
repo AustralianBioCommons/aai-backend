@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from auth.ses import EmailService
+from auth.ses import EmailService, get_email_service
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.groups import (
@@ -64,6 +64,7 @@ def request_group_access(
         auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
         db_session: Annotated[Session, Depends(get_db_session)],
         settings: Annotated[Settings, Depends(get_settings)],
+        email_service: Annotated[EmailService, Depends(get_email_service)],
         background_tasks: BackgroundTasks
     ):
     """
@@ -94,7 +95,8 @@ def request_group_access(
         logger.info("Sending emails to group admins for approval")
         admin_emails = membership.group.get_admins(auth0_client=auth0_client)
         for email in admin_emails:
-            background_tasks.add_task(send_group_approval_email, email, membership)
+            background_tasks.add_task(send_group_approval_email,
+                                      approver_email=email, request=membership, email_service=email_service)
     return {"message": f"Group membership for {group_id} requested successfully."}
 
 
@@ -129,8 +131,7 @@ def approve_group_access(
     return {"message": f"Group membership for {group.name} approved successfully."}
 
 
-def send_group_approval_email(approver_email: str, request: GroupMembership):
-    email_service = EmailService()
+def send_group_approval_email(approver_email: str, request: GroupMembership, email_service: EmailService):
     subject = f"New request to join {request.group.name}"
 
     body_html = f"""
