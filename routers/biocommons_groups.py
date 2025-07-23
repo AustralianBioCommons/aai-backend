@@ -131,7 +131,6 @@ def approve_group_access(
 
 def send_group_approval_email(approver_email: str, request: GroupMembership):
     email_service = EmailService()
-    approver_email = "aai-dev@biocommons.org.au"
     subject = f"New request to join {request.group.name}"
 
     body_html = f"""
