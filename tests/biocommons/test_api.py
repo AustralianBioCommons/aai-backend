@@ -9,7 +9,10 @@ from auth0.client import get_auth0_client
 from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
 from main import app
 from tests.biocommons.datagen import RoleDataFactory
-from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory
+from tests.db.datagen import (
+    Auth0RoleFactory,
+    BiocommonsGroupFactory,
+)
 
 
 @pytest.fixture
@@ -20,8 +23,7 @@ def override_auth0_client(auth0_client):
 
 
 @respx.mock
-def test_create_group(test_client, as_admin_user, override_auth0_client, test_db_session):
-    Auth0RoleFactory.__session__ = test_db_session
+def test_create_group(test_client, as_admin_user, override_auth0_client, test_db_session, persistent_factories):
     # Mock Auth0 response to check group exists
     mock_group = RoleDataFactory.build(name="biocommons/group/tsi")
     route = respx.get("https://example.auth0.com/api/v2/roles", params={"name_filter": ANY}).mock(
@@ -71,8 +73,7 @@ def test_create_role(role_name, test_client, as_admin_user, override_auth0_clien
 
 # TODO: test that approval emails are sent
 @respx.mock
-def test_request_group_membership(test_client, admin_user, as_admin_user, override_auth0_client, test_db_session):
-    BiocommonsGroupFactory.__session__ = test_db_session
+def test_request_group_membership(test_client, admin_user, as_admin_user, override_auth0_client, test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     resp = test_client.post(
         "/biocommons/groups/request",

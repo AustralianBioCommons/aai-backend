@@ -15,13 +15,10 @@ from tests.datagen import random_auth0_id
 from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory
 
 
-def test_create_group_membership(test_db_session):
+def test_create_group_membership(test_db_session, persistent_factories):
     """
     Test creating a group membership
     """
-    # Provide test_db_session to factories
-    BiocommonsGroupFactory.__session__  = test_db_session
-
     user = Person(locale=Locale("en"))
     user_id = random_auth0_id()
     updater = Person(locale=Locale("en"))
@@ -40,17 +37,13 @@ def test_create_group_membership(test_db_session):
     test_db_session.commit()
     test_db_session.refresh(membership)
     assert membership.group.group_id == "biocommons/group/tsi"
-    BiocommonsGroupFactory.__session__  = None
 
 
-def test_create_group_membership_unique_constraint(test_db_session):
+def test_create_group_membership_unique_constraint(test_db_session, persistent_factories):
     """
     Check that trying to create multiple group memberships
     for the same user/group raises IntegrityError
     """
-    # Provide test_db_session to factories
-    BiocommonsGroupFactory.__session__ = test_db_session
-
     user = Person(locale=Locale("en"))
     user_id = random_auth0_id()
     updater = Person(locale=Locale("en"))
@@ -80,7 +73,6 @@ def test_create_group_membership_unique_constraint(test_db_session):
     with pytest.raises(IntegrityError):
         test_db_session.add(dupe_membership)
         test_db_session.commit()
-    BiocommonsGroupFactory.__session__  = None
 
 
 def test_create_auth0_role(test_db_session):
@@ -134,11 +126,10 @@ def test_create_auth0_role_by_id(test_db_session, auth0_client):
     assert role_from_db.name == role_data.name
 
 
-def test_create_biocommons_group(test_db_session):
+def test_create_biocommons_group(test_db_session, persistent_factories):
     """
     Test creating a biocommons group (with associated roles)
     """
-    Auth0RoleFactory.__session__ = test_db_session
     roles = Auth0RoleFactory.create_batch_sync(size=2)
     group = BiocommonsGroup(
         group_id="biocommons/group/tsi",
@@ -153,4 +144,3 @@ def test_create_biocommons_group(test_db_session):
     # Check the relationship in the other direction
     role = roles[0]
     assert group in role.admin_groups
-    Auth0RoleFactory.__session__ = None

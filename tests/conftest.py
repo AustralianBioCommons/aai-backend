@@ -15,6 +15,11 @@ from galaxy.client import GalaxyClient, get_galaxy_client
 from galaxy.config import GalaxySettings, get_galaxy_settings
 from main import app
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
+from tests.db.datagen import (
+    Auth0RoleFactory,
+    BiocommonsGroupFactory,
+    GroupMembershipFactory,
+)
 
 
 @pytest.fixture()
@@ -130,6 +135,7 @@ def test_client_with_email(mock_settings, mock_galaxy_settings):
     # Reset override
     app.dependency_overrides.clear()
 
+
 @pytest.fixture
 def admin_user():
     token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
@@ -162,3 +168,20 @@ def mock_galaxy_client():
 @pytest.fixture
 def auth0_client():
     return Auth0Client(domain="example.auth0.com", management_token="dummy-token")
+
+
+@pytest.fixture
+def persistent_factories(test_db_session):
+    """
+    Set the __session__ attribute of the factories to the test DB session
+    """
+    factories = [
+        Auth0RoleFactory,
+        BiocommonsGroupFactory,
+        GroupMembershipFactory,
+    ]
+    for factory in factories:
+        factory.__session__ = test_db_session
+    yield
+    for factory in factories:
+        factory.__session__ = None
