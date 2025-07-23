@@ -16,7 +16,7 @@ from biocommons.groups import (
     RoleId,
 )
 from config import Settings, get_settings
-from db.models import ApprovalStatusEnum, Auth0Role, GroupMembership
+from db.models import ApprovalStatusEnum, Auth0Role, BiocommonsGroup, GroupMembership
 from db.setup import get_db_session
 from schemas.user import SessionUser
 
@@ -96,6 +96,37 @@ def request_group_access(
         for email in admin_emails:
             background_tasks.add_task(send_group_approval_email, email, membership)
     return {"message": f"Group membership for {group_id} requested successfully."}
+
+
+class GroupAccessApprovalData(BaseModel):
+    user_id: str
+    group_id: str
+
+
+@router.post("/groups/approve")
+def approve_group_access(
+    data: GroupAccessApprovalData,
+    approving_user: Annotated[SessionUser, Depends(get_current_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    group = db_session.get_one(BiocommonsGroup, data.group_id)
+    is_admin = group.user_is_admin(approving_user)
+    if not is_admin:
+        raise HTTPException(
+            status_code=HTTPStatus.UNAUTHORIZED,
+            detail=f"You do not have permission to approve group memberships for {group.name}"
+        )
+    membership = GroupMembership.get_by_user_id(user_id=data.user_id, group_id=data.group_id, session=db_session)
+    if membership is None:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="No membership request found for this user"
+        )
+    membership.approval_status = ApprovalStatusEnum.APPROVED
+    membership.updated_by_id = approving_user.access_token.sub
+    membership.updated_by_email = approving_user.access_token.email
+    membership.save(session=db_session, commit=True)
+    return {"message": f"Group membership for {group.name} approved successfully."}
 
 
 def send_group_approval_email(approver_email: str, request: GroupMembership):
