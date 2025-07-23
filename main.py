@@ -21,6 +21,8 @@ ALLOWED_ORIGINS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # NOTE: we only create the database and tables automatically in development:
+    # we assume that if the DB is an sqlite DB, we are in dev.
     create_db_and_tables()
     yield
 
