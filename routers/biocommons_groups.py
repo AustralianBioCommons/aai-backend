@@ -110,6 +110,7 @@ def approve_group_access(
     data: GroupAccessApprovalData,
     approving_user: Annotated[SessionUser, Depends(get_current_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):
     group = db_session.get_one(BiocommonsGroup, data.group_id)
     is_admin = group.user_is_admin(approving_user)
@@ -127,6 +128,7 @@ def approve_group_access(
     membership.approval_status = ApprovalStatusEnum.APPROVED
     membership.updated_by_id = approving_user.access_token.sub
     membership.updated_by_email = approving_user.access_token.email
+    membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=True)
     return {"message": f"Group membership for {group.name} approved successfully."}
 
