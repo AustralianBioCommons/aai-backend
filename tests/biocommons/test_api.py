@@ -115,7 +115,14 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert admin_info.email in to_addresses
 
 
-def test_approve_group_membership(test_client, test_db_session, persistent_factories):
+@respx.mock
+def test_approve_group_membership(test_client, test_db_session, persistent_factories, override_auth0_client):
+    """
+    Test the full approval process, including:
+    * Checking that the group admin has the required role
+    * Adding the role via the Auth0 API
+    * Updating the group membership request in the DB
+    """
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
     access_token = AccessTokenPayloadFactory.build(biocommons_roles=[admin_role.name])
@@ -124,6 +131,16 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="pending")
     # Override get_current_user to return the group admin
     app.dependency_overrides[get_current_user] = lambda: group_admin
+    # Mock auth0 route for adding roles
+    respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(
+        200,
+        json=[RoleDataFactory.build(name=group.group_id).model_dump(mode="json")]
+    )
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.user_id}/roles").respond(204)
+    # Call our group approval endpoint
     resp = test_client.post(
         "/biocommons/groups/approve",
         json={
@@ -133,13 +150,15 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     )
     assert resp.status_code == 200
     assert resp.json()["message"] == f"Group membership for {group.name} approved successfully."
+    # Check role added in Auth0 API
+    assert route.called
     test_db_session.refresh(membership_request)
     assert membership_request.approval_status == "approved"
     assert membership_request.updated_by_id == group_admin.access_token.sub
     assert membership_request.updated_by_email == group_admin.access_token.email
 
 
-def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories):
+def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories, override_auth0_client):
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
     access_token = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/biocommons/sysadmin"])

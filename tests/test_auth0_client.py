@@ -3,7 +3,11 @@ import respx
 from httpx import Response
 
 from auth0.client import UsersWithTotals
-from tests.datagen import BiocommonsAuth0UserFactory
+from tests.datagen import (
+    BiocommonsAuth0UserFactory,
+    random_auth0_id,
+    random_auth0_role_id,
+)
 
 
 @respx.mock
@@ -112,3 +116,18 @@ def test_get_all_role_users(auth0_client):
     assert route.called
     assert route.call_count == 2
     assert len(result) == 150
+
+
+@respx.mock
+def test_add_roles_to_user(auth0_client):
+    """
+    Test we can add roles to a user in Auth0 API
+    """
+    user_id = random_auth0_id()
+    role_id = random_auth0_role_id()
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{user_id}/roles").respond(204)
+    auth0_client.add_roles_to_user(user_id, role_id)
+    assert route.called
+    call_data = route.calls[0].request.content
+    # Check role_id is passed as a list
+    assert call_data == b'{"roles":["' +role_id.encode() + b'"]}'
