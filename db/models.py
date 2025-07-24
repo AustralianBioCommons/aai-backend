@@ -74,6 +74,13 @@ class GroupMembership(BaseModel, table=True):
             session.commit()
         return history
 
+    def grant_auth0_role(self, auth0_client: Auth0Client):
+        if not self.approval_status == ApprovalStatusEnum.APPROVED:
+            raise ValueError("User is not approved")
+        role = auth0_client.get_role_by_name(self.group_id)
+        auth0_client.add_roles_to_user(user_id=self.user_id, role_id=role.id)
+        return True
+
 
 class ApprovalHistory(BaseModel, table=True):
     """

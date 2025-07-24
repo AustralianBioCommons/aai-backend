@@ -86,6 +86,17 @@ class Auth0Client:
         resp = self._client.get(url)
         return BiocommonsAuth0User(**resp.json())
 
+    def add_roles_to_user(self, user_id: str, role_id: str | list[str]):
+        """
+        Add one or more roles to a user. The roless must already exist.
+        """
+        url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
+        if isinstance(role_id, str):
+            role_id = [role_id]
+        resp = self._client.post(url, json={"roles": role_id})
+        resp.raise_for_status()
+        return True
+
     def search_users_by_email(self, email: str) -> list[BiocommonsAuth0User]:
         url = f"https://{self.domain}/api/v2/users-by-email"
         resp = self._client.get(url, params={"email": email})
