@@ -11,8 +11,12 @@ from sqlmodel import select
 
 from db.models import Auth0Role, BiocommonsGroup, GroupMembership
 from tests.biocommons.datagen import RoleDataFactory
-from tests.datagen import random_auth0_id
-from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory
+from tests.datagen import BiocommonsAuth0UserFactory, random_auth0_id
+from tests.db.datagen import (
+    Auth0RoleFactory,
+    BiocommonsGroupFactory,
+    GroupMembershipFactory,
+)
 
 
 def test_create_group_membership(test_db_session, persistent_factories):
@@ -144,3 +148,30 @@ def test_create_biocommons_group(test_db_session, persistent_factories):
     # Check the relationship in the other direction
     role = roles[0]
     assert group in role.admin_groups
+
+
+@respx.mock
+def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    user = BiocommonsAuth0UserFactory.build()
+    role_data = RoleDataFactory.build(name="biocommons/group/tsi")
+    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="approved")
+    # Mock the auth0 calls involved
+    respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.user_id}/roles").respond(status_code=200)
+    result = membership_request.grant_auth0_role(auth0_client)
+    assert result
+    assert route.called
+
+
+@pytest.mark.parametrize("status", ["pending", "revoked"])
+@respx.mock
+def test_group_membership_grant_auth0_role_not_approved(status, auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    user = BiocommonsAuth0UserFactory.build()
+    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
+    with pytest.raises(ValueError):
+        membership_request.grant_auth0_role(auth0_client)
