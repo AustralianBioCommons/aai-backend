@@ -31,6 +31,10 @@ def setup_oauth():
 
 
 class AdminAuth(AuthenticationBackend):
+    def __init__(self, secret_key: str, auth0_client: OAuth):
+        super().__init__(secret_key=secret_key)
+        self.auth0_client = auth0_client
+
     async def login(self, request: Request) -> bool:
         return True
 
@@ -42,7 +46,7 @@ class AdminAuth(AuthenticationBackend):
         user = request.session.get("user")
         if not user:
             redirect_uri = request.url_for('login_auth0')
-            return await auth0_client.authorize_redirect(request, redirect_uri)
+            return await self.auth0_client.authorize_redirect(request, redirect_uri)
 
         return True
 
@@ -51,21 +55,29 @@ class DatabaseAdmin:
 
     def __init__(self, app: FastAPI, secret_key: str):
         self.app = app
+        self.auth0_client = setup_oauth()
         self.admin = Admin(
             app,
             engine=engine,
             base_url="/db_admin",
-            authentication_backend=AdminAuth(secret_key=secret_key),
+            authentication_backend=AdminAuth(secret_key=secret_key, auth0_client=self.auth0_client),
             title="AAI Backend Admin"
         )
+        self.admin.app.router.add_route("/auth/auth0", self.login_auth0)
 
     @classmethod
     def setup(cls, app: FastAPI, secret_key: str) -> Self:
         db_admin = cls(app, secret_key)
         db_admin.admin.add_view(GroupAdmin)
         db_admin.admin.add_view(Auth0RoleAdmin)
-        db_admin.admin.app.router.add_route("/auth/auth0", login_auth0)
         return db_admin
+
+    async def login_auth0(self, request: Request) -> Response:
+        token = await self.auth0_client.authorize_access_token(request)
+        user = token.get('userinfo')
+        if user:
+            request.session['user'] = user
+        return RedirectResponse(request.url_for("admin:index"))
 
 
 class GroupAdmin(ModelView, model=BiocommonsGroup):
@@ -77,13 +89,3 @@ class Auth0RoleAdmin(ModelView, model=Auth0Role):
     can_edit = False
     can_create = False
     column_list = ["id", "name", "description"]
-
-
-async def login_auth0(request: Request) -> Response:
-    token = await auth0_client.authorize_access_token(request)
-    user = token.get('userinfo')
-    if user:
-        request.session['user'] = user
-    return RedirectResponse(request.url_for("admin:index"))
-
-auth0_client = setup_oauth()
