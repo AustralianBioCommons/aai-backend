@@ -3,9 +3,11 @@ from contextlib import asynccontextmanager
 from dotenv import dotenv_values
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 # This has to be imported even if unused
 from db import models  # noqa: F401
+from db.admin import DatabaseAdmin
 from db.setup import create_db_and_tables
 from routers import admin, biocommons_groups, bpa_register, galaxy_register, user, utils
 
@@ -17,6 +19,7 @@ env_values = dotenv_values(".env")
 ALLOWED_ORIGINS = [
     origin.strip() for origin in env_values.get("CORS_ALLOWED_ORIGINS", "").split(",")
 ]
+SECRET_KEY = env_values.get("JWT_SECRET_KEY")
 
 
 @asynccontextmanager
@@ -34,6 +37,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=SECRET_KEY
+)
 
 
 @app.get("/")
@@ -47,3 +54,5 @@ app.include_router(bpa_register.router)
 app.include_router(galaxy_register.router)
 app.include_router(utils.router)
 app.include_router(biocommons_groups.router)
+
+db_admin = DatabaseAdmin.setup(app=app, secret_key=SECRET_KEY)
