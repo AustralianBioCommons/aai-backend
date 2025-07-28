@@ -10,7 +10,7 @@ from starlette.responses import RedirectResponse, Response
 
 from auth.validator import verify_jwt
 from config import get_settings
-from db.models import Auth0Role, BiocommonsGroup
+from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
 from db.setup import engine
 
 
@@ -59,6 +59,29 @@ class AdminAuth(AuthenticationBackend):
         return False
 
 
+class GroupAdmin(ModelView, model=BiocommonsGroup):
+    can_edit = False
+    can_create = False
+
+
+class Auth0RoleAdmin(ModelView, model=Auth0Role):
+    can_edit = False
+    can_create = False
+    column_list = ["id", "name", "description"]
+
+
+class GroupMembershipAdmin(ModelView, model=GroupMembership):
+    can_edit = False
+    can_create = False
+    column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
+
+
+class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
+    can_edit = False
+    can_create = False
+    column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
+
+
 class DatabaseAdmin:
 
     def __init__(self, app: FastAPI, session_middleware: Middleware):
@@ -93,14 +116,3 @@ class DatabaseAdmin:
             raise HTTPException(status_code=401, detail="User does not have admin role.")
         request.session['biocommons_roles'] = payload.biocommons_roles
         return RedirectResponse(request.url_for("admin:index"), status_code=302)
-
-
-class GroupAdmin(ModelView, model=BiocommonsGroup):
-    can_edit = False
-    can_create = False
-
-
-class Auth0RoleAdmin(ModelView, model=Auth0Role):
-    can_edit = False
-    can_create = False
-    column_list = ["id", "name", "description"]
