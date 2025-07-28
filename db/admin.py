@@ -4,7 +4,6 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI, HTTPException
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
-from starlette.middleware import Middleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
@@ -35,8 +34,8 @@ def setup_oauth():
 
 class AdminAuth(AuthenticationBackend):
 
-    def __init__(self, session_middleware: Middleware, auth0_client: OAuth):
-        self.middlewares = [session_middleware]
+    def __init__(self, secret_key: str, auth0_client: OAuth):
+        super().__init__(secret_key=secret_key)
         self.auth0_client = auth0_client
 
     async def login(self, request: Request) -> bool:
@@ -83,24 +82,25 @@ class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
 
 
 class DatabaseAdmin:
+    views = (GroupAdmin, Auth0RoleAdmin, GroupMembershipAdmin, ApprovalHistoryAdmin,)
 
-    def __init__(self, app: FastAPI, session_middleware: Middleware):
+    def __init__(self, app: FastAPI, secret_key: str):
         self.app = app
         self.auth0_client = setup_oauth()
         self.admin = Admin(
             app,
             engine=engine,
             base_url="/db_admin",
-            authentication_backend=AdminAuth(session_middleware=session_middleware, auth0_client=self.auth0_client),
+            authentication_backend=AdminAuth(secret_key=secret_key, auth0_client=self.auth0_client),
             title="AAI Backend Admin"
         )
         self.admin.app.router.add_route("/auth/auth0", self.login_auth0)
 
     @classmethod
-    def setup(cls, app: FastAPI, session_middleware: Middleware) -> Self:
-        db_admin = cls(app, session_middleware)
-        db_admin.admin.add_view(GroupAdmin)
-        db_admin.admin.add_view(Auth0RoleAdmin)
+    def setup(cls, app: FastAPI, secret_key: str) -> Self:
+        db_admin = cls(app, secret_key=secret_key)
+        for view in db_admin.views:
+            db_admin.admin.add_view(view)
         return db_admin
 
     async def login_auth0(self, request: Request) -> Response:
