@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from dotenv import dotenv_values
 from fastapi import FastAPI
+from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -29,17 +30,14 @@ async def lifespan(app: FastAPI):
     create_db_and_tables()
     yield
 
-app = FastAPI(lifespan=lifespan)
+session_middleware = Middleware(SessionMiddleware, secret_key=SECRET_KEY, max_age=None)
+app = FastAPI(lifespan=lifespan, middleware=[session_middleware])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=SECRET_KEY
 )
 
 
@@ -55,4 +53,4 @@ app.include_router(galaxy_register.router)
 app.include_router(utils.router)
 app.include_router(biocommons_groups.router)
 
-db_admin = DatabaseAdmin.setup(app=app, secret_key=SECRET_KEY)
+db_admin = DatabaseAdmin.setup(app=app, session_middleware=session_middleware)
