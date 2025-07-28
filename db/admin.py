@@ -4,6 +4,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI, HTTPException
 from sqladmin import Admin, ModelView
 from sqladmin.authentication import AuthenticationBackend
+from sqladmin.filters import AllUniqueStringValuesFilter
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 
@@ -73,6 +74,10 @@ class GroupMembershipAdmin(ModelView, model=GroupMembership):
     can_edit = False
     can_create = False
     column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
+    column_filters = [
+        AllUniqueStringValuesFilter(GroupMembership.group_id),
+        AllUniqueStringValuesFilter(GroupMembership.approval_status)
+    ]
 
 
 class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
