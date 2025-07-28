@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from dotenv import dotenv_values
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 # This has to be imported even if unused
 from db import models  # noqa: F401
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
