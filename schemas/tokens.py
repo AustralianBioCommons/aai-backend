@@ -2,6 +2,8 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from config import Settings
+
 
 class AccessTokenPayload(BaseModel):
     """
@@ -23,3 +25,9 @@ class AccessTokenPayload(BaseModel):
 
     # Set populate_by_name so we can specify biocommons_roles as an argument
     model_config = ConfigDict(populate_by_name=True)
+
+    def has_admin_role(self, settings: Settings) -> bool:
+        for role in self.biocommons_roles:
+            if role in settings.admin_roles:
+                return True
+        return False
