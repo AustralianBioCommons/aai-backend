@@ -32,7 +32,7 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=auth --cov=routers --cov=schemas --cov-report=term --cov-report=xml"
+addopts = "--cov=auth --cov=routers --cov=schemas --cov=db --cov=biocommons --cov-report=term --cov-report=xml"
 
 [build-system]
 requires = ["setuptools>=61.0"]

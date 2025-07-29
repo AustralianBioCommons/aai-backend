@@ -3,7 +3,9 @@ import os
 from typing import Tuple
 
 from dotenv import dotenv_values
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
+
+from db.core import BaseModel
 
 log = logging.getLogger('uvicorn.error')
 
@@ -48,7 +50,7 @@ def create_db_and_tables():
     db_url, connect_args = get_db_config()
     if db_url.startswith("sqlite://"):
         log.info("Automatically creating DB tables for sqlite")
-        SQLModel.metadata.create_all(engine)
+        BaseModel.metadata.create_all(engine)
 
 
 def get_db_session():

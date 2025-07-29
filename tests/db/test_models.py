@@ -1,19 +1,35 @@
 from datetime import datetime, timezone
+from unittest.mock import ANY
 
+import pytest
+import respx
+from httpx import Response
 from mimesis import Person
 from mimesis.locales import Locale
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import select
 
-from db.models import GroupMembership
-from tests.datagen import random_auth0_id
+from db.models import Auth0Role, BiocommonsGroup, GroupMembership
+from tests.biocommons.datagen import RoleDataFactory
+from tests.datagen import BiocommonsAuth0UserFactory, random_auth0_id
+from tests.db.datagen import (
+    Auth0RoleFactory,
+    BiocommonsGroupFactory,
+    GroupMembershipFactory,
+)
 
 
-def test_create_group_membership(session):
+def test_create_group_membership(test_db_session, persistent_factories):
+    """
+    Test creating a group membership
+    """
     user = Person(locale=Locale("en"))
     user_id = random_auth0_id()
     updater = Person(locale=Locale("en"))
     updater_id = random_auth0_id()
-    group = GroupMembership(
-        group="tsi",
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    membership = GroupMembership(
+        group=group,
         user_id=user_id,
         user_email=user.email(),
         approval_status="pending",
@@ -21,7 +37,141 @@ def test_create_group_membership(session):
         updated_by_id=updater_id,
         updated_by_email=updater.email(),
     )
-    session.add(group)
-    session.commit()
-    session.refresh(group)
-    assert group.group == "tsi"
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.group.group_id == "biocommons/group/tsi"
+
+
+def test_create_group_membership_unique_constraint(test_db_session, persistent_factories):
+    """
+    Check that trying to create multiple group memberships
+    for the same user/group raises IntegrityError
+    """
+    user = Person(locale=Locale("en"))
+    user_id = random_auth0_id()
+    updater = Person(locale=Locale("en"))
+    updater_id = random_auth0_id()
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    membership = GroupMembership(
+        group=group,
+        user_id=user_id,
+        user_email=user.email(),
+        approval_status="pending",
+        updated_at=datetime.now(tz=timezone.utc),
+        updated_by_id=updater_id,
+        updated_by_email=updater.email(),
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+
+    dupe_membership = GroupMembership(
+        group=group,
+        user_id=user_id,
+        user_email=user.email(),
+        approval_status="approved",
+        updated_at=datetime.now(tz=timezone.utc),
+        updated_by_id=updater_id,
+        updated_by_email=updater.email(),
+    )
+    with pytest.raises(IntegrityError):
+        test_db_session.add(dupe_membership)
+        test_db_session.commit()
+
+
+def test_create_auth0_role(test_db_session):
+    """
+    Test creating an auth0 role
+    """
+    role = Auth0Role(id=random_auth0_id(), name="Example group")
+    test_db_session.add(role)
+    test_db_session.commit()
+    test_db_session.refresh(role)
+    assert role.name == "Example group"
+
+
+@respx.mock
+def test_create_auth0_role_by_name(test_db_session, auth0_client):
+    """
+    Test when can create an auth0 role by name, looking up the role in Auth0 first
+    """
+    role_data = RoleDataFactory.build(name="biocommons/role/tsi/admin")
+    respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
+        return_value=Response(200, json=[role_data.model_dump(mode="json")])
+    )
+    Auth0Role.get_or_create_by_name(
+        name=role_data.name,
+        session=test_db_session,
+        auth0_client=auth0_client
+    )
+    role_from_db = test_db_session.exec(
+        select(Auth0Role).where(Auth0Role.id == role_data.id)
+    ).first()
+    assert role_from_db.name == role_data.name
+
+
+@respx.mock
+def test_create_auth0_role_by_id(test_db_session, auth0_client):
+    """
+    Test when can create an auth0 role by id, looking up the role in Auth0 first
+    """
+    role_data = RoleDataFactory.build(name="biocommons/role/tsi/admin")
+    respx.get(f"https://auth0.example.com/api/v2/roles/{role_data.id}").mock(
+        return_value=Response(200, json=role_data.model_dump(mode="json"))
+    )
+    Auth0Role.get_or_create_by_id(
+        auth0_id=role_data.id,
+        session=test_db_session,
+        auth0_client=auth0_client
+    )
+    role_from_db = test_db_session.exec(
+        select(Auth0Role).where(Auth0Role.id == role_data.id)
+    ).first()
+    assert role_from_db.name == role_data.name
+
+
+def test_create_biocommons_group(test_db_session, persistent_factories):
+    """
+    Test creating a biocommons group (with associated roles)
+    """
+    roles = Auth0RoleFactory.create_batch_sync(size=2)
+    group = BiocommonsGroup(
+        group_id="biocommons/group/tsi",
+        name="Threatened Species Initiative",
+        admin_roles=roles
+    )
+    test_db_session.add(group)
+    test_db_session.commit()
+    test_db_session.refresh(group)
+    assert group.group_id == "biocommons/group/tsi"
+    assert all(role in group.admin_roles for role in roles)
+    # Check the relationship in the other direction
+    role = roles[0]
+    assert group in role.admin_groups
+
+
+@respx.mock
+def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    user = BiocommonsAuth0UserFactory.build()
+    role_data = RoleDataFactory.build(name="biocommons/group/tsi")
+    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="approved")
+    # Mock the auth0 calls involved
+    respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.user_id}/roles").respond(status_code=200)
+    result = membership_request.grant_auth0_role(auth0_client)
+    assert result
+    assert route.called
+
+
+@pytest.mark.parametrize("status", ["pending", "revoked"])
+@respx.mock
+def test_group_membership_grant_auth0_role_not_approved(status, auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    user = BiocommonsAuth0UserFactory.build()
+    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
+    with pytest.raises(ValueError):
+        membership_request.grant_auth0_role(auth0_client)

@@ -3,8 +3,8 @@ from unittest.mock import patch
 from jose import jwt
 from jose.backends.cryptography_backend import CryptographyRSAKey
 
-from auth.config import Settings
 from auth.validator import get_rsa_key
+from config import Settings
 
 
 def test_get_rsa_key_returns_key(mock_settings: Settings):

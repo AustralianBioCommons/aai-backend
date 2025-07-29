@@ -6,7 +6,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import jwk, jwt
 from jose.exceptions import JWTError
 
-from auth.config import Settings, get_settings
+from config import Settings, get_settings
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     auth0_algorithms: list[str] = ["RS256"]
     admin_roles: list[str] = []
+    send_email: bool = False
     # Note we process this separately in app startup as it needs
     #   to be available before the app starts
     cors_allowed_origins: str
