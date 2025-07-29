@@ -23,6 +23,10 @@ class RoleData(BaseModel):
 class RolesWithTotals(BaseModel):
     """
     Response from Auth0 roles API when include_totals is True.
+
+    :var start: 0-based page number
+    :var limit: number of items per page
+    :var total: total number of items
     """
     roles: list[RoleData]
     start: int
@@ -33,6 +37,10 @@ class RolesWithTotals(BaseModel):
 class UsersWithTotals(BaseModel):
     """
     Response from Auth0 users API when include_totals is True.
+
+    :var start: 0-based page number
+    :var limit: number of items per page
+    :var total: total number of items
     """
     users: list[BiocommonsAuth0User]
     start: int
