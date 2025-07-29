@@ -62,17 +62,20 @@ class AdminAuth(AuthenticationBackend):
 class GroupAdmin(ModelView, model=BiocommonsGroup):
     can_edit = False
     can_create = False
+    can_delete = False
 
 
 class Auth0RoleAdmin(ModelView, model=Auth0Role):
     can_edit = False
     can_create = False
+    can_delete = False
     column_list = ["id", "name", "description"]
 
 
 class GroupMembershipAdmin(ModelView, model=GroupMembership):
     can_edit = False
     can_create = False
+    can_delete = False
     column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
     column_filters = [
         AllUniqueStringValuesFilter(GroupMembership.group_id),
@@ -83,6 +86,7 @@ class GroupMembershipAdmin(ModelView, model=GroupMembership):
 class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
     can_edit = False
     can_create = False
+    can_delete = False
     column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
 
 
