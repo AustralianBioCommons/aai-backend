@@ -168,7 +168,7 @@ class Auth0Client:
         if len(roles) == 0:
             raise ValueError(f"Role with name {name} not found.")
         elif len(roles) > 1:
-            raise ValueError(f"Multiple roles with name {name} found.")
+            raise ValueError(f"{len(roles)} duplicate roles with name {name} were found.")
         return roles[0]
 
     def get_role_by_id(self, role_id: str) -> RoleData:
