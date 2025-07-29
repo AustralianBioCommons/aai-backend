@@ -88,6 +88,7 @@ class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
     can_create = False
     can_delete = False
     column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
+    column_default_sort = ("updated_at", True)
 
 
 class DatabaseAdmin:
