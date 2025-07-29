@@ -15,6 +15,9 @@ from db.setup import engine
 
 
 def setup_oauth():
+    """
+    Set up an OAuth client for Auth0.
+    """
     settings = get_settings()
     oauth = OAuth()
     oauth.register(
@@ -34,6 +37,10 @@ def setup_oauth():
 
 
 class AdminAuth(AuthenticationBackend):
+    """
+    Authentication backend for the Admin app.
+    Checks that the user has an admin role before allowing access.
+    """
 
     def __init__(self, secret_key: str, auth0_client: OAuth):
         super().__init__(secret_key=secret_key)
@@ -92,6 +99,9 @@ class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
 
 
 class DatabaseAdmin:
+    """
+    Sets up the Admin app for the database.
+    """
     views = (GroupAdmin, Auth0RoleAdmin, GroupMembershipAdmin, ApprovalHistoryAdmin,)
 
     def __init__(self, app: FastAPI, secret_key: str):
