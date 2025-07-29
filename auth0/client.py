@@ -88,7 +88,7 @@ class Auth0Client:
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]):
         """
-        Add one or more roles to a user. The roless must already exist.
+        Add one or more roles to a user. The role(s) must already exist.
         """
         url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
         if isinstance(role_id, str):
