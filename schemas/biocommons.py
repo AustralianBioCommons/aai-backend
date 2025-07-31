@@ -10,8 +10,7 @@ from typing import Annotated, List, Literal, Optional, Self
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, StringConstraints
 
-import schemas.bpa
-import schemas.galaxy
+import schemas
 from schemas import Resource, Service
 from schemas.service import Group, Identity
 
