@@ -1,13 +1,16 @@
-from typing import Annotated, Self
+from typing import Self
 
-from pydantic import BaseModel, EmailStr, StringConstraints, model_validator
+from pydantic import BaseModel, EmailStr, model_validator
+
+from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
 
 
 class GalaxyRegistrationData(BaseModel):
     email: EmailStr
-    password: str
+    # TODO: Update name of this field in frontend from
+    username: BiocommonsUsername
+    password: BiocommonsPassword
     password_confirmation: str
-    public_name: Annotated[str, StringConstraints(min_length=3, pattern=r"^[a-z0-9._-]+$")]
 
     @model_validator(mode='after')
     def check_passwords_match(self) -> Self:
