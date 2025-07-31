@@ -35,9 +35,9 @@ def mock_auth_token(mocker):
 def test_galaxy_registration_data_password_match():
     with pytest.raises(ValidationError, match="Passwords do not match"):
         GalaxyRegistrationData(email="user@example.com",
-                               password="securepassword",
-                               password_confirmation="insecurepassword",
-                               public_name="valid_username")
+                               password="SecurePassword123!",
+                               password_confirmation="OtherPassword123!",
+                               username="valid_username")
 
 
 def test_get_registration_token(test_client, mock_settings):
@@ -71,18 +71,18 @@ def test_to_biocommons_register_data():
     """
     data = GalaxyRegistrationData(
         email="user@example.com",
-        password="securepassword",
-        password_confirmation="securepassword",
-        public_name="valid_username"
+        password="SecurePassword123!",
+        password_confirmation="SecurePassword123!",
+        username="valid_username"
     )
 
     auth0_data = BiocommonsRegisterData.from_galaxy_registration(data)
 
     assert auth0_data.email == "user@example.com"
-    assert auth0_data.password == "securepassword"
+    assert auth0_data.password == "SecurePassword123!"
     assert auth0_data.connection == "Username-Password-Authentication"
     assert not auth0_data.email_verified
-    assert auth0_data.user_metadata.galaxy_username == "valid_username"
+    assert auth0_data.username == "valid_username"
     assert auth0_data.app_metadata.registration_from == "galaxy"
 
 
@@ -94,14 +94,14 @@ def test_to_biocommons_register_data_empty_fields():
     """
     data = GalaxyRegistrationData(
         email="user@example.com",
-        password="securepassword",
-        password_confirmation="securepassword",
-        public_name="valid_username"
+        password="SecurePassword123!",
+        password_confirmation="SecurePassword123!",
+        username="valid_username"
     )
 
     auth0_data = BiocommonsRegisterData.from_galaxy_registration(data)
     dumped = auth0_data.model_dump(mode="json", exclude_none=True)
-    assert "username" not in dumped
+    assert "user_metadata" not in dumped
     assert "name" not in dumped
 
 
