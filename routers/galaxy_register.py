@@ -39,11 +39,11 @@ def register(
 
     user_data = BiocommonsRegisterData.from_galaxy_registration(registration_data)
     logger.debug("Checking if username exists in Galaxy")
-    galaxy_username = user_data.user_metadata.galaxy_username
+    galaxy_username = user_data.username
     try:
         existing = galaxy_client.username_exists(galaxy_username)
         if existing:
-            raise HTTPException(status_code=400, detail="Username already exists")
+            raise HTTPException(status_code=400, detail="Username already exists in galaxy")
     except httpx.HTTPError as e:
         logger.warning(f"Failed to check username in Galaxy: {e}")
 

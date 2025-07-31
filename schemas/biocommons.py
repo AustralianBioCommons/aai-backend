@@ -4,17 +4,24 @@ Schemas for how we represent users in Auth0 for BioCommons.
 These are the core schemas we use for storing/representing users
 and their metadata
 """
+import re
 from datetime import datetime, timezone
-from typing import List, Literal, Optional, Self
+from typing import Annotated, List, Literal, Optional, Self
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, StringConstraints
 
+import schemas.bpa
+import schemas.galaxy
 from schemas import Resource, Service
-from schemas.bpa import BPARegistrationRequest
-from schemas.galaxy import GalaxyRegistrationData
 from schemas.service import Group, Identity
 
+# From Auth0 password settings
+ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
+VALID_PASSWORD_REGEX = re.compile(f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$")
+
 AppId = Literal["biocommons", "galaxy", "bpa"]
+BiocommonsUsername = Annotated[str, StringConstraints(min_length=3, max_length=100, pattern='^[-_a-z0-9]+$')]
+BiocommonsPassword = Annotated[str, StringConstraints(min_length=8, pattern=VALID_PASSWORD_REGEX)]
 
 
 class BPAMetadata(BaseModel):
@@ -105,17 +112,18 @@ class BiocommonsRegisterData(BaseModel):
     """
     email: EmailStr
     email_verified: bool = False
-    password: str
+    password: BiocommonsPassword
     connection: str = "Username-Password-Authentication"
-    username: str
+    username: BiocommonsUsername
     name: Optional[str] = None
     username: Optional[str] = None
-    user_metadata: BiocommonsUserMetadata
+    user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 
     @classmethod
     def from_bpa_registration(
-            cls, registration: BPARegistrationRequest,
+            cls,
+            registration: 'schemas.bpa.BPARegistrationRequest',
             bpa_service: Service) -> Self:
         return cls(
             email=registration.email,
@@ -135,7 +143,7 @@ class BiocommonsRegisterData(BaseModel):
     @classmethod
     def from_galaxy_registration(
             cls,
-            registration: GalaxyRegistrationData):
+            registration: 'schemas.galaxy.GalaxyRegistrationData',):
         # Galaxy registration is approved automatically
         galaxy_service = Service(
             name="Galaxy Australia",
