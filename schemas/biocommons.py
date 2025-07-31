@@ -26,7 +26,6 @@ BiocommonsPassword = Annotated[str, StringConstraints(min_length=8, pattern=VALI
 
 class BPAMetadata(BaseModel):
     registration_reason: str
-    username: str
 
 
 class BiocommonsUserMetadata(BaseModel):
@@ -35,7 +34,6 @@ class BiocommonsUserMetadata(BaseModel):
     like preferred usernames
     """
     bpa: Optional[BPAMetadata] = None
-    galaxy_username: Optional[str] = None
 
 
 class BiocommonsAppMetadata(BaseModel):
@@ -131,8 +129,7 @@ class BiocommonsRegisterData(BaseModel):
             username=registration.username,
             name=registration.fullname,
             user_metadata=BiocommonsUserMetadata(
-                bpa=BPAMetadata(registration_reason=registration.reason,
-                                username=registration.username,),
+                bpa=BPAMetadata(registration_reason=registration.reason),
             ),
             app_metadata=BiocommonsAppMetadata(
                 services=[bpa_service],
@@ -155,7 +152,7 @@ class BiocommonsRegisterData(BaseModel):
         )
         return BiocommonsRegisterData(
             email=registration.email,
-            user_metadata=BiocommonsUserMetadata(galaxy_username=registration.public_name),
+            username=registration.username,
             password=registration.password,
             email_verified=False,
             connection="Username-Password-Authentication",
