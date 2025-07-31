@@ -114,7 +114,6 @@ class BiocommonsRegisterData(BaseModel):
     connection: str = "Username-Password-Authentication"
     username: BiocommonsUsername
     name: Optional[str] = None
-    username: Optional[str] = None
     user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 
