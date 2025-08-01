@@ -19,7 +19,7 @@ ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
 VALID_PASSWORD_REGEX = re.compile(f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$")
 
 AppId = Literal["biocommons", "galaxy", "bpa"]
-BiocommonsUsername = Annotated[str, StringConstraints(min_length=3, max_length=100, pattern='^[-_a-z0-9]+$')]
+BiocommonsUsername = Annotated[str, StringConstraints(min_length=3, max_length=128, pattern='^[-_a-z0-9]+$')]
 BiocommonsPassword = Annotated[str, StringConstraints(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX)]
 
 
