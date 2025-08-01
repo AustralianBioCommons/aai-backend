@@ -20,7 +20,7 @@ VALID_PASSWORD_REGEX = re.compile(f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[
 
 AppId = Literal["biocommons", "galaxy", "bpa"]
 BiocommonsUsername = Annotated[str, StringConstraints(min_length=3, max_length=100, pattern='^[-_a-z0-9]+$')]
-BiocommonsPassword = Annotated[str, StringConstraints(min_length=8, pattern=VALID_PASSWORD_REGEX)]
+BiocommonsPassword = Annotated[str, StringConstraints(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX)]
 
 
 class BPAMetadata(BaseModel):
