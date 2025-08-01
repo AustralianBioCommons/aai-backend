@@ -19,7 +19,7 @@ router = APIRouter(
 )
 
 
-@router.get("/get-registration-token")
+@router.get("/register/get-registration-token")
 async def get_registration_token(settings: Settings = Depends(get_settings)):
     return {"token": create_registration_token(settings)}
 
