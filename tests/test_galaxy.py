@@ -35,16 +35,16 @@ def mock_auth_token(mocker):
 def test_galaxy_registration_data_password_match():
     with pytest.raises(ValidationError, match="Passwords do not match"):
         GalaxyRegistrationData(email="user@example.com",
-                               password="securepassword",
-                               password_confirmation="insecurepassword",
-                               public_name="valid_username")
+                               password="SecurePassword123!",
+                               password_confirmation="OtherPassword123!",
+                               username="valid_username")
 
 
 def test_get_registration_token(test_client, mock_settings):
     """
     Test get-registration-token endpoint returns a valid JWT token.
     """
-    response = test_client.get("/galaxy/get-registration-token")
+    response = test_client.get("/galaxy/register/get-registration-token")
     assert response.status_code == 200
     jwt.decode(response.json()["token"], mock_settings.jwt_secret_key,
                algorithms=mock_settings.auth0_algorithms)
@@ -71,18 +71,18 @@ def test_to_biocommons_register_data():
     """
     data = GalaxyRegistrationData(
         email="user@example.com",
-        password="securepassword",
-        password_confirmation="securepassword",
-        public_name="valid_username"
+        password="SecurePassword123!",
+        password_confirmation="SecurePassword123!",
+        username="valid_username"
     )
 
     auth0_data = BiocommonsRegisterData.from_galaxy_registration(data)
 
     assert auth0_data.email == "user@example.com"
-    assert auth0_data.password == "securepassword"
+    assert auth0_data.password == "SecurePassword123!"
     assert auth0_data.connection == "Username-Password-Authentication"
     assert not auth0_data.email_verified
-    assert auth0_data.user_metadata.galaxy_username == "valid_username"
+    assert auth0_data.username == "valid_username"
     assert auth0_data.app_metadata.registration_from == "galaxy"
 
 
@@ -94,14 +94,14 @@ def test_to_biocommons_register_data_empty_fields():
     """
     data = GalaxyRegistrationData(
         email="user@example.com",
-        password="securepassword",
-        password_confirmation="securepassword",
-        public_name="valid_username"
+        password="SecurePassword123!",
+        password_confirmation="SecurePassword123!",
+        username="valid_username"
     )
 
     auth0_data = BiocommonsRegisterData.from_galaxy_registration(data)
     dumped = auth0_data.model_dump(mode="json", exclude_none=True)
-    assert "username" not in dumped
+    assert "user_metadata" not in dumped
     assert "name" not in dumped
 
 
@@ -120,7 +120,7 @@ def test_register(mocker, mock_auth_token, mock_settings, test_client):
     mock_resp.status_code = 201
     mock_post = mocker.patch("httpx.post", return_value=mock_resp)
     user_data = GalaxyRegistrationDataFactory.build()
-    token_resp = test_client.get("/galaxy/get-registration-token")
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
     headers = {"registration-token": token_resp.json()["token"]}
     resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
     assert resp.status_code == 200
@@ -152,7 +152,7 @@ def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_cl
         json=user.model_dump(mode="json"))
     )
     user_data = GalaxyRegistrationDataFactory.build()
-    token_resp = test_client.get("/galaxy/get-registration-token")
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
     headers = {"registration-token": token_resp.json()["token"]}
     mock_galaxy_client.username_exists.return_value = False
     resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
