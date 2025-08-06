@@ -79,6 +79,7 @@ def mock_settings():
     """Fixture that returns mocked Settings object."""
     return Settings(
         auth0_domain="mock-domain",
+        auth0_issuer=None,
         auth0_management_id="mock-id",
         auth0_management_secret="mock-secret",
         auth0_audience="mock-audience",
@@ -86,7 +87,7 @@ def mock_settings():
         cors_allowed_origins="https://test",
         send_email=False,
         admin_roles=["Admin"],
-        auth0_algorithms=["HS256"]
+        auth0_algorithms=["RS256"]
     )
 
 
