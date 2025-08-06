@@ -7,6 +7,8 @@ from config import Settings, get_settings
 
 
 def get_management_token(settings: Annotated[Settings, Depends(get_settings)]):
+    # Note: need to call the default auth0 domain here, not the custom
+    #  domain
     url = f"https://{settings.auth0_domain}/oauth/token"
     payload = {
         "grant_type": "client_credentials",
