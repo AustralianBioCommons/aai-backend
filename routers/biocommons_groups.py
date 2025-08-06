@@ -158,12 +158,12 @@ def create_role(
         auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)]
     ):
     """
-    Create a new role in Auth0 and add it to the DB.
+    Create a new role in Auth0 (if needed) and add it to the DB.
     Note that our "RoleId/GroupId" is actually the
     Auth0 role name - Auth0 has its own internal IDs
     """
-    logger.info(f"Creating role {role_data.name} in Auth0")
-    resp = auth0_client.create_role(**role_data.model_dump())
+    logger.info(f"Creating role {role_data.name} in Auth0 if needed")
+    resp = auth0_client.get_or_create_role(**role_data.model_dump())
     logger.info("Saving to database")
     role = Auth0Role(**resp.model_dump())
     db_session.add(role)
