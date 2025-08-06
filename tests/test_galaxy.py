@@ -44,10 +44,11 @@ def test_get_registration_token(test_client, mock_settings):
     """
     Test get-registration-token endpoint returns a valid JWT token.
     """
+    from register.tokens import ALGORITHM
     response = test_client.get("/galaxy/register/get-registration-token")
     assert response.status_code == 200
     jwt.decode(response.json()["token"], mock_settings.jwt_secret_key,
-               algorithms=mock_settings.auth0_algorithms)
+               algorithms=ALGORITHM)
 
 
 def test_registration_token_invalid_purpose(mock_settings):

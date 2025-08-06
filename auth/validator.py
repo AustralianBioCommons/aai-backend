@@ -25,12 +25,17 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
         )
 
     try:
+        # Issuer may be the Auth0 tenant domain, or the custom domain
+        #   used for the app. Allow for both
+        issuers = [f"https://{settings.auth0_domain}/"]
+        if settings.auth0_issuer is not None:
+            issuers.append(settings.auth0_issuer)
         payload = jwt.decode(
             token,
             rsa_key,
             algorithms=settings.auth0_algorithms,
             audience=settings.auth0_audience,
-            issuer=f"https://{settings.auth0_domain}/",
+            issuer=issuers,
         )
     except JWTError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
