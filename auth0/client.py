@@ -218,6 +218,13 @@ class Auth0Client:
         resp.raise_for_status()
         return RoleData(**resp.json())
 
+    def get_or_create_role(self, name: str, description: str) -> RoleData:
+        try:
+            role = self.get_role_by_name(name)
+        except ValueError:
+            role = self.create_role(name, description)
+        return role
+
 
 def get_auth0_client(settings: Settings = Depends(get_settings),
                      management_token: str = Depends(get_management_token)):
