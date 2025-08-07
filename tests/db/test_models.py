@@ -3,20 +3,98 @@ from unittest.mock import ANY
 
 import pytest
 import respx
+from freezegun import freeze_time
 from httpx import Response
 from mimesis import Person
 from mimesis.locales import Locale
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from db.models import Auth0Role, BiocommonsGroup, GroupMembership
+from db.models import (
+    ApprovalStatusEnum,
+    Auth0Role,
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupMembership,
+    PlatformEnum,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import BiocommonsAuth0UserFactory, random_auth0_id
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
+    BiocommonsUserFactory,
     GroupMembershipFactory,
 )
+
+FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
+
+
+@pytest.fixture
+def frozen_time():
+    """
+    Freeze time so datetime.now() returns FROZEN_TIME.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        yield
+
+
+def test_create_biocommons_user(test_db_session, persistent_factories):
+    """
+    Test creating the BiocommonsUser model
+    """
+    user_data = Person(locale=Locale("en"))
+    auth0_id = random_auth0_id()
+    email = user_data.email()
+    user = BiocommonsUser(id=auth0_id, email=email, username="user_name")
+    test_db_session.add(user)
+    test_db_session.commit()
+    test_db_session.refresh(user)
+    assert user.id == auth0_id
+    assert user.email == email
+    assert user.username == "user_name"
+
+
+def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
+    """
+    Test creating a platform membership model
+    """
+    user = BiocommonsUserFactory.create_sync()
+    membership = PlatformMembership(
+        platform_id=PlatformEnum.GALAXY,
+        user_id=user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by_id=None
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.user_id == user.id
+    assert membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert membership.platform_id == "galaxy"
+    assert membership.updated_at == FROZEN_TIME
+
+
+def test_create_platform_membership_history(test_db_session, persistent_factories, frozen_time):
+    """
+    Test creating a platform membership history model
+    """
+    user = BiocommonsUserFactory.create_sync()
+    membership = PlatformMembershipHistory(
+        platform_id=PlatformEnum.GALAXY,
+        user_id=user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by_id=None
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.user_id == user.id
+    assert membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert membership.platform_id == "galaxy"
+    assert membership.updated_at == FROZEN_TIME
 
 
 def test_create_group_membership(test_db_session, persistent_factories):

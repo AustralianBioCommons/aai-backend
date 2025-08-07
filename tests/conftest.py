@@ -21,6 +21,7 @@ from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
+    BiocommonsUserFactory,
     GroupMembershipFactory,
 )
 
@@ -203,6 +204,7 @@ def persistent_factories(test_db_session):
     factories = [
         Auth0RoleFactory,
         BiocommonsGroupFactory,
+        BiocommonsUserFactory,
         GroupMembershipFactory,
     ]
     for factory in factories:
