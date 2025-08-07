@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Self
+from typing import List, Self
 
 from pydantic import AwareDatetime
 from sqlalchemy import UniqueConstraint
@@ -17,6 +17,61 @@ class ApprovalStatusEnum(str, Enum):
     APPROVED = "approved"
     PENDING = "pending"
     REVOKED = "revoked"
+
+
+class PlatformEnum(str, Enum):
+    GALAXY = "galaxy"
+    DATA_PORTAL = "data_portal"
+
+
+class BiocommonsUser(BaseModel, table=True):
+    __tablename__ = "biocommons_user"
+    # Auth0 ID
+    id: str = Field(primary_key=True)
+    # Note: sqlmodel can't validate emails easily.
+    #   Use a separate data model to validate this
+    email: str = Field(unique=True)
+    username: str = Field(unique=True)
+    created_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+
+    platform_memberships: List["PlatformMembership"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id"}
+    )
+
+
+class PlatformMembership(BaseModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("platform_id", "user_id", name="platform_user_id_platform_id"),
+    )
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    user_id: str = Field(foreign_key="biocommons_user.id")
+    user: "BiocommonsUser" = Relationship(back_populates="platform_memberships",
+                                          sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id",})
+    approval_status: ApprovalStatusEnum = Field(sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum"))
+    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    # Nullable: some memberships are automatically approved
+    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
+    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembership.updated_by_id",})
+
+
+# Update references
+PlatformMembership.model_rebuild()
+
+
+class PlatformMembershipHistory(BaseModel, table=True):
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    user_id: str = Field(foreign_key="biocommons_user.id")
+    user: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembershipHistory.user_id",})
+    approval_status: ApprovalStatusEnum = Field(sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum"))
+    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
+    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembershipHistory.updated_by_id",})
+
+
+PlatformMembershipHistory.model_rebuild()
 
 
 class GroupMembership(BaseModel, table=True):
