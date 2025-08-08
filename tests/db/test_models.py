@@ -116,24 +116,43 @@ def test_create_group_membership(test_db_session, persistent_factories):
     """
     Test creating a group membership
     """
-    user = Person(locale=Locale("en"))
-    user_id = random_auth0_id()
-    updater = Person(locale=Locale("en"))
-    updater_id = random_auth0_id()
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    updater = BiocommonsUserFactory.create_sync()
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     membership = GroupMembership(
         group=group,
-        user_id=user_id,
-        user_email=user.email(),
+        user=user,
         approval_status="pending",
         updated_at=datetime.now(tz=timezone.utc),
-        updated_by_id=updater_id,
-        updated_by_email=updater.email(),
+        updated_by=updater,
     )
     test_db_session.add(membership)
     test_db_session.commit()
     test_db_session.refresh(membership)
     assert membership.group.group_id == "biocommons/group/tsi"
+    assert membership.user_id == user.id
+    assert membership.updated_by_id == updater.id
+
+
+def test_create_group_membership_no_updater(test_db_session, persistent_factories):
+    """
+    Test creating a group membership without an updated_by (for automatic approvals)
+    """
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    membership = GroupMembership(
+        group=group,
+        user=user,
+        approval_status="pending",
+        updated_at=datetime.now(tz=timezone.utc),
+        updated_by=None,
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.group.group_id == "biocommons/group/tsi"
+    assert membership.user_id == user.id
+    assert membership.updated_by_id is None
 
 
 def test_create_group_membership_unique_constraint(test_db_session, persistent_factories):
