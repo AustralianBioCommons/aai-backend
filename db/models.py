@@ -70,8 +70,6 @@ class PlatformMembership(BaseModel, table=True):
     updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembership.updated_by_id",})
 
 
-# Update references
-PlatformMembership.model_rebuild()
 
 
 class PlatformMembershipHistory(BaseModel, table=True):
@@ -245,3 +243,11 @@ class BiocommonsGroup(BaseModel, table=True):
             if role in admin_role_names:
                 return True
         return False
+
+
+# Update all model references
+BiocommonsUser.model_rebuild()
+PlatformMembership.model_rebuild()
+PlatformMembershipHistory.model_rebuild()
+GroupMembership.model_rebuild()
+GroupMembershipHistory.model_rebuild()
