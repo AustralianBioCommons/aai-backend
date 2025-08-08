@@ -39,6 +39,16 @@ class BiocommonsUser(BaseModel, table=True):
         sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id"}
     )
 
+    @classmethod
+    def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client):
+        user_data = auth0_client.get_user(user_id=auth0_id)
+        user = cls(
+            id=auth0_id,
+            email=user_data.email,
+            username=user_data.username
+        )
+        return user
+
 
 class PlatformMembership(BaseModel, table=True):
     __table_args__ = (
