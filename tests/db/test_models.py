@@ -76,7 +76,7 @@ def test_create_platform_membership(test_db_session, persistent_factories, froze
     """
     Test creating a platform membership model
     """
-    user = BiocommonsUserFactory.create_sync()
+    user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembership(
         platform_id=PlatformEnum.GALAXY,
         user_id=user.id,
