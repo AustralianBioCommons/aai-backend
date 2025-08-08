@@ -5,7 +5,7 @@ from tests.datagen import random_auth0_id
 
 
 class BiocommonsUserFactory(SQLAlchemyFactory[BiocommonsUser]):
-    __set_relationships__ = True
+    __set_relationships__ = False
 
     @classmethod
     def id(cls) -> str:
