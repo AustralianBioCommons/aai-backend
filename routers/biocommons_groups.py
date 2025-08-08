@@ -85,10 +85,8 @@ def request_group_access(
     membership = GroupMembership(
         group_id=group_id,
         user_id=user.access_token.sub,
-        user_email=user.access_token.email,
         approval_status=ApprovalStatusEnum.PENDING,
-        updated_by_id="",
-        updated_by_email=""
+        updated_by=None
     )
     membership.save(session=db_session, commit=True)
     if settings.send_email:
@@ -127,7 +125,6 @@ def approve_group_access(
         )
     membership.approval_status = ApprovalStatusEnum.APPROVED
     membership.updated_by_id = approving_user.access_token.sub
-    membership.updated_by_email = approving_user.access_token.email
     membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=True)
     return {"message": f"Group membership for {group.name} approved successfully."}
@@ -138,7 +135,7 @@ def send_group_approval_email(approver_email: str, request: GroupMembership, ema
 
     body_html = f"""
         <p>A new user has requested access to the {request.group.name} group.</p>
-        <p><strong>User:</strong> {request.user_email}</p>
+        <p><strong>User:</strong> {request.user.email}</p>
         <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the BioCommons account dashboard</a> to review and approve access.</p>
     """
 
