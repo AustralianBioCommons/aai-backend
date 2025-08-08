@@ -168,6 +168,7 @@ class BiocommonsAuth0User(BaseModel):
     """
     created_at: datetime
     email: EmailStr
+    username: BiocommonsUsername
     email_verified: bool
     identities: List[Identity]
     name: str
