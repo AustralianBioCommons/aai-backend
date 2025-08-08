@@ -81,14 +81,11 @@ class PlatformMembershipHistory(BaseModel, table=True):
     updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembershipHistory.updated_by_id",})
 
 
-PlatformMembershipHistory.model_rebuild()
-
-
 class GroupMembership(BaseModel, table=True):
     """
     Stores the current approval status for a user/group pairing.
     Note: only one row per user/group, the approval history
-    is kept separately in the ApprovalHistory table
+    is kept separately in the GroupMembershipHistory table
     """
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="user_group_pairing"),
@@ -116,7 +113,7 @@ class GroupMembership(BaseModel, table=True):
 
     def save(self, session: Session, commit: bool = True) -> Self:
         """
-        Save the current object, and create a new ApprovalHistory row for it
+        Save the current object, and create a new GroupMembershipHistory row for it
         """
         session.add(self)
         self.save_history(session, commit=False)
@@ -124,15 +121,13 @@ class GroupMembership(BaseModel, table=True):
             session.commit()
         return self
 
-    def save_history(self, session: Session, commit: bool = True) -> 'ApprovalHistory':
-        history = ApprovalHistory(
+    def save_history(self, session: Session, commit: bool = True) -> 'GroupMembershipHistory':
+        history = GroupMembershipHistory(
             group_id=self.group_id,
             user_id=self.user_id,
-            user_email=self.user_email,
             approval_status=self.approval_status,
             updated_at=self.updated_at,
-            updated_by_id=self.updated_by_id,
-            updated_by_email=self.updated_by_email
+            updated_by=self.updated_by,
         )
         session.add(history)
         if commit:
@@ -147,7 +142,7 @@ class GroupMembership(BaseModel, table=True):
         return True
 
 
-class ApprovalHistory(BaseModel, table=True):
+class GroupMembershipHistory(BaseModel, table=True):
     """
     Stores the full history of approval decisions for each user
     """
@@ -166,10 +161,10 @@ class ApprovalHistory(BaseModel, table=True):
     @classmethod
     def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> list[Self] | None:
         return session.exec(
-            select(ApprovalHistory)
-            .where(ApprovalHistory.user_id == user_id,
-                   ApprovalHistory.group_id == group_id)
-            .order_by(ApprovalHistory.updated_at.desc())
+            select(GroupMembershipHistory)
+            .where(GroupMembershipHistory.user_id == user_id,
+                   GroupMembershipHistory.group_id == group_id)
+            .order_by(GroupMembershipHistory.updated_at.desc())
         ).all()
 
 
@@ -223,7 +218,7 @@ class BiocommonsGroup(BaseModel, table=True):
     # List of roles that are allowed to approve group membership
     admin_roles: list[Auth0Role] = Relationship(back_populates="admin_groups", link_model=GroupRoleLink)
     members: list[GroupMembership] = Relationship(back_populates="group")
-    approval_history: list[ApprovalHistory] = Relationship(back_populates="group")
+    approval_history: list[GroupMembershipHistory] = Relationship(back_populates="group")
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
         """

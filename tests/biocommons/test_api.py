@@ -10,7 +10,12 @@ from sqlmodel import select
 
 from auth.validator import get_current_user
 from auth0.client import get_auth0_client
-from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
+from db.models import (
+    Auth0Role,
+    BiocommonsGroup,
+    GroupMembership,
+    GroupMembershipHistory,
+)
 from main import app
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
@@ -128,7 +133,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     # Check membership request is created along with history entry
     membership = GroupMembership.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
-    history = ApprovalHistory.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    history = GroupMembershipHistory.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
     # Check approval email is sent to admins

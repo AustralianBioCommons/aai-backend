@@ -10,7 +10,12 @@ from starlette.responses import RedirectResponse, Response
 
 from auth.validator import verify_jwt
 from config import get_settings
-from db.models import ApprovalHistory, Auth0Role, BiocommonsGroup, GroupMembership
+from db.models import (
+    Auth0Role,
+    BiocommonsGroup,
+    GroupMembership,
+    GroupMembershipHistory,
+)
 from db.setup import engine
 
 
@@ -90,7 +95,7 @@ class GroupMembershipAdmin(ModelView, model=GroupMembership):
     ]
 
 
-class ApprovalHistoryAdmin(ModelView, model=ApprovalHistory):
+class GroupMembershipHistoryAdmin(ModelView, model=GroupMembershipHistory):
     can_edit = False
     can_create = False
     can_delete = False
@@ -102,7 +107,7 @@ class DatabaseAdmin:
     """
     Sets up the Admin app for the database.
     """
-    views = (GroupAdmin, Auth0RoleAdmin, GroupMembershipAdmin, ApprovalHistoryAdmin,)
+    views = (GroupAdmin, Auth0RoleAdmin, GroupMembershipAdmin, GroupMembershipHistoryAdmin,)
 
     def __init__(self, app: FastAPI, secret_key: str):
         self.app = app
