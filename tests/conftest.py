@@ -80,6 +80,15 @@ def ignore_env_file():
     os.environ["DB_URL"] = "sqlite://"
 
 
+@pytest.fixture(autouse=True)
+def disable_db_setup(mocker):
+    """
+    Disable setting up the default database, this will be handled
+    by test fixtures
+    """
+    mocker.patch("db.setup.create_db_and_tables", return_value=None)
+
+
 @pytest.fixture
 def mock_settings():
     """Fixture that returns mocked Settings object."""
