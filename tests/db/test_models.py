@@ -265,15 +265,15 @@ def test_create_biocommons_group(test_db_session, persistent_factories):
 @respx.mock
 def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
-    user = BiocommonsAuth0UserFactory.build()
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
     role_data = RoleDataFactory.build(name="biocommons/group/tsi")
-    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="approved")
+    membership_request = GroupMembershipFactory.create_sync(group=group, user=user, approval_status="approved")
     # Mock the auth0 calls involved
     respx.get(
         "https://auth0.example.com/api/v2/roles",
         params={"name_filter": group.group_id}
     ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
-    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.user_id}/roles").respond(status_code=200)
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.id}/roles").respond(status_code=200)
     result = membership_request.grant_auth0_role(auth0_client)
     assert result
     assert route.called
