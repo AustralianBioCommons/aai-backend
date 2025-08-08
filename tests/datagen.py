@@ -22,6 +22,10 @@ def random_auth0_role_id() -> str:
 class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]):
     __allow_none_optionals__ = False
 
+    @classmethod
+    def sub(self) -> str:
+        return random_auth0_id()
+
 
 class SessionUserFactory(ModelFactory[SessionUser]): ...
 
