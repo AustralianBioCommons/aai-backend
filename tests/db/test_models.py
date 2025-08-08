@@ -41,7 +41,7 @@ def frozen_time():
         yield
 
 
-def test_create_biocommons_user(test_db_session, persistent_factories):
+def test_create_biocommons_user(test_db_session):
     """
     Test creating the BiocommonsUser model
     """
@@ -55,6 +55,21 @@ def test_create_biocommons_user(test_db_session, persistent_factories):
     assert user.id == auth0_id
     assert user.email == email
     assert user.username == "user_name"
+
+
+def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
+    """
+    Test creating the BiocommonsUser model from Auth0 user data from the API
+    """
+    user_data = BiocommonsAuth0UserFactory.build()
+    mock_auth0_client.get_user.return_value = user_data
+    user = BiocommonsUser.create_from_auth0(auth0_id=user_data.user_id, auth0_client=mock_auth0_client)
+    test_db_session.add(user)
+    test_db_session.commit()
+    test_db_session.refresh(user)
+    assert user.id == user_data.user_id
+    assert user.email == user_data.email
+    assert user.username == user_data.username
 
 
 def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
