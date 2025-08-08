@@ -7,7 +7,6 @@ from freezegun import freeze_time
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
-from auth0.client import get_auth0_client
 from main import app
 from routers.admin import PaginationParams
 from schemas import Resource, Service
@@ -28,14 +27,6 @@ def frozen_time():
     """
     with freeze_time("2025-01-01 12:00:00"):
         yield
-
-
-@pytest.fixture
-def mock_auth0_client(mocker):
-    mock_client = mocker.patch("auth0.client.Auth0Client")
-    app.dependency_overrides[get_auth0_client] = lambda: mock_client
-    yield mock_client
-    app.dependency_overrides.clear()
 
 
 def test_pagination_params_start_index():

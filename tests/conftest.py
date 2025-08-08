@@ -10,7 +10,7 @@ from sqlmodel import Session, StaticPool, create_engine
 from auth.management import get_management_token
 from auth.ses import EmailService, get_email_service
 from auth.validator import get_current_user
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.core import BaseModel
 from db.setup import get_db_session
@@ -26,7 +26,7 @@ from tests.db.datagen import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function")
 def test_db_engine():
     from db import models  # noqa: F401
     engine = create_engine(
@@ -41,8 +41,13 @@ def test_db_engine():
 
 @pytest.fixture(name="session")
 def session_fixture(test_db_engine):
-    with Session(test_db_engine) as session:
-        yield session
+    connection = test_db_engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 
 @pytest.fixture()
@@ -194,6 +199,14 @@ def mock_galaxy_client():
 @pytest.fixture
 def auth0_client():
     return Auth0Client(domain="auth0.example.com", management_token="dummy-token")
+
+
+@pytest.fixture
+def mock_auth0_client(mocker):
+    mock_client = mocker.patch("auth0.client.Auth0Client")
+    app.dependency_overrides[get_auth0_client] = lambda: mock_client
+    yield mock_client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
