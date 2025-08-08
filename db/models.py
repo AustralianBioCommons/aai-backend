@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import List, Self
+from typing import Self
 
 from pydantic import AwareDatetime
 from sqlalchemy import UniqueConstraint
@@ -34,7 +34,7 @@ class BiocommonsUser(BaseModel, table=True):
     username: str = Field(unique=True)
     created_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
 
-    platform_memberships: List["PlatformMembership"] = Relationship(
+    platform_memberships: list["PlatformMembership"] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id"}
     )
