@@ -38,6 +38,10 @@ class BiocommonsUser(BaseModel, table=True):
         back_populates="user",
         sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id"}
     )
+    group_memberships: list["GroupMembership"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id"}
+    )
 
     @classmethod
     def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client):
@@ -94,14 +98,16 @@ class GroupMembership(BaseModel, table=True):
     # TODO: May want to make group and/or user_id indexes?
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
     group: "BiocommonsGroup" = Relationship(back_populates="members")
-    user_id: str
-    user_email: str
+    user_id: str = Field(foreign_key="biocommons_user.id")
+    user: "BiocommonsUser" = Relationship(back_populates="group_memberships",
+                                          sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id",})
     approval_status: ApprovalStatusEnum = Field(
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
-    updated_by_id: str
-    updated_by_email: str
+    # Nullable: some memberships are automatically approved
+    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
+    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "GroupMembership.updated_by_id",})
 
     @classmethod
     def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> Self | None:
@@ -149,14 +155,15 @@ class GroupMembershipHistory(BaseModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
     group: "BiocommonsGroup" = Relationship(back_populates="approval_history")
-    user_id: str
-    user_email: str
+    user_id: str = Field(foreign_key="biocommons_user.id")
+    user: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "GroupMembershipHistory.user_id",})
     approval_status: ApprovalStatusEnum = Field(
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
-    updated_by_id: str
-    updated_by_email: str
+    # Nullable: some memberships are automatically approved
+    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
+    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "GroupMembershipHistory.updated_by_id",})
 
     @classmethod
     def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> list[Self] | None:
