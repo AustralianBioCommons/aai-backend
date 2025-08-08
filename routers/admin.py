@@ -9,7 +9,7 @@ from pydantic import BaseModel, ValidationError
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
 from routers.user import update_user_metadata
-from schemas.biocommons import BiocommonsAuth0User
+from schemas.biocommons import Auth0UserData
 from schemas.user import SessionUser
 
 logger = logging.getLogger('uvicorn.error')
@@ -47,7 +47,7 @@ router = APIRouter(prefix="/admin", tags=["admin"],
 
 
 @router.get("/users",
-            response_model=list[BiocommonsAuth0User],)
+            response_model=list[Auth0UserData], )
 def get_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
     resp = client.get_users(page=pagination.page, per_page=pagination.per_page)
@@ -77,7 +77,7 @@ def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
 
 
 @router.get("/users/{user_id}",
-            response_model=BiocommonsAuth0User)
+            response_model=Auth0UserData)
 def get_user(user_id: Annotated[str, UserIdParam],
              client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     return client.get_user(user_id)

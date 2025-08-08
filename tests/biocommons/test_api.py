@@ -20,7 +20,7 @@ from main import app
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
-    BiocommonsAuth0UserFactory,
+    Auth0UserDataFactory,
     SessionUserFactory,
 )
 from tests.db.datagen import (
@@ -121,7 +121,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
     user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
     # Mock an admin that has the required admin role (to send approval email to)
-    admin_info = BiocommonsAuth0UserFactory.build(email="admin@example.com")
+    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
     mocker.patch("db.models.Auth0Client.get_all_role_users", return_value=[admin_info])
     # Request membership
     resp = test_client.post(
@@ -195,7 +195,7 @@ def test_approve_group_membership_invalid_role(test_client, test_db_session, per
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
     access_token = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/biocommons/sysadmin"])
     unauth_admin = SessionUserFactory.build(access_token=access_token)
-    user = BiocommonsAuth0UserFactory.build()
+    user = Auth0UserDataFactory.build()
     GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="pending")
     # Override get_current_user to return the group admin
     app.dependency_overrides[get_current_user] = lambda: unauth_admin

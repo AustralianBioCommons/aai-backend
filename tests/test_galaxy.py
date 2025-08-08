@@ -14,7 +14,7 @@ from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
 from tests.datagen import (
     AccessTokenPayloadFactory,
-    BiocommonsAuth0UserFactory,
+    Auth0UserDataFactory,
     GalaxyRegistrationDataFactory,
 )
 
@@ -147,7 +147,7 @@ def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_cl
     url = f"https://{mock_settings.auth0_domain}/api/v2/users"
     # Generate user data to be returned in the response
     # (doesn't have to match the registration data for now)
-    user = BiocommonsAuth0UserFactory.build(created_at=datetime.now(UTC))
+    user = Auth0UserDataFactory.build(created_at=datetime.now(UTC))
     respx_mock.post(url).mock(return_value=Response(
         status_code=201,
         json=user.model_dump(mode="json"))

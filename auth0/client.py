@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from auth.management import get_management_token
 from config import Settings, get_settings
-from schemas.biocommons import BiocommonsAuth0User
+from schemas.biocommons import Auth0UserData
 
 
 class RoleData(BaseModel):
@@ -42,7 +42,7 @@ class UsersWithTotals(BaseModel):
     :var limit: number of items per page
     :var total: total number of items
     """
-    users: list[BiocommonsAuth0User]
+    users: list[Auth0UserData]
     start: int
     limit: int
     total: int
@@ -67,13 +67,13 @@ class Auth0Client:
 
     @staticmethod
     def _convert_users(resp: httpx.Response):
-        return Auth0Client._convert_list(resp, BiocommonsAuth0User)
+        return Auth0Client._convert_list(resp, Auth0UserData)
 
     @staticmethod
     def _convert_roles(resp: httpx.Response):
         return Auth0Client._convert_list(resp, RoleData)
 
-    def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None) -> list[BiocommonsAuth0User] | UsersWithTotals:
+    def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None) -> list[Auth0UserData] | UsersWithTotals:
         params = {}
         if page is not None:
             # Convert from 1-based pagination to 0-based.
@@ -89,10 +89,10 @@ class Auth0Client:
             return UsersWithTotals(**resp.json())
         return self._convert_users(resp)
 
-    def get_user(self, user_id: str) -> BiocommonsAuth0User:
+    def get_user(self, user_id: str) -> Auth0UserData:
         url = f"https://{self.domain}/api/v2/users/{user_id}"
         resp = self._client.get(url)
-        return BiocommonsAuth0User(**resp.json())
+        return Auth0UserData(**resp.json())
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]):
         """
@@ -105,12 +105,12 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
-    def search_users_by_email(self, email: str) -> list[BiocommonsAuth0User]:
+    def search_users_by_email(self, email: str) -> list[Auth0UserData]:
         url = f"https://{self.domain}/api/v2/users-by-email"
         resp = self._client.get(url, params={"email": email})
         return self._convert_users(resp)
 
-    def _search_users(self, query: str, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
+    def _search_users(self, query: str, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         params = {"q": query, "search_engine": "v3"}
         if page is not None:
             # Convert from 1-based pagination to 0-based.
@@ -132,16 +132,16 @@ class Auth0Client:
         )
         return self._convert_users(resp)
 
-    def get_approved_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
+    def get_approved_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         # TODO: also search for approved resources? (with OR)
         approved_query = 'app_metadata.services.status:"approved"'
         return self._search_users(approved_query, page, per_page)
 
-    def get_pending_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
+    def get_pending_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         pending_query = 'app_metadata.services.status:"pending"'
         return self._search_users(pending_query, page, per_page)
 
-    def get_revoked_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[BiocommonsAuth0User]:
+    def get_revoked_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         revoked_query = 'app_metadata.services.status:"revoked"'
         return self._search_users(revoked_query, page, per_page)
 
@@ -185,7 +185,7 @@ class Auth0Client:
         resp.raise_for_status()
         return RoleData(**resp.json())
 
-    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[BiocommonsAuth0User] | UsersWithTotals:
+    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[Auth0UserData] | UsersWithTotals:
         url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
         params = {}
         if page is not None:
@@ -200,7 +200,7 @@ class Auth0Client:
             return UsersWithTotals(**resp.json())
         return self._convert_users(resp)
 
-    def get_all_role_users(self, role_id: str) -> list[BiocommonsAuth0User]:
+    def get_all_role_users(self, role_id: str) -> list[Auth0UserData]:
         page = 0
         per_page = 100
         users = []

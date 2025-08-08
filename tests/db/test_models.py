@@ -21,7 +21,7 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from tests.biocommons.datagen import RoleDataFactory
-from tests.datagen import BiocommonsAuth0UserFactory, random_auth0_id
+from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
@@ -61,7 +61,7 @@ def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     """
     Test creating the BiocommonsUser model from Auth0 user data from the API
     """
-    user_data = BiocommonsAuth0UserFactory.build()
+    user_data = Auth0UserDataFactory.build()
     mock_auth0_client.get_user.return_value = user_data
     user = BiocommonsUser.create_from_auth0(auth0_id=user_data.user_id, auth0_client=mock_auth0_client)
     test_db_session.add(user)
@@ -283,7 +283,7 @@ def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
 @respx.mock
 def test_group_membership_grant_auth0_role_not_approved(status, auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
-    user = BiocommonsAuth0UserFactory.build()
+    user = Auth0UserDataFactory.build()
     membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
     with pytest.raises(ValueError):
         membership_request.grant_auth0_role(auth0_client)

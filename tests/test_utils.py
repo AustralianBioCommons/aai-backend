@@ -2,7 +2,7 @@ import pytest
 
 from auth0.client import get_auth0_client
 from main import app
-from tests.datagen import AppMetadataFactory, BiocommonsAuth0UserFactory
+from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
 
 
 @pytest.fixture
@@ -22,8 +22,8 @@ def test_get_registration_info(override_auth0_client, test_client):
     app_metadata.registration_from value, if available.
     """
     app_metadata = AppMetadataFactory.build(registration_from="galaxy")
-    user = BiocommonsAuth0UserFactory.build(email="user@example.com",
-                                            app_metadata=app_metadata)
+    user = Auth0UserDataFactory.build(email="user@example.com",
+                                      app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
     resp = test_client.get("/utils/registration_info", params={"user_email": user.email})
     assert resp.status_code == 200
@@ -36,8 +36,8 @@ def test_get_registration_info_no_registration_from(override_auth0_client, test_
     Test the default of 'biocommons' is returned if registration_from isn't set.
     """
     app_metadata = AppMetadataFactory.build(registration_from=None)
-    user = BiocommonsAuth0UserFactory.build(email="user@example.com",
-                                            app_metadata=app_metadata)
+    user = Auth0UserDataFactory.build(email="user@example.com",
+                                      app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
     resp = test_client.get("/utils/registration_info", params={"user_email": user.email})
     assert resp.status_code == 200

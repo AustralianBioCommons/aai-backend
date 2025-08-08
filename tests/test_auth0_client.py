@@ -4,7 +4,7 @@ from httpx import Response
 
 from auth0.client import UsersWithTotals
 from tests.datagen import (
-    BiocommonsAuth0UserFactory,
+    Auth0UserDataFactory,
     random_auth0_id,
     random_auth0_role_id,
 )
@@ -12,7 +12,7 @@ from tests.datagen import (
 
 @respx.mock
 def test_get_users_no_pagination(auth0_client):
-    user = BiocommonsAuth0UserFactory.build()
+    user = Auth0UserDataFactory.build()
     route = respx.get("https://auth0.example.com/api/v2/users").mock(
         return_value=Response(200, json=[user.model_dump(mode="json")])
     )
@@ -25,7 +25,7 @@ def test_get_users_no_pagination(auth0_client):
 
 @respx.mock
 def test_get_users_with_pagination(auth0_client):
-    user = BiocommonsAuth0UserFactory.build()
+    user = Auth0UserDataFactory.build()
     route = respx.get("https://auth0.example.com/api/v2/users").respond(
         200, json=[user.model_dump(mode="json")]
     )
@@ -43,7 +43,7 @@ def test_get_users_with_pagination(auth0_client):
 @respx.mock
 def test_get_user_by_id(auth0_client):
     user_id = "auth0|789"
-    user = BiocommonsAuth0UserFactory.build(user_id=user_id)
+    user = Auth0UserDataFactory.build(user_id=user_id)
     route = respx.get(f"https://auth0.example.com/api/v2/users/{user_id}").mock(
         return_value=Response(200, json=user.model_dump(mode="json"))
     )
@@ -64,7 +64,7 @@ def test_get_user_by_id(auth0_client):
 )
 @respx.mock
 def test_search_users_methods(auth0_client, method, query):
-    user = BiocommonsAuth0UserFactory.build()
+    user = Auth0UserDataFactory.build()
     route = respx.get("https://auth0.example.com/api/v2/users").respond(
         200, json=[user.model_dump(mode="json")]
     )
@@ -86,7 +86,7 @@ def test_get_role_users(auth0_client):
     Test we can get users for a role from Auth0 API
     """
     role_id = "auth0|role_id"
-    users = BiocommonsAuth0UserFactory.batch(size=3)
+    users = Auth0UserDataFactory.batch(size=3)
     route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").respond(
         200, json=[u.model_dump(mode="json") for u in users]
     )
@@ -105,7 +105,7 @@ def test_get_all_role_users(auth0_client):
     running through multiple pages if necessary.
     """
     role_id = "auth0|role_id"
-    users = BiocommonsAuth0UserFactory.batch(size=150)
+    users = Auth0UserDataFactory.batch(size=150)
     batch1 = UsersWithTotals(users=users[:100], total=150, start=0, limit=100)
     batch2 = UsersWithTotals(users=users[100:], total=150, start=100, limit=100)
     route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").mock(
