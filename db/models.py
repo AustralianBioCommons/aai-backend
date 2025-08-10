@@ -93,7 +93,6 @@ class GroupMembership(BaseModel, table=True):
         UniqueConstraint("group_id", "user_id", name="user_group_pairing"),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    # TODO: May want to make group and/or user_id indexes?
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
     group: "BiocommonsGroup" = Relationship(back_populates="members")
     user_id: str = Field(foreign_key="biocommons_user.id")
