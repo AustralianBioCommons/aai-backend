@@ -8,8 +8,18 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
+    GroupMembershipHistory,
     PlatformMembership,
+    PlatformMembershipHistory,
 )
 
-models = [BiocommonsUser, BiocommonsGroup, GroupMembership, PlatformMembership, Auth0Role]
+models = [
+    BiocommonsUser,
+    BiocommonsGroup,
+    GroupMembership,
+    GroupMembershipHistory,
+    PlatformMembership,
+    PlatformMembershipHistory,
+    Auth0Role
+]
 generate_data_model_diagram(models, "db_diagram")
