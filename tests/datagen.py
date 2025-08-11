@@ -23,7 +23,7 @@ class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]):
     __allow_none_optionals__ = False
 
     @classmethod
-    def sub(self) -> str:
+    def sub(cls) -> str:
         return random_auth0_id()
 
 
