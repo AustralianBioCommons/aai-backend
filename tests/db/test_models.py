@@ -244,6 +244,17 @@ def test_create_auth0_role_by_name(test_db_session, auth0_client):
     assert role_from_db.name == role_data.name
 
 
+def test_get_or_create_auth0_role_existing(test_db_session, mock_auth0_client, persistent_factories):
+    role = Auth0RoleFactory.create_sync()
+    role_lookup = Auth0Role.get_or_create_by_id(
+        auth0_id=role.id,
+        session=test_db_session,
+        auth0_client=mock_auth0_client
+    )
+    assert role_lookup.id == role.id
+    assert not mock_auth0_client.get_role.called
+
+
 @respx.mock
 def test_create_auth0_role_by_id(test_db_session, auth0_client):
     """
