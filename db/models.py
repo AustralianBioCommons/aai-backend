@@ -131,6 +131,7 @@ class GroupMembership(BaseModel, table=True):
         Save the current object, and create a new GroupMembershipHistory row for it
         """
         session.add(self)
+        # Don't commit history until the main object is committed
         self.save_history(session, commit=False)
         if commit:
             session.commit()
@@ -138,8 +139,8 @@ class GroupMembership(BaseModel, table=True):
 
     def save_history(self, session: Session, commit: bool = True) -> 'GroupMembershipHistory':
         history = GroupMembershipHistory(
-            group_id=self.group_id,
-            user_id=self.user_id,
+            group=self.group,
+            user=self.user,
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,

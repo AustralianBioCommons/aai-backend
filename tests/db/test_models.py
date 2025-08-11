@@ -16,6 +16,7 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
+    GroupMembershipHistory,
     PlatformEnum,
     PlatformMembership,
     PlatformMembershipHistory,
@@ -308,3 +309,17 @@ def test_group_membership_grant_auth0_role_not_approved(status, auth0_client, pe
     membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
     with pytest.raises(ValueError):
         membership_request.grant_auth0_role(auth0_client)
+
+
+def test_group_membership_save_with_history(test_db_session):
+    membership = GroupMembershipFactory.build()
+    membership.save(test_db_session, commit=True)
+    test_db_session.refresh(membership)
+    assert membership.id is not None
+    history = test_db_session.exec(
+        select(GroupMembershipHistory)
+        .where(GroupMembershipHistory.group_id == membership.group_id,
+               GroupMembershipHistory.user_id == GroupMembership.user_id)
+    ).one()
+    assert history.group_id == membership.group_id
+    assert history.user_id == membership.user_id
