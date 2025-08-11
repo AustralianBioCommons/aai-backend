@@ -330,7 +330,7 @@ def test_group_membership_save_with_history(test_db_session):
     history = test_db_session.exec(
         select(GroupMembershipHistory)
         .where(GroupMembershipHistory.group_id == membership.group_id,
-               GroupMembershipHistory.user_id == GroupMembership.user_id)
+               GroupMembershipHistory.user_id == membership.user_id)
     ).one()
     assert history.group_id == membership.group_id
     assert history.user_id == membership.user_id
