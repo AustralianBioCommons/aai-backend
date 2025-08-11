@@ -34,6 +34,28 @@ def send_approval_email(registration: BPARegistrationRequest, bpa_resources: lis
     email_service.send(approver_email, subject, body_html)
 
 
+def _get_bpa_resources(registration: BPARegistrationRequest, settings: Settings, update_time: datetime) -> list[Resource]:
+    bpa_resources = []
+    for org_id, is_selected in registration.organizations.items():
+        if not is_selected:
+            continue
+        if org_id not in settings.organizations:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid organization ID: {org_id}"
+            )
+        resource = Resource(
+            id=org_id,
+            name=settings.organizations[org_id],
+            status="pending",
+            last_updated=update_time,
+            initial_request_time=update_time,
+            updated_by="system",
+        ).model_dump(mode="json")
+        bpa_resources.append(resource)
+    return bpa_resources
+
+
+
 @router.post(
     "/register",
     response_model=Dict[str, Any],
@@ -55,26 +77,7 @@ async def register_bpa_user(
 
     now = datetime.now(timezone.utc)
 
-    # Create BPA resources
-    bpa_resources = []
-    for org_id, is_selected in registration.organizations.items():
-        if not is_selected:
-            continue
-        if org_id not in settings.organizations:
-            raise HTTPException(
-                status_code=400, detail=f"Invalid organization ID: {org_id}"
-            )
-        resource = Resource(
-            id=org_id,
-            name=settings.organizations[org_id],
-            status="pending",
-            last_updated=now,
-            initial_request_time=now,
-            updated_by="system",
-        ).model_dump(mode="json")
-        bpa_resources.append(resource)
-
-    # Create BPA service
+    bpa_resources = _get_bpa_resources(registration, settings, update_time=now)
     bpa_service = Service(
         name="Bioplatforms Australia Data Portal",
         id="bpa",
