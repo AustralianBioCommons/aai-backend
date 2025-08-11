@@ -130,13 +130,18 @@ def approve_group_access(
             detail=f"You do not have permission to approve group memberships for {group.name}"
         )
     membership = GroupMembership.get_by_user_id(user_id=data.user_id, group_id=data.group_id, session=db_session)
+    approving_user_record = BiocommonsUser.get_or_create(
+        auth0_id=approving_user.access_token.sub,
+        db_session=db_session,
+        auth0_client=auth0_client
+    )
     if membership is None:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail="No membership request found for this user"
         )
     membership.approval_status = ApprovalStatusEnum.APPROVED
-    membership.updated_by_id = approving_user.access_token.sub
+    membership.updated_by = approving_user_record
     membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=True)
     return {"message": f"Group membership for {group.name} approved successfully."}
