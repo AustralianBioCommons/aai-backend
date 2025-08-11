@@ -16,7 +16,13 @@ from biocommons.groups import (
     RoleId,
 )
 from config import Settings, get_settings
-from db.models import ApprovalStatusEnum, Auth0Role, BiocommonsGroup, GroupMembership
+from db.models import (
+    ApprovalStatusEnum,
+    Auth0Role,
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupMembership,
+)
 from db.setup import get_db_session
 from schemas.user import SessionUser
 
@@ -82,9 +88,15 @@ def request_group_access(
             status_code=HTTPStatus.CONFLICT,
             detail=f"User {user.access_token.sub} already has a membership for {group_id}"
         )
+    group = db_session.get_one(BiocommonsGroup, group_id)
+    user_record = BiocommonsUser.get_or_create(
+        auth0_id=user.access_token.sub,
+        db_session=db_session,
+        auth0_client=auth0_client
+    )
     membership = GroupMembership(
-        group_id=group_id,
-        user_id=user.access_token.sub,
+        group=group,
+        user=user_record,
         approval_status=ApprovalStatusEnum.PENDING,
         updated_by=None
     )
