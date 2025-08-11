@@ -323,3 +323,17 @@ def test_group_membership_save_with_history(test_db_session):
     ).one()
     assert history.group_id == membership.group_id
     assert history.user_id == membership.user_id
+
+
+def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
+    membership = GroupMembershipFactory.create_sync()
+    membership.save_history(test_db_session, commit=True)
+    test_db_session.refresh(membership)
+    assert membership.id is not None
+    history = test_db_session.exec(
+        select(GroupMembershipHistory)
+        .where(GroupMembershipHistory.group_id == membership.group_id,
+               GroupMembershipHistory.user_id == GroupMembership.user_id)
+    ).one()
+    assert history.group_id == membership.group_id
+    assert history.user_id == membership.user_id
