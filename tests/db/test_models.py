@@ -72,6 +72,27 @@ def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     assert user.username == user_data.username
 
 
+def test_get_or_create_biocommons_user(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    fetched_user = BiocommonsUser.get_or_create(auth0_id=user.id, db_session=test_db_session, auth0_client=mock_auth0_client)
+    assert fetched_user.id == user.id
+    # Check that we didn't call Auth0 API to get the user data
+    assert not mock_auth0_client.get_user.called
+
+
+def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
+    """
+    Test get_or_create method when user doesn't exist in the DB
+    """
+    user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.get_user.return_value = user_data
+    user = BiocommonsUser.get_or_create(auth0_id=user_data.user_id, db_session=test_db_session, auth0_client=mock_auth0_client)
+    test_db_session.refresh(user)
+    assert mock_auth0_client.get_user.called
+    assert user.id == user_data.user_id
+    assert user.email == user_data.email
+    assert user.username == user_data.username
+
 def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
     """
     Test creating a platform membership model

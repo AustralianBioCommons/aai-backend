@@ -53,6 +53,18 @@ class BiocommonsUser(BaseModel, table=True):
         )
         return user
 
+    @classmethod
+    def get_or_create(cls, auth0_id: str, db_session: Session, auth0_client: Auth0Client) -> Self:
+        """
+        Get the user from the DB, or create it from Auth0 data if it doesn't exist.
+        """
+        user = db_session.get(cls, auth0_id)
+        if user is None:
+            user = cls.create_from_auth0(auth0_id=auth0_id, auth0_client=auth0_client)
+            db_session.add(user)
+            db_session.commit()
+        return user
+
 
 class PlatformMembership(BaseModel, table=True):
     __table_args__ = (
