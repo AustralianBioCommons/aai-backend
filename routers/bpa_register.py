@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from httpx import HTTPStatusError
 from sqlmodel import Session
 
 from auth.ses import EmailService
@@ -110,8 +111,8 @@ async def register_bpa_user(
 
         return {"message": "User registered successfully", "user": auth0_user_data}
 
-    except HTTPException:
-        raise
+    except HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to register user: {str(e)}"
