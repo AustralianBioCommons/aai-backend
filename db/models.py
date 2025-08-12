@@ -21,7 +21,7 @@ class ApprovalStatusEnum(str, Enum):
 
 class PlatformEnum(str, Enum):
     GALAXY = "galaxy"
-    DATA_PORTAL = "data_portal"
+    BPA_DATA_PORTAL = "bpa_data_portal"
 
 
 class BiocommonsUser(BaseModel, table=True):
