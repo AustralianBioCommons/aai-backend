@@ -10,6 +10,7 @@ from sqlmodel import Enum as DbEnum
 
 from auth0.client import Auth0Client
 from db.core import BaseModel
+from schemas.biocommons import Auth0UserData
 from schemas.user import SessionUser
 
 
@@ -44,14 +45,17 @@ class BiocommonsUser(BaseModel, table=True):
     )
 
     @classmethod
-    def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client):
+    def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client) -> Self:
         user_data = auth0_client.get_user(user_id=auth0_id)
-        user = cls(
-            id=auth0_id,
-            email=user_data.email,
-            username=user_data.username
+        return cls.from_auth0_data(user_data)
+
+    @classmethod
+    def from_auth0_data(cls, data: Auth0UserData) -> Self:
+        return cls(
+            id=data.user_id,
+            email=data.email,
+            username=data.username
         )
-        return user
 
     @classmethod
     def get_or_create(cls, auth0_id: str, db_session: Session, auth0_client: Auth0Client) -> Self:
