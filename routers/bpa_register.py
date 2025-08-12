@@ -1,15 +1,20 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from httpx import AsyncClient
+from sqlmodel import Session
 
-from auth.management import get_management_token
 from auth.ses import EmailService
+from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
+from db.models import BiocommonsUser
+from db.setup import get_db_session
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.service import Resource, Service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
 
@@ -68,13 +73,11 @@ def _get_bpa_resources(registration: BPARegistrationRequest, settings: Settings,
 async def register_bpa_user(
     registration: BPARegistrationRequest,
     background_tasks: BackgroundTasks,
-    settings: Settings = Depends(get_settings)
+    settings: Settings = Depends(get_settings),
+    db_session: Session = Depends(get_db_session),
+    auth0_client: Auth0Client = Depends(get_auth0_client)
 ) -> Dict[str, Any]:
     """Register a new BPA user with selected organization resources."""
-    url = f"https://{settings.auth0_domain}/api/v2/users"
-    token = get_management_token(settings=settings)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
     now = datetime.now(timezone.utc)
 
     bpa_resources = _get_bpa_resources(registration, settings, update_time=now)
@@ -94,20 +97,18 @@ async def register_bpa_user(
     )
 
     try:
-        async with AsyncClient() as client:
-            response = await client.post(
-                url, headers=headers, json=user_data.model_dump(mode="json")
-            )
-            if response.status_code != 201:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Registration failed: {response.json()['message']}",
-                )
+        logger.info("Registering user with Auth0")
+        auth0_user_data = auth0_client.create_user(user_data)
+
+        logger.info("Adding user to DB")
+        db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+        db_session.add(db_user)
+        db_session.commit()
 
         if bpa_resources and settings.send_email:
             background_tasks.add_task(send_approval_email, registration, bpa_resources)
 
-        return {"message": "User registered successfully", "user": response.json()}
+        return {"message": "User registered successfully", "user": auth0_user_data}
 
     except HTTPException:
         raise
