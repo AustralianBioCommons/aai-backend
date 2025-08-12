@@ -1,10 +1,12 @@
 import os
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 from moto import mock_aws
 from moto.core import patch_client
+from polyfactory import BaseFactory
 from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
@@ -207,12 +209,23 @@ def mock_galaxy_client():
 
 
 @pytest.fixture
-def auth0_client():
-    return Auth0Client(domain="auth0.example.com", management_token="dummy-token")
+def test_auth0_client():
+    """
+    Don't mock the Auth0Client, just return a dummy one. You will need to
+    mock/patch the actual calls to Auth0.
+    """
+    auth0_client = Auth0Client(domain="auth0.example.com", management_token="dummy-token")
+    app.dependency_overrides[get_auth0_client] = lambda: auth0_client
+    yield auth0_client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def mock_auth0_client(mocker):
+    """
+    Fully mocked Auth0Client - use when we want to just patch the results
+    of Auth0 calls
+    """
     mock_client = mocker.patch("auth0.client.Auth0Client")
     app.dependency_overrides[get_auth0_client] = lambda: mock_client
     yield mock_client
@@ -255,3 +268,14 @@ def mock_email_service(aws_credentials):
         app.dependency_overrides[get_email_service] = lambda: email_service
         yield email_service
         app.dependency_overrides.clear()
+
+
+def now_freeze_aware(tz=None):
+    from datetime import datetime  # local import to ensure freezegun patches are seen
+    return datetime.now(tz) if tz else datetime.now()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def freezegun_polyfactory_compat():
+    # Use frozen time when freezegun is active, otherwise real time
+    BaseFactory.add_provider(datetime, now_freeze_aware)
