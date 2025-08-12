@@ -4,9 +4,12 @@ from typing import Annotated, Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.params import Depends
+from sqlmodel import Session
 
-from auth.management import get_management_token
+from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
+from db.models import BiocommonsUser
+from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from register.tokens import create_registration_token, verify_registration_token
 from schemas.biocommons import BiocommonsRegisterData
@@ -29,6 +32,8 @@ def register(
         registration_data: GalaxyRegistrationData,
         settings: Annotated[Settings, Depends(get_settings)],
         galaxy_client: Annotated[GalaxyClient, Depends(get_galaxy_client)],
+        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+        db_session: Annotated[Session, Depends(get_db_session)],
         registration_token: Optional[str] = Header(None),
 ):
     if not registration_token:
@@ -47,21 +52,13 @@ def register(
     except httpx.HTTPError as e:
         logger.warning(f"Failed to check username in Galaxy: {e}")
 
-    url = f"https://{settings.auth0_domain}/api/v2/users"
-    logger.debug("Getting management token.")
-    management_token = get_management_token(settings=settings)
-    headers = {"Authorization": f"Bearer {management_token}"}
-    logger.debug("Registering with Auth0 management API")
-    resp = httpx.post(
-        url,
-        # Use exclude_none so we don't include username/name fields
-        #   when not specified, Auth0 doesn't like this
-        json=user_data.model_dump(
-            mode="json",
-            exclude_none=True
-        ),
-        headers=headers
-    )
-    if resp.status_code != 201:
-        raise HTTPException(status_code=400, detail=f'Registration failed: {resp.json()["message"]}')
-    return {"message": "User registered successfully", "user": resp.json()}
+    try:
+        logger.info("Registering user with Auth0")
+        auth0_user_data = auth0_client.create_user(user_data)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=f'Registration failed: {e}')
+    logger.info("Adding user to DB")
+    db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+    db_session.add(db_user)
+    db_session.commit()
+    return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
