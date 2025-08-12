@@ -46,11 +46,17 @@ class BiocommonsUser(BaseModel, table=True):
 
     @classmethod
     def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client) -> Self:
+        """
+        Get user data from Auth0 API and create a new BiocommonsUser object.
+        """
         user_data = auth0_client.get_user(user_id=auth0_id)
         return cls.from_auth0_data(user_data)
 
     @classmethod
     def from_auth0_data(cls, data: Auth0UserData) -> Self:
+        """
+        Create a new BiocommonsUser object from Auth0 user data (no API call).
+        """
         return cls(
             id=data.user_id,
             email=data.email,
