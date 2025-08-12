@@ -78,7 +78,7 @@ def upgrade() -> None:
     )
     op.create_table('platformmembership',
     sa.Column('id', sa.Uuid(), nullable=False),
-    sa.Column('platform_id', sa.Enum('GALAXY', 'DATA_PORTAL', name='PlatformEnum'), nullable=False),
+    sa.Column('platform_id', sa.Enum('GALAXY', 'BPA_DATA_PORTAL', name='PlatformEnum'), nullable=False),
     sa.Column('user_id', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('approval_status', sa.Enum('APPROVED', 'PENDING', 'REVOKED', name='ApprovalStatusEnum'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
@@ -90,7 +90,7 @@ def upgrade() -> None:
     )
     op.create_table('platformmembershiphistory',
     sa.Column('id', sa.Uuid(), nullable=False),
-    sa.Column('platform_id', sa.Enum('GALAXY', 'DATA_PORTAL', name='PlatformEnum'), nullable=False),
+    sa.Column('platform_id', sa.Enum('GALAXY', 'BPA_DATA_PORTAL', name='PlatformEnum'), nullable=False),
     sa.Column('user_id', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     sa.Column('approval_status', sa.Enum('APPROVED', 'PENDING', 'REVOKED', name='ApprovalStatusEnum'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), nullable=False),
