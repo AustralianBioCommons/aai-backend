@@ -121,9 +121,10 @@ def test_client(mock_settings, mock_galaxy_settings):
     def override_settings():
         return mock_settings
 
-    # Apply override
+    # Apply overrides
     app.dependency_overrides[get_settings] = override_settings
     app.dependency_overrides[get_galaxy_settings] = lambda: mock_galaxy_settings
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     # Create client
     client = TestClient(app)
