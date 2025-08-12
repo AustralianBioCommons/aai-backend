@@ -227,6 +227,7 @@ def test_registration_email_format(test_client, valid_registration_data):
 
 def test_all_organizations_selected(
     test_client_with_email,
+    test_db_session,
     mock_settings,
     mocker,
     mock_auth0_client,
