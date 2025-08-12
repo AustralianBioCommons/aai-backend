@@ -3,9 +3,7 @@ from datetime import UTC, datetime
 import httpx
 import pytest
 
-from auth0.client import get_auth0_client
 from db.models import BiocommonsUser
-from main import app
 from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
@@ -28,17 +26,6 @@ def valid_registration_data():
     ).model_dump()
 
 
-@pytest.fixture
-def override_auth0_client(mocker):
-    def override_auth0_client():
-        return mock_client
-
-    mock_client = mocker.patch("routers.utils.Auth0Client")()
-    app.dependency_overrides[get_auth0_client] = override_auth0_client
-    yield mock_client
-    app.dependency_overrides.clear()
-
-
 def test_to_biocommons_register_data(valid_registration_data):
     bpa_data = BPARegistrationDataFactory.build()
     bpa_service = Service(
@@ -58,7 +45,7 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 def test_successful_registration(
     test_client_with_email, mocker, valid_registration_data,
-        override_auth0_client, mock_auth0_client, test_db_session
+        mock_auth0_client, test_db_session
 ):
     """Test successful user registration with BPA service"""
     test_client = test_client_with_email
@@ -128,7 +115,7 @@ def test_service_and_resources_have_updated_by_system():
 
 
 def test_registration_duplicate_user(
-    test_client, valid_registration_data, override_auth0_client, mock_auth0_client
+    test_client, valid_registration_data, mock_auth0_client
 ):
     """Test registration with duplicate user"""
     error = httpx.HTTPStatusError(
@@ -241,8 +228,7 @@ def test_registration_email_format(test_client, valid_registration_data):
 def test_all_organizations_selected(
     test_client_with_email,
     mock_settings,
-        mocker,
-    override_auth0_client,
+    mocker,
     mock_auth0_client,
     valid_registration_data,
 ):

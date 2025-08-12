@@ -225,18 +225,18 @@ def test_create_auth0_role(test_db_session):
 
 
 @respx.mock
-def test_create_auth0_role_by_name(test_db_session, auth0_client):
+def test_create_auth0_role_by_name(test_db_session, test_auth0_client):
     """
     Test when can create an auth0 role by name, looking up the role in Auth0 first
     """
     role_data = RoleDataFactory.build(name="biocommons/role/tsi/admin")
-    respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
+    respx.get(f"https://{test_auth0_client.domain}/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[role_data.model_dump(mode="json")])
     )
     Auth0Role.get_or_create_by_name(
         name=role_data.name,
         session=test_db_session,
-        auth0_client=auth0_client
+        auth0_client=test_auth0_client
     )
     role_from_db = test_db_session.exec(
         select(Auth0Role).where(Auth0Role.id == role_data.id)
@@ -256,7 +256,7 @@ def test_get_or_create_auth0_role_existing(test_db_session, mock_auth0_client, p
 
 
 @respx.mock
-def test_create_auth0_role_by_id(test_db_session, auth0_client):
+def test_create_auth0_role_by_id(test_db_session, test_auth0_client):
     """
     Test when can create an auth0 role by id, looking up the role in Auth0 first
     """
@@ -267,7 +267,7 @@ def test_create_auth0_role_by_id(test_db_session, auth0_client):
     Auth0Role.get_or_create_by_id(
         auth0_id=role_data.id,
         session=test_db_session,
-        auth0_client=auth0_client
+        auth0_client=test_auth0_client
     )
     role_from_db = test_db_session.exec(
         select(Auth0Role).where(Auth0Role.id == role_data.id)
@@ -296,7 +296,7 @@ def test_create_biocommons_group(test_db_session, persistent_factories):
 
 
 @respx.mock
-def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
+def test_group_membership_grant_auth0_role(test_auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     role_data = RoleDataFactory.build(name="biocommons/group/tsi")
@@ -307,19 +307,19 @@ def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
         params={"name_filter": group.group_id}
     ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
     route = respx.post(f"https://auth0.example.com/api/v2/users/{user.id}/roles").respond(status_code=200)
-    result = membership_request.grant_auth0_role(auth0_client)
+    result = membership_request.grant_auth0_role(test_auth0_client)
     assert result
     assert route.called
 
 
 @pytest.mark.parametrize("status", ["pending", "revoked"])
 @respx.mock
-def test_group_membership_grant_auth0_role_not_approved(status, auth0_client, persistent_factories):
+def test_group_membership_grant_auth0_role_not_approved(status, test_auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     user = Auth0UserDataFactory.build()
     membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
     with pytest.raises(ValueError):
-        membership_request.grant_auth0_role(auth0_client)
+        membership_request.grant_auth0_role(test_auth0_client)
 
 
 def test_group_membership_save_with_history(test_db_session):
