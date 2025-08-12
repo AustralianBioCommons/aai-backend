@@ -3,9 +3,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from auth0.client import get_auth0_client
+from db.models import BiocommonsUser
+from main import app
 from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
-from tests.datagen import AccessTokenPayloadFactory, BPARegistrationDataFactory
+from tests.datagen import (
+    AccessTokenPayloadFactory,
+    Auth0UserDataFactory,
+    BPARegistrationDataFactory,
+    random_auth0_id,
+)
 
 
 @pytest.fixture
@@ -33,6 +41,17 @@ def mock_auth_token(mocker):
     return token
 
 
+@pytest.fixture
+def override_auth0_client(mocker):
+    def override_auth0_client():
+        return mock_client
+
+    mock_client = mocker.patch("routers.utils.Auth0Client")()
+    app.dependency_overrides[get_auth0_client] = override_auth0_client
+    yield mock_client
+    app.dependency_overrides.clear()
+
+
 def test_to_biocommons_register_data(valid_registration_data):
     bpa_data = BPARegistrationDataFactory.build()
     bpa_service = Service(
@@ -51,16 +70,13 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 
 def test_successful_registration(
-    test_client_with_email, mock_auth_token, mocker, valid_registration_data,
+    test_client_with_email, mocker, valid_registration_data,
+        override_auth0_client, mock_auth0_client, test_db_session
 ):
     """Test successful user registration with BPA service"""
     test_client = test_client_with_email
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.json.return_value = {"user_id": "auth0|123"}
-
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
-
+    user_id = random_auth0_id()
+    mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(user_id=user_id)
     mock_email_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
     mock_email_cls.return_value.send.return_value = None
 
@@ -70,30 +86,33 @@ def test_successful_registration(
     assert response.json()["message"] == "User registered successfully"
 
     mock_email_cls.return_value.send.assert_called_once()
+    # Check user is created in the database
+    db_user = test_db_session.get(BiocommonsUser, user_id)
+    assert db_user is not None
+    assert db_user.id == user_id
 
-    called_data = mock_post.call_args[1]["json"]
-    assert called_data["email"] == valid_registration_data["email"]
-    assert called_data["username"] == valid_registration_data["username"]
-    assert called_data["name"] == valid_registration_data["fullname"]
+    called_data = mock_auth0_client.create_user.call_args[0][0]
+    assert called_data.email == valid_registration_data["email"]
+    assert called_data.username == valid_registration_data["username"]
+    assert called_data.name == valid_registration_data["fullname"]
+    assert not called_data.email_verified
 
-    app_metadata = called_data["app_metadata"]
-    assert len(app_metadata["services"]) == 1
-    bpa_service = app_metadata["services"][0]
-    assert bpa_service["name"] == "Bioplatforms Australia Data Portal"
-    assert bpa_service["status"] == "pending"
-    assert "last_updated" in bpa_service
-    assert "updated_by" in bpa_service
-    assert bpa_service["updated_by"] == "system"
-    assert len(bpa_service["resources"]) == 2
+    app_metadata = called_data.app_metadata
+    assert len(app_metadata.services) == 1
+    bpa_service = app_metadata.services[0]
+    assert bpa_service.name == "Bioplatforms Australia Data Portal"
+    assert bpa_service.status == "pending"
+    assert bpa_service.last_updated is not None
+    assert bpa_service.updated_by == "system"
+    assert len(bpa_service.resources) == 2
 
-    for resource in bpa_service["resources"]:
-        assert "last_updated" in resource
-        assert "updated_by" in resource
-        assert "initial_request_time" in resource
-        assert resource["updated_by"] == "system"
+    for resource in bpa_service.resources:
+        assert resource.last_updated is not None
+        assert resource.initial_request_time is not None
+        assert resource.updated_by == "system"
 
     assert (
-        called_data["user_metadata"]["bpa"]["registration_reason"]
+        called_data.user_metadata.bpa.registration_reason
         == valid_registration_data["reason"]
     )
 
