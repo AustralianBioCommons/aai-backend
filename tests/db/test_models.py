@@ -3,44 +3,178 @@ from unittest.mock import ANY
 
 import pytest
 import respx
+from freezegun import freeze_time
 from httpx import Response
 from mimesis import Person
 from mimesis.locales import Locale
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
-from db.models import Auth0Role, BiocommonsGroup, GroupMembership
+from db.models import (
+    ApprovalStatusEnum,
+    Auth0Role,
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupMembership,
+    GroupMembershipHistory,
+    PlatformEnum,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from tests.biocommons.datagen import RoleDataFactory
-from tests.datagen import BiocommonsAuth0UserFactory, random_auth0_id
+from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
+    BiocommonsUserFactory,
     GroupMembershipFactory,
 )
+
+FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
+
+
+@pytest.fixture
+def frozen_time():
+    """
+    Freeze time so datetime.now() returns FROZEN_TIME.
+    """
+    with freeze_time("2025-01-01 12:00:00"):
+        yield
+
+
+def test_create_biocommons_user(test_db_session):
+    """
+    Test creating the BiocommonsUser model
+    """
+    user_data = Person(locale=Locale("en"))
+    auth0_id = random_auth0_id()
+    email = user_data.email()
+    user = BiocommonsUser(id=auth0_id, email=email, username="user_name")
+    test_db_session.add(user)
+    test_db_session.commit()
+    test_db_session.refresh(user)
+    assert user.id == auth0_id
+    assert user.email == email
+    assert user.username == "user_name"
+
+
+def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
+    """
+    Test creating the BiocommonsUser model from Auth0 user data from the API
+    """
+    user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.get_user.return_value = user_data
+    user = BiocommonsUser.create_from_auth0(auth0_id=user_data.user_id, auth0_client=mock_auth0_client)
+    test_db_session.add(user)
+    test_db_session.commit()
+    test_db_session.refresh(user)
+    assert user.id == user_data.user_id
+    assert user.email == user_data.email
+    assert user.username == user_data.username
+
+
+def test_get_or_create_biocommons_user(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    fetched_user = BiocommonsUser.get_or_create(auth0_id=user.id, db_session=test_db_session, auth0_client=mock_auth0_client)
+    assert fetched_user.id == user.id
+    # Check that we didn't call Auth0 API to get the user data
+    assert not mock_auth0_client.get_user.called
+
+
+def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
+    """
+    Test get_or_create method when user doesn't exist in the DB
+    """
+    user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.get_user.return_value = user_data
+    user = BiocommonsUser.get_or_create(auth0_id=user_data.user_id, db_session=test_db_session, auth0_client=mock_auth0_client)
+    test_db_session.refresh(user)
+    assert mock_auth0_client.get_user.called
+    assert user.id == user_data.user_id
+    assert user.email == user_data.email
+    assert user.username == user_data.username
+
+def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
+    """
+    Test creating a platform membership model
+    """
+    user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    membership = PlatformMembership(
+        platform_id=PlatformEnum.GALAXY,
+        user_id=user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by_id=None
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.user_id == user.id
+    assert membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert membership.platform_id == "galaxy"
+    assert membership.updated_at == FROZEN_TIME
+
+
+def test_create_platform_membership_history(test_db_session, persistent_factories, frozen_time):
+    """
+    Test creating a platform membership history model
+    """
+    user = BiocommonsUserFactory.create_sync()
+    membership = PlatformMembershipHistory(
+        platform_id=PlatformEnum.GALAXY,
+        user_id=user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by_id=None
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.user_id == user.id
+    assert membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert membership.platform_id == "galaxy"
+    assert membership.updated_at == FROZEN_TIME
 
 
 def test_create_group_membership(test_db_session, persistent_factories):
     """
     Test creating a group membership
     """
-    user = Person(locale=Locale("en"))
-    user_id = random_auth0_id()
-    updater = Person(locale=Locale("en"))
-    updater_id = random_auth0_id()
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    updater = BiocommonsUserFactory.create_sync()
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     membership = GroupMembership(
         group=group,
-        user_id=user_id,
-        user_email=user.email(),
+        user=user,
         approval_status="pending",
         updated_at=datetime.now(tz=timezone.utc),
-        updated_by_id=updater_id,
-        updated_by_email=updater.email(),
+        updated_by=updater,
     )
     test_db_session.add(membership)
     test_db_session.commit()
     test_db_session.refresh(membership)
     assert membership.group.group_id == "biocommons/group/tsi"
+    assert membership.user_id == user.id
+    assert membership.updated_by_id == updater.id
+
+
+def test_create_group_membership_no_updater(test_db_session, persistent_factories):
+    """
+    Test creating a group membership without an updated_by (for automatic approvals)
+    """
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    membership = GroupMembership(
+        group=group,
+        user=user,
+        approval_status="pending",
+        updated_at=datetime.now(tz=timezone.utc),
+        updated_by=None,
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+    test_db_session.refresh(membership)
+    assert membership.group.group_id == "biocommons/group/tsi"
+    assert membership.user_id == user.id
+    assert membership.updated_by_id is None
 
 
 def test_create_group_membership_unique_constraint(test_db_session, persistent_factories):
@@ -110,6 +244,17 @@ def test_create_auth0_role_by_name(test_db_session, auth0_client):
     assert role_from_db.name == role_data.name
 
 
+def test_get_or_create_auth0_role_existing(test_db_session, mock_auth0_client, persistent_factories):
+    role = Auth0RoleFactory.create_sync()
+    role_lookup = Auth0Role.get_or_create_by_id(
+        auth0_id=role.id,
+        session=test_db_session,
+        auth0_client=mock_auth0_client
+    )
+    assert role_lookup.id == role.id
+    assert not mock_auth0_client.get_role.called
+
+
 @respx.mock
 def test_create_auth0_role_by_id(test_db_session, auth0_client):
     """
@@ -153,15 +298,15 @@ def test_create_biocommons_group(test_db_session, persistent_factories):
 @respx.mock
 def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
-    user = BiocommonsAuth0UserFactory.build()
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
     role_data = RoleDataFactory.build(name="biocommons/group/tsi")
-    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="approved")
+    membership_request = GroupMembershipFactory.create_sync(group=group, user=user, approval_status="approved")
     # Mock the auth0 calls involved
     respx.get(
         "https://auth0.example.com/api/v2/roles",
         params={"name_filter": group.group_id}
     ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
-    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.user_id}/roles").respond(status_code=200)
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.id}/roles").respond(status_code=200)
     result = membership_request.grant_auth0_role(auth0_client)
     assert result
     assert route.called
@@ -171,7 +316,35 @@ def test_group_membership_grant_auth0_role(auth0_client, persistent_factories):
 @respx.mock
 def test_group_membership_grant_auth0_role_not_approved(status, auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
-    user = BiocommonsAuth0UserFactory.build()
+    user = Auth0UserDataFactory.build()
     membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
     with pytest.raises(ValueError):
         membership_request.grant_auth0_role(auth0_client)
+
+
+def test_group_membership_save_with_history(test_db_session):
+    membership = GroupMembershipFactory.build()
+    membership.save(test_db_session, commit=True)
+    test_db_session.refresh(membership)
+    assert membership.id is not None
+    history = test_db_session.exec(
+        select(GroupMembershipHistory)
+        .where(GroupMembershipHistory.group_id == membership.group_id,
+               GroupMembershipHistory.user_id == membership.user_id)
+    ).one()
+    assert history.group_id == membership.group_id
+    assert history.user_id == membership.user_id
+
+
+def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
+    membership = GroupMembershipFactory.create_sync()
+    membership.save_history(test_db_session, commit=True)
+    test_db_session.refresh(membership)
+    assert membership.id is not None
+    history = test_db_session.exec(
+        select(GroupMembershipHistory)
+        .where(GroupMembershipHistory.group_id == membership.group_id,
+               GroupMembershipHistory.user_id == membership.user_id)
+    ).one()
+    assert history.group_id == membership.group_id
+    assert history.user_id == membership.user_id

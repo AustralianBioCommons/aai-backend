@@ -4,7 +4,7 @@ from string import ascii_letters, digits
 from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 
-from schemas.biocommons import BiocommonsAppMetadata, BiocommonsAuth0User
+from schemas.biocommons import Auth0UserData, BiocommonsAppMetadata
 from schemas.bpa import BPARegistrationRequest
 from schemas.galaxy import GalaxyRegistrationData
 from schemas.tokens import AccessTokenPayload
@@ -22,11 +22,15 @@ def random_auth0_role_id() -> str:
 class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]):
     __allow_none_optionals__ = False
 
+    @classmethod
+    def sub(cls) -> str:
+        return random_auth0_id()
+
 
 class SessionUserFactory(ModelFactory[SessionUser]): ...
 
 
-class BiocommonsAuth0UserFactory(ModelFactory[BiocommonsAuth0User]):
+class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
 
     @classmethod
     def user_id(cls) -> str:

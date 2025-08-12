@@ -16,7 +16,13 @@ from biocommons.groups import (
     RoleId,
 )
 from config import Settings, get_settings
-from db.models import ApprovalStatusEnum, Auth0Role, BiocommonsGroup, GroupMembership
+from db.models import (
+    ApprovalStatusEnum,
+    Auth0Role,
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupMembership,
+)
 from db.setup import get_db_session
 from schemas.user import SessionUser
 
@@ -82,13 +88,17 @@ def request_group_access(
             status_code=HTTPStatus.CONFLICT,
             detail=f"User {user.access_token.sub} already has a membership for {group_id}"
         )
+    group = db_session.get_one(BiocommonsGroup, group_id)
+    user_record = BiocommonsUser.get_or_create(
+        auth0_id=user.access_token.sub,
+        db_session=db_session,
+        auth0_client=auth0_client
+    )
     membership = GroupMembership(
-        group_id=group_id,
-        user_id=user.access_token.sub,
-        user_email=user.access_token.email,
+        group=group,
+        user=user_record,
         approval_status=ApprovalStatusEnum.PENDING,
-        updated_by_id="",
-        updated_by_email=""
+        updated_by=None
     )
     membership.save(session=db_session, commit=True)
     if settings.send_email:
@@ -120,14 +130,18 @@ def approve_group_access(
             detail=f"You do not have permission to approve group memberships for {group.name}"
         )
     membership = GroupMembership.get_by_user_id(user_id=data.user_id, group_id=data.group_id, session=db_session)
+    approving_user_record = BiocommonsUser.get_or_create(
+        auth0_id=approving_user.access_token.sub,
+        db_session=db_session,
+        auth0_client=auth0_client
+    )
     if membership is None:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail="No membership request found for this user"
         )
     membership.approval_status = ApprovalStatusEnum.APPROVED
-    membership.updated_by_id = approving_user.access_token.sub
-    membership.updated_by_email = approving_user.access_token.email
+    membership.updated_by = approving_user_record
     membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=True)
     return {"message": f"Group membership for {group.name} approved successfully."}
@@ -138,7 +152,7 @@ def send_group_approval_email(approver_email: str, request: GroupMembership, ema
 
     body_html = f"""
         <p>A new user has requested access to the {request.group.name} group.</p>
-        <p><strong>User:</strong> {request.user_email}</p>
+        <p><strong>User:</strong> {request.user.email}</p>
         <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the BioCommons account dashboard</a> to review and approve access.</p>
     """
 

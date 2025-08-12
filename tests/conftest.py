@@ -10,7 +10,7 @@ from sqlmodel import Session, StaticPool, create_engine
 from auth.management import get_management_token
 from auth.ses import EmailService, get_email_service
 from auth.validator import get_current_user
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.core import BaseModel
 from db.setup import get_db_session
@@ -21,11 +21,12 @@ from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
+    BiocommonsUserFactory,
     GroupMembershipFactory,
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope="function")
 def test_db_engine():
     from db import models  # noqa: F401
     engine = create_engine(
@@ -40,8 +41,13 @@ def test_db_engine():
 
 @pytest.fixture(name="session")
 def session_fixture(test_db_engine):
-    with Session(test_db_engine) as session:
-        yield session
+    connection = test_db_engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
+    yield session
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 
 @pytest.fixture()
@@ -72,6 +78,15 @@ def ignore_env_file():
     # Make sure we always use in-memory DB for test DB
     os.environ.pop("DB_HOST", None)
     os.environ["DB_URL"] = "sqlite://"
+
+
+@pytest.fixture(autouse=True)
+def disable_db_setup(mocker):
+    """
+    Disable setting up the default database, this will be handled
+    by test fixtures
+    """
+    mocker.patch("db.setup.create_db_and_tables", return_value=None)
 
 
 @pytest.fixture
@@ -196,6 +211,14 @@ def auth0_client():
 
 
 @pytest.fixture
+def mock_auth0_client(mocker):
+    mock_client = mocker.patch("auth0.client.Auth0Client")
+    app.dependency_overrides[get_auth0_client] = lambda: mock_client
+    yield mock_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
 def persistent_factories(test_db_session):
     """
     Set the __session__ attribute of the factories to the test DB session
@@ -203,6 +226,7 @@ def persistent_factories(test_db_session):
     factories = [
         Auth0RoleFactory,
         BiocommonsGroupFactory,
+        BiocommonsUserFactory,
         GroupMembershipFactory,
     ]
     for factory in factories:

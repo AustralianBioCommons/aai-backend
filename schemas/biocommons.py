@@ -161,13 +161,14 @@ class BiocommonsRegisterData(BaseModel):
         )
 
 
-class BiocommonsAuth0User(BaseModel):
+class Auth0UserData(BaseModel):
     """
     Represents the user data we get back from Auth0 for Biocommons users
     (with our user and app metadata, if defined).
     """
     created_at: datetime
     email: EmailStr
+    username: BiocommonsUsername
     email_verified: bool
     identities: List[Identity]
     name: str
