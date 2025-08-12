@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from auth.management import get_management_token
 from config import Settings, get_settings
-from schemas.biocommons import Auth0UserData
+from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 
 
 class RoleData(BaseModel):
@@ -92,6 +92,12 @@ class Auth0Client:
     def get_user(self, user_id: str) -> Auth0UserData:
         url = f"https://{self.domain}/api/v2/users/{user_id}"
         resp = self._client.get(url)
+        return Auth0UserData(**resp.json())
+
+    def create_user(self, user: BiocommonsRegisterData) -> Auth0UserData:
+        url = f"https://{self.domain}/api/v2/users"
+        resp = self._client.post(url, json=user.model_dump(mode="json"))
+        resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]):
