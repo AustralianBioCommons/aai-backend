@@ -107,7 +107,7 @@ async def register_bpa_user(
         if bpa_resources and settings.send_email:
             background_tasks.add_task(send_approval_email, registration, bpa_resources)
 
-        return {"message": "User registered successfully", "user": auth0_user_data}
+        return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
 
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
