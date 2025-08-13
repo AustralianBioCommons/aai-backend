@@ -16,7 +16,7 @@ from db.models import (
     GroupMembership,
     GroupMembershipHistory,
 )
-from db.setup import engine
+from db.setup import get_engine
 
 
 def setup_oauth():
@@ -114,7 +114,7 @@ class DatabaseAdmin:
         self.auth0_client = setup_oauth()
         self.admin = Admin(
             app,
-            engine=engine,
+            engine=get_engine(),
             base_url="/db_admin",
             authentication_backend=AdminAuth(secret_key=secret_key, auth0_client=self.auth0_client),
             title="AAI Backend Admin"

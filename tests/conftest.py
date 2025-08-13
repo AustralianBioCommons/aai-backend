@@ -14,8 +14,6 @@ from auth.ses import EmailService, get_email_service
 from auth.validator import get_current_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.core import BaseModel
-from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from galaxy.config import GalaxySettings, get_galaxy_settings
 from main import app
@@ -31,6 +29,7 @@ from tests.db.datagen import (
 @pytest.fixture(scope="function")
 def test_db_engine():
     from db import models  # noqa: F401
+    from db.core import BaseModel
     engine = create_engine(
         # Use in-memory DB by default
         "sqlite://",
@@ -57,6 +56,8 @@ def test_db_session(session):
     """
     Override the get_db_session dependency to return the test DB.
     """
+    from db.setup import get_db_session
+
     def get_db_session_override():
         yield session
     app.dependency_overrides[get_db_session] = get_db_session_override
@@ -79,7 +80,12 @@ def ignore_env_file():
     app.dependency_overrides[get_galaxy_settings] = get_galaxy_settings_no_env_file
     # Make sure we always use in-memory DB for test DB
     os.environ.pop("DB_HOST", None)
-    os.environ["DB_URL"] = "sqlite://"
+    os.environ["DB_URL"] = "sqlite:///file:dummy_db?mode=memory&uri=true"
+
+
+@pytest.fixture(autouse=True)
+def ignore_db_config(mocker):
+    mocker.patch("db.setup.get_db_config", return_value=("sqlite:///file:dummy_db?mode=memory&uri=true", {}))
 
 
 @pytest.fixture(autouse=True)

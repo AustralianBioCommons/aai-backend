@@ -9,6 +9,17 @@ from db.core import BaseModel
 
 log = logging.getLogger('uvicorn.error')
 
+# Set engine as None initially so it's not created on import
+_engine = None
+
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        db_url, db_connect_args = get_db_config()
+        _engine = create_engine(db_url, connect_args=db_connect_args)
+    return _engine
+
 
 def get_db_config() -> Tuple[str, dict]:
     """
@@ -40,19 +51,17 @@ def get_db_config() -> Tuple[str, dict]:
     return db_url, connect_args
 
 
-DB_URL, db_connect_args = get_db_config()
-engine = create_engine(DB_URL, connect_args=db_connect_args)
-
-
 def create_db_and_tables():
     # NOTE: we only do this in dev (with sqlite).
     # For production, we manage the DB schema with alembic
     db_url, connect_args = get_db_config()
     if db_url.startswith("sqlite://"):
+        engine = get_engine()
         log.info("Automatically creating DB tables for sqlite")
         BaseModel.metadata.create_all(engine)
 
 
 def get_db_session():
+    engine = get_engine()
     with Session(engine) as session:
         yield session
