@@ -12,7 +12,7 @@ from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from register.tokens import create_registration_token, verify_registration_token
-from schemas.biocommons import BiocommonsRegisterData
+from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
 
 logger = logging.getLogger(__name__)
@@ -59,13 +59,18 @@ def register(
         raise HTTPException(status_code=e.response.status_code, detail=f'Registration failed: {e}')
     # Add to database and record Galaxy membership
     logger.info("Adding user to DB")
+    _create_galaxy_user_record(auth0_user_data, db_session)
+    return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
+
+
+def _create_galaxy_user_record(auth0_user_data: Auth0UserData, session: Session) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
     galaxy_membership = db_user.add_platform_membership(
         platform=PlatformEnum.GALAXY,
-        db_session=db_session,
+        db_session=session,
         auto_approve=True
     )
-    db_session.add(db_user)
-    db_session.add(galaxy_membership)
-    db_session.commit()
-    return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
+    session.add(db_user)
+    session.add(galaxy_membership)
+    session.commit()
+    return db_user
