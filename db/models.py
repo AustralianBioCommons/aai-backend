@@ -84,7 +84,6 @@ class BiocommonsUser(BaseModel, table=True):
         )
         db_session.add(membership)
         membership.save_history(db_session)
-        self.platform_memberships.append(membership)
         return membership
 
 
