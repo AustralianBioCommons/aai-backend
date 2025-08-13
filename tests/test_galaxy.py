@@ -120,7 +120,7 @@ def test_register(mock_settings, test_client, mock_auth0_client, test_db_session
     # Check data used to register is correct
     register_data = BiocommonsRegisterData.from_galaxy_registration(user_data)
     mock_auth0_client.create_user.assert_called_once_with(register_data)
-    # Check user is created in the database with membership
+    # Check user is created in the database with membership and history
     db_user = test_db_session.get(BiocommonsUser, auth0_user_data.user_id)
     assert db_user is not None
     assert db_user.id == auth0_user_data.user_id
