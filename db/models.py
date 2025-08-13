@@ -75,13 +75,15 @@ class BiocommonsUser(BaseModel, table=True):
             db_session.commit()
         return user
 
-    def add_platform_membership(self, platform: PlatformEnum, auto_approve: bool = False) -> "PlatformMembership":
+    def add_platform_membership(self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False) -> "PlatformMembership":
         membership = PlatformMembership(
             platform_id=platform,
             user=self,
             approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
             updated_by=None,
         )
+        db_session.add(membership)
+        membership.save_history(db_session)
         self.platform_memberships.append(membership)
         return membership
 
@@ -100,6 +102,17 @@ class PlatformMembership(BaseModel, table=True):
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
     updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembership.updated_by_id",})
+
+    def save_history(self, session: Session) -> 'PlatformMembershipHistory':
+        history = PlatformMembershipHistory(
+            platform_id=self.platform_id,
+            user=self.user,
+            approval_status=self.approval_status,
+            updated_at=self.updated_at,
+            updated_by=self.updated_by,
+        )
+        session.add(history)
+        return history
 
 
 
