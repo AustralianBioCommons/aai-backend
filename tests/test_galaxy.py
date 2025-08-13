@@ -5,8 +5,15 @@ from fastapi import HTTPException
 from freezegun import freeze_time
 from jose import jwt
 from pydantic import ValidationError
+from sqlmodel import select
 
 import register
+from db.models import (
+    BiocommonsUser,
+    PlatformEnum,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from register.tokens import verify_registration_token
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
@@ -98,6 +105,8 @@ def test_register(mock_settings, test_client, mock_auth0_client, test_db_session
 
     * The post request is made with the correct data
     * The response from our endpoint looks like we expect
+    * A user is created in the DB
+    * A PlatformMembership record is created for Galaxy
     """
     auth0_user_data = Auth0UserDataFactory.build()
     mock_auth0_client.create_user.return_value = auth0_user_data
@@ -108,9 +117,24 @@ def test_register(mock_settings, test_client, mock_auth0_client, test_db_session
     assert resp.status_code == 200
     assert resp.json()["message"] == "User registered successfully"
     assert resp.json()["user"] == auth0_user_data.model_dump(mode="json")
-
+    # Check data used to register is correct
     register_data = BiocommonsRegisterData.from_galaxy_registration(user_data)
     mock_auth0_client.create_user.assert_called_once_with(register_data)
+    # Check user is created in the database with membership
+    db_user = test_db_session.get(BiocommonsUser, auth0_user_data.user_id)
+    assert db_user is not None
+    assert db_user.id == auth0_user_data.user_id
+    galaxy_membership = test_db_session.exec(select(PlatformMembership).where(
+        PlatformMembership.user_id == db_user.id,
+        PlatformMembership.platform_id == PlatformEnum.GALAXY.value
+    )).one()
+    assert galaxy_membership.approval_status == "approved"
+    membership_history = test_db_session.exec(select(PlatformMembershipHistory).where(
+        PlatformMembershipHistory.user_id == db_user.id,
+        PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY.value
+    )).one()
+    assert membership_history.approval_status == "approved"
+
 
 
 @pytest.mark.respx(base_url="https://mock-domain")

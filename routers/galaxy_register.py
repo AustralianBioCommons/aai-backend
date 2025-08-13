@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsUser
+from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from register.tokens import create_registration_token, verify_registration_token
@@ -57,8 +57,15 @@ def register(
         auth0_user_data = auth0_client.create_user(user_data)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=f'Registration failed: {e}')
+    # Add to database and record Galaxy membership
     logger.info("Adding user to DB")
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+    galaxy_membership = db_user.add_platform_membership(
+        platform=PlatformEnum.GALAXY,
+        db_session=db_session,
+        auto_approve=True
+    )
     db_session.add(db_user)
+    db_session.add(galaxy_membership)
     db_session.commit()
     return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
