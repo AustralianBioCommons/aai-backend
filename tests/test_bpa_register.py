@@ -2,8 +2,14 @@ from datetime import UTC, datetime
 
 import httpx
 import pytest
+from sqlmodel import select
 
-from db.models import BiocommonsUser
+from db.models import (
+    BiocommonsUser,
+    PlatformEnum,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
@@ -64,6 +70,17 @@ def test_successful_registration(
     db_user = test_db_session.get(BiocommonsUser, user_id)
     assert db_user is not None
     assert db_user.id == user_id
+    # Check platform membership and history is created
+    bpa_membership = test_db_session.exec(select(PlatformMembership).where(
+        PlatformMembership.user_id == db_user.id,
+        PlatformMembership.platform_id == PlatformEnum.BPA_DATA_PORTAL.value
+    )).one()
+    assert bpa_membership.approval_status == "approved"
+    membership_history = test_db_session.exec(select(PlatformMembershipHistory).where(
+        PlatformMembershipHistory.user_id == db_user.id,
+        PlatformMembershipHistory.platform_id == PlatformEnum.BPA_DATA_PORTAL.value
+    )).one()
+    assert membership_history.approval_status == "approved"
 
     called_data = mock_auth0_client.create_user.call_args[0][0]
     assert called_data.email == valid_registration_data["email"]

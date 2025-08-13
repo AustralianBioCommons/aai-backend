@@ -9,9 +9,9 @@ from sqlmodel import Session
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsUser
+from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
-from schemas.biocommons import BiocommonsRegisterData
+from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.service import Resource, Service
 
@@ -102,9 +102,7 @@ async def register_bpa_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
-        db_session.add(db_user)
-        db_session.commit()
+        _create_bpa_user_record(auth0_user_data, db_session)
 
         if bpa_resources and settings.send_email:
             background_tasks.add_task(send_approval_email, registration, bpa_resources)
@@ -117,3 +115,16 @@ async def register_bpa_user(
         raise HTTPException(
             status_code=500, detail=f"Failed to register user: {str(e)}"
         )
+
+
+def _create_bpa_user_record(auth0_user_data: Auth0UserData, session: Session) -> BiocommonsUser:
+    db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+    bpa_membership = db_user.add_platform_membership(
+        platform=PlatformEnum.BPA_DATA_PORTAL,
+        db_session=session,
+        auto_approve=True
+    )
+    session.add(db_user)
+    session.add(bpa_membership)
+    session.commit()
+    return db_user
