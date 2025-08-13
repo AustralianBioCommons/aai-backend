@@ -75,6 +75,16 @@ class BiocommonsUser(BaseModel, table=True):
             db_session.commit()
         return user
 
+    def add_platform_membership(self, platform: PlatformEnum, auto_approve: bool = False) -> "PlatformMembership":
+        membership = PlatformMembership(
+            platform_id=platform,
+            user=self,
+            approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
+            updated_by=None,
+        )
+        self.platform_memberships.append(membership)
+        return membership
+
 
 class PlatformMembership(BaseModel, table=True):
     __table_args__ = (
