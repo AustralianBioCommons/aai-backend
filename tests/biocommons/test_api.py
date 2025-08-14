@@ -9,7 +9,6 @@ from moto.ses import ses_backends
 from sqlmodel import select
 
 from auth.validator import get_current_user
-from auth0.client import get_auth0_client
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
@@ -31,18 +30,11 @@ from tests.db.datagen import (
 )
 
 
-@pytest.fixture
-def override_auth0_client(auth0_client):
-    app.dependency_overrides[get_auth0_client] = lambda: auth0_client
-    yield
-    app.dependency_overrides.clear()
-
-
 @respx.mock
-def test_create_group(test_client, as_admin_user, override_auth0_client, test_db_session, persistent_factories):
+def test_create_group(test_client, as_admin_user, test_auth0_client, test_db_session, persistent_factories):
     # Mock Auth0 response to check group exists
     mock_group = RoleDataFactory.build(name="biocommons/group/tsi")
-    route = respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
+    route = respx.get(f"https://{test_auth0_client.domain}/api/v2/roles", params={"name_filter": ANY}).mock(
         return_value=Response(200, json=[mock_group.model_dump(mode="json")])
     )
 
@@ -66,14 +58,14 @@ def test_create_group(test_client, as_admin_user, override_auth0_client, test_db
 
 @pytest.mark.parametrize("role_name", ["biocommons/role/tsi/admin", "biocommons/group/tsi"])
 @respx.mock
-def test_create_role(role_name, test_client, as_admin_user, override_auth0_client, test_db_session, mocker):
+def test_create_role(role_name, test_client, as_admin_user, test_auth0_client, test_db_session, mocker):
     """
     Test we can create Auth0 roles using either the format for roles or groups.
     """
     mock_resp = RoleDataFactory.build(name=role_name)
     # Patch check of existing role
     mocker.patch("auth0.client.Auth0Client.get_role_by_name", side_effect=ValueError)
-    route = respx.post("https://auth0.example.com/api/v2/roles").mock(
+    route = respx.post(f"https://{test_auth0_client.domain}/api/v2/roles").mock(
         return_value=Response(200, json=mock_resp.model_dump(mode="json"))
     )
     resp = test_client.post(
@@ -90,7 +82,7 @@ def test_create_role(role_name, test_client, as_admin_user, override_auth0_clien
 
 
 @pytest.mark.parametrize("role_name", ["biocommons/role/tsi/admin", "biocommons/group/tsi"])
-def test_create_role_already_exists(role_name, test_client, as_admin_user, override_auth0_client, test_db_session, mocker):
+def test_create_role_already_exists(role_name, test_client, test_auth0_client, as_admin_user, test_db_session, mocker):
     """
     Test we can add existing Auth0 roles to the DB
     """
@@ -111,7 +103,7 @@ def test_create_role_already_exists(role_name, test_client, as_admin_user, overr
 
 
 @respx.mock
-def test_request_group_membership(test_client_with_email, normal_user, as_normal_user, override_auth0_client, test_db_session, persistent_factories, mock_email_service, mocker):
+def test_request_group_membership(test_client_with_email, normal_user, as_normal_user, mock_auth0_client, test_db_session, persistent_factories, mock_email_service, mocker):
     """
     Test the full process of requesting group membership - request membership for a user
     and send approval email to the relevant admins.
@@ -122,7 +114,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
     # Mock an admin that has the required admin role (to send approval email to)
     admin_info = Auth0UserDataFactory.build(email="admin@example.com")
-    mocker.patch("db.models.Auth0Client.get_all_role_users", return_value=[admin_info])
+    mock_auth0_client.get_all_role_users.return_value = [admin_info]
     # Request membership
     resp = test_client.post(
         "/biocommons/groups/request",
@@ -147,7 +139,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
 
 
 @respx.mock
-def test_approve_group_membership(test_client, test_db_session, persistent_factories, override_auth0_client):
+def test_approve_group_membership(test_client, test_db_session, persistent_factories, test_auth0_client):
     """
     Test the full approval process, including:
     * Checking that the group admin has the required role
@@ -165,13 +157,13 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     app.dependency_overrides[get_current_user] = lambda: group_admin
     # Mock auth0 route for adding roles
     respx.get(
-        "https://auth0.example.com/api/v2/roles",
+        f"https://{test_auth0_client.domain}/api/v2/roles",
         params={"name_filter": group.group_id}
     ).respond(
         200,
         json=[RoleDataFactory.build(name=group.group_id).model_dump(mode="json")]
     )
-    route = respx.post(f"https://auth0.example.com/api/v2/users/{user.id}/roles").respond(204)
+    route = respx.post(f"https://{test_auth0_client.domain}/api/v2/users/{user.id}/roles").respond(204)
     # Call our group approval endpoint
     resp = test_client.post(
         "/biocommons/groups/approve",
@@ -190,15 +182,15 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     assert membership_request.updated_by.email == group_admin.access_token.email
 
 
-def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories, override_auth0_client):
+def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories, test_auth0_client):
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
     access_token = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/biocommons/sysadmin"])
-    unauth_admin = SessionUserFactory.build(access_token=access_token)
+    unauthorized_admin = SessionUserFactory.build(access_token=access_token)
     user = Auth0UserDataFactory.build()
     GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="pending")
     # Override get_current_user to return the group admin
-    app.dependency_overrides[get_current_user] = lambda: unauth_admin
+    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
     resp = test_client.post(
         "/biocommons/groups/approve",
         json={

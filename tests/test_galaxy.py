@@ -1,35 +1,26 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
-from httpx import Response
 from jose import jwt
 from pydantic import ValidationError
+from sqlmodel import select
 
 import register
+from db.models import (
+    BiocommonsUser,
+    PlatformEnum,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from register.tokens import verify_registration_token
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
 from tests.datagen import (
-    AccessTokenPayloadFactory,
     Auth0UserDataFactory,
     GalaxyRegistrationDataFactory,
 )
-
-
-@pytest.fixture
-def mock_auth_token(mocker):
-    """Fixture to mock authentication token"""
-    token = AccessTokenPayloadFactory.build(
-        sub="auth0|123456789",
-        biocommons_roles=["acdc/indexd_admin"],
-    )
-    mocker.patch("auth.validator.verify_jwt", return_value=token)
-    mocker.patch("auth.management.get_management_token", return_value="mock_token")
-    mocker.patch("routers.galaxy_register.get_management_token", return_value="mock_token")
-    return token
 
 
 def test_galaxy_registration_data_password_match():
@@ -107,51 +98,55 @@ def test_to_biocommons_register_data_empty_fields():
 
 
 @freeze_time("2025-01-01")
-def test_register(mocker, mock_auth_token, mock_settings, test_client):
+def test_register(mock_settings, test_client, mock_auth0_client, test_db_session):
     """
     Try to test our register endpoint. Since we don't want to call
     an actual Auth0 API, test that:
 
     * The post request is made with the correct data
     * The response from our endpoint looks like we expect
+    * A user is created in the DB
+    * A PlatformMembership record is created for Galaxy
     """
-    mock_resp = MagicMock()
-    # Dummy user data: doesn't currently resemble response from Auth0
-    mock_resp.json.return_value = {"user_id": "abc123"}
-    mock_resp.status_code = 201
-    mock_post = mocker.patch("httpx.post", return_value=mock_resp)
+    auth0_user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.create_user.return_value = auth0_user_data
     user_data = GalaxyRegistrationDataFactory.build()
     token_resp = test_client.get("/galaxy/register/get-registration-token")
     headers = {"registration-token": token_resp.json()["token"]}
     resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
     assert resp.status_code == 200
     assert resp.json()["message"] == "User registered successfully"
-    assert resp.json()["user"] == {"user_id": "abc123"}
-
-    url = f"https://{mock_settings.auth0_domain}/api/v2/users"
-    headers = {"Authorization": "Bearer mock_token"}
+    assert resp.json()["user"] == auth0_user_data.model_dump(mode="json")
+    # Check data used to register is correct
     register_data = BiocommonsRegisterData.from_galaxy_registration(user_data)
-    mock_post.assert_called_once_with(
-        url,
-        json=register_data.model_dump(mode="json", exclude_none=True),
-        headers=headers
-    )
+    mock_auth0_client.create_user.assert_called_once_with(register_data)
+    # Check user is created in the database with membership and history
+    db_user = test_db_session.get(BiocommonsUser, auth0_user_data.user_id)
+    assert db_user is not None
+    assert db_user.id == auth0_user_data.user_id
+    galaxy_membership = test_db_session.exec(select(PlatformMembership).where(
+        PlatformMembership.user_id == db_user.id,
+        PlatformMembership.platform_id == PlatformEnum.GALAXY.value
+    )).one()
+    assert galaxy_membership.approval_status == "approved"
+    membership_history = test_db_session.exec(select(PlatformMembershipHistory).where(
+        PlatformMembershipHistory.user_id == db_user.id,
+        PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY.value
+    )).one()
+    assert membership_history.approval_status == "approved"
+
 
 
 @pytest.mark.respx(base_url="https://mock-domain")
-def test_register_json_types(respx_mock, mock_auth_token, mock_settings, test_client, mock_galaxy_client):
+def test_register_json_types(mock_auth0_client, mock_settings, test_client, mock_galaxy_client, test_db_session):
     """
     Test how we handle datetimes in the response data: if we don't
     use model_dump(mode="json") when providing json data, we can get errors
     """
-    url = f"https://{mock_settings.auth0_domain}/api/v2/users"
     # Generate user data to be returned in the response
     # (doesn't have to match the registration data for now)
-    user = Auth0UserDataFactory.build(created_at=datetime.now(UTC))
-    respx_mock.post(url).mock(return_value=Response(
-        status_code=201,
-        json=user.model_dump(mode="json"))
-    )
+    auth0_user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.create_user.return_value = auth0_user_data
     user_data = GalaxyRegistrationDataFactory.build()
     token_resp = test_client.get("/galaxy/register/get-registration-token")
     headers = {"registration-token": token_resp.json()["token"]}

@@ -10,6 +10,7 @@ from sqlmodel import Enum as DbEnum
 
 from auth0.client import Auth0Client
 from db.core import BaseModel
+from schemas.biocommons import Auth0UserData
 from schemas.user import SessionUser
 
 
@@ -44,14 +45,23 @@ class BiocommonsUser(BaseModel, table=True):
     )
 
     @classmethod
-    def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client):
+    def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client) -> Self:
+        """
+        Get user data from Auth0 API and create a new BiocommonsUser object.
+        """
         user_data = auth0_client.get_user(user_id=auth0_id)
-        user = cls(
-            id=auth0_id,
-            email=user_data.email,
-            username=user_data.username
+        return cls.from_auth0_data(user_data)
+
+    @classmethod
+    def from_auth0_data(cls, data: Auth0UserData) -> Self:
+        """
+        Create a new BiocommonsUser object from Auth0 user data (no API call).
+        """
+        return cls(
+            id=data.user_id,
+            email=data.email,
+            username=data.username
         )
-        return user
 
     @classmethod
     def get_or_create(cls, auth0_id: str, db_session: Session, auth0_client: Auth0Client) -> Self:
@@ -64,6 +74,17 @@ class BiocommonsUser(BaseModel, table=True):
             db_session.add(user)
             db_session.commit()
         return user
+
+    def add_platform_membership(self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False) -> "PlatformMembership":
+        membership = PlatformMembership(
+            platform_id=platform,
+            user=self,
+            approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
+            updated_by=None,
+        )
+        db_session.add(membership)
+        membership.save_history(db_session)
+        return membership
 
 
 class PlatformMembership(BaseModel, table=True):
@@ -80,6 +101,17 @@ class PlatformMembership(BaseModel, table=True):
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
     updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembership.updated_by_id",})
+
+    def save_history(self, session: Session) -> 'PlatformMembershipHistory':
+        history = PlatformMembershipHistory(
+            platform_id=self.platform_id,
+            user=self.user,
+            approval_status=self.approval_status,
+            updated_at=self.updated_at,
+            updated_by=self.updated_by,
+        )
+        session.add(history)
+        return history
 
 
 

@@ -1,11 +1,22 @@
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
 
+import httpx
 import pytest
+from sqlmodel import select
 
+from db.models import (
+    BiocommonsUser,
+    PlatformEnum,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
-from tests.datagen import AccessTokenPayloadFactory, BPARegistrationDataFactory
+from tests.datagen import (
+    Auth0UserDataFactory,
+    BPARegistrationDataFactory,
+    random_auth0_id,
+)
 
 
 @pytest.fixture
@@ -19,18 +30,6 @@ def valid_registration_data():
         password="SecurePass123!",
         organizations=BPARegistrationDataFactory.get_default_organizations(),
     ).model_dump()
-
-
-@pytest.fixture
-def mock_auth_token(mocker):
-    token = AccessTokenPayloadFactory.build(
-        sub="auth0|123456789",
-        biocommons_roles=["acdc/indexd_admin"],
-    )
-    mocker.patch("auth.validator.verify_jwt", return_value=token)
-    mocker.patch("auth.management.get_management_token", return_value="mock_token")
-    mocker.patch("routers.bpa_register.get_management_token", return_value="mock_token")
-    return token
 
 
 def test_to_biocommons_register_data(valid_registration_data):
@@ -51,16 +50,13 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 
 def test_successful_registration(
-    test_client_with_email, mock_auth_token, mocker, valid_registration_data,
+    test_client_with_email, mocker, valid_registration_data,
+        mock_auth0_client, test_db_session
 ):
     """Test successful user registration with BPA service"""
     test_client = test_client_with_email
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.json.return_value = {"user_id": "auth0|123"}
-
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
-
+    user_id = random_auth0_id()
+    mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(user_id=user_id)
     mock_email_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
     mock_email_cls.return_value.send.return_value = None
 
@@ -70,30 +66,44 @@ def test_successful_registration(
     assert response.json()["message"] == "User registered successfully"
 
     mock_email_cls.return_value.send.assert_called_once()
+    # Check user is created in the database
+    db_user = test_db_session.get(BiocommonsUser, user_id)
+    assert db_user is not None
+    assert db_user.id == user_id
+    # Check platform membership and history is created
+    bpa_membership = test_db_session.exec(select(PlatformMembership).where(
+        PlatformMembership.user_id == db_user.id,
+        PlatformMembership.platform_id == PlatformEnum.BPA_DATA_PORTAL.value
+    )).one()
+    assert bpa_membership.approval_status == "approved"
+    membership_history = test_db_session.exec(select(PlatformMembershipHistory).where(
+        PlatformMembershipHistory.user_id == db_user.id,
+        PlatformMembershipHistory.platform_id == PlatformEnum.BPA_DATA_PORTAL.value
+    )).one()
+    assert membership_history.approval_status == "approved"
 
-    called_data = mock_post.call_args[1]["json"]
-    assert called_data["email"] == valid_registration_data["email"]
-    assert called_data["username"] == valid_registration_data["username"]
-    assert called_data["name"] == valid_registration_data["fullname"]
+    called_data = mock_auth0_client.create_user.call_args[0][0]
+    assert called_data.email == valid_registration_data["email"]
+    assert called_data.username == valid_registration_data["username"]
+    assert called_data.name == valid_registration_data["fullname"]
+    assert not called_data.email_verified
 
-    app_metadata = called_data["app_metadata"]
-    assert len(app_metadata["services"]) == 1
-    bpa_service = app_metadata["services"][0]
-    assert bpa_service["name"] == "Bioplatforms Australia Data Portal"
-    assert bpa_service["status"] == "pending"
-    assert "last_updated" in bpa_service
-    assert "updated_by" in bpa_service
-    assert bpa_service["updated_by"] == "system"
-    assert len(bpa_service["resources"]) == 2
+    app_metadata = called_data.app_metadata
+    assert len(app_metadata.services) == 1
+    bpa_service = app_metadata.services[0]
+    assert bpa_service.name == "Bioplatforms Australia Data Portal"
+    assert bpa_service.status == "pending"
+    assert bpa_service.last_updated is not None
+    assert bpa_service.updated_by == "system"
+    assert len(bpa_service.resources) == 2
 
-    for resource in bpa_service["resources"]:
-        assert "last_updated" in resource
-        assert "updated_by" in resource
-        assert "initial_request_time" in resource
-        assert resource["updated_by"] == "system"
+    for resource in bpa_service.resources:
+        assert resource.last_updated is not None
+        assert resource.initial_request_time is not None
+        assert resource.updated_by == "system"
 
     assert (
-        called_data["user_metadata"]["bpa"]["registration_reason"]
+        called_data.user_metadata.bpa.registration_reason
         == valid_registration_data["reason"]
     )
 
@@ -120,31 +130,35 @@ def test_service_and_resources_have_updated_by_system():
     assert hasattr(service.resources[0], "initial_request_time")
     assert isinstance(service.resources[0].initial_request_time, datetime)
 
+
 def test_registration_duplicate_user(
-    test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, valid_registration_data, mock_auth0_client
 ):
     """Test registration with duplicate user"""
-    mock_response = MagicMock()
-    mock_response.status_code = 409
-    mock_response.json.return_value = {"message": "User already exists"}
-
-    mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+    error = httpx.HTTPStatusError(
+        "User already exists",
+        request=httpx.Request("POST", "https://api.example.com/data"),
+        response=httpx.Response(409, text="Registration failed: User already exists"),
+    )
+    mock_auth0_client.create_user.side_effect = error
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
-    assert response.status_code == 400
+    assert response.status_code == 409
     assert response.json()["detail"] == "Registration failed: User already exists"
 
 
 def test_registration_auth0_error(
-    test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, mock_auth0_client, valid_registration_data
 ):
     """Test registration with Auth0 API error"""
-    mock_response = MagicMock()
-    mock_response.status_code = 400
-    mock_response.json.return_value = {"message": "Invalid request"}
+    error = httpx.HTTPStatusError(
+        "User already exists",
+        request=httpx.Request("POST", "https://api.example.com/data"),
+        response=httpx.Response(400, text="Registration failed: Invalid request"),
+    )
+    mock_auth0_client.create_user.side_effect = error
 
-    mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
@@ -153,7 +167,7 @@ def test_registration_auth0_error(
 
 
 def test_registration_with_invalid_organization(
-    test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, valid_registration_data
 ):
     """Test registration with invalid organization ID"""
     data = valid_registration_data.copy()
@@ -179,7 +193,7 @@ def test_registration_request_validation(test_client):
 
 
 def test_no_selected_organizations(
-    test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, test_db_session, mock_auth0_client, valid_registration_data
 ):
     """Test registration with no organizations selected"""
     data = valid_registration_data.copy()
@@ -188,40 +202,33 @@ def test_no_selected_organizations(
         "cipps": False,
         "ausarg": False,
     }
-
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.json.return_value = {"user_id": "auth0|123"}
-
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+    user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.create_user.return_value = user_data
 
     response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 200
-    called_data = mock_post.call_args[1]["json"]
-    bpa_service = called_data["app_metadata"]["services"][0]
-    assert len(bpa_service["resources"]) == 0
+    # Check user data sent to Auth0
+    called_data = mock_auth0_client.create_user.call_args[0][0]
+    bpa_service = called_data.app_metadata.services[0]
+    assert len(bpa_service.resources) == 0
 
 
 def test_empty_organizations_dict(
-    test_client, mock_auth_token, mocker, valid_registration_data
+    test_client, test_db_session, mock_auth0_client, valid_registration_data
 ):
     """Test registration with empty organizations dictionary"""
     data = valid_registration_data.copy()
     data["organizations"] = {}
-
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.json.return_value = {"user_id": "auth0|123"}
-
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+    user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.create_user.return_value = user_data
 
     response = test_client.post("/bpa/register", json=data)
 
     assert response.status_code == 200
-    called_data = mock_post.call_args[1]["json"]
-    bpa_service = called_data["app_metadata"]["services"][0]
-    assert len(bpa_service["resources"]) == 0
+    called_data = mock_auth0_client.create_user.call_args[0][0]
+    bpa_service = called_data.app_metadata.services[0]
+    assert len(bpa_service.resources) == 0
 
 
 def test_registration_email_format(test_client, valid_registration_data):
@@ -237,29 +244,27 @@ def test_registration_email_format(test_client, valid_registration_data):
 
 def test_all_organizations_selected(
     test_client_with_email,
-    mock_auth_token,
+    test_db_session,
     mock_settings,
     mocker,
+    mock_auth0_client,
     valid_registration_data,
 ):
     """Test registration with all organizations selected"""
-    test_client = test_client_with_email
     data = valid_registration_data.copy()
     data["organizations"] = {k: True for k in mock_settings.organizations.keys()}
 
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.json.return_value = {"user_id": "auth0|123"}
-    mock_post = mocker.patch("httpx.AsyncClient.post", return_value=mock_response)
+    user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.create_user.return_value = user_data
 
     email_service_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
     email_service_cls.return_value.send.return_value = True
 
-    response = test_client.post("/bpa/register", json=data)
+    response = test_client_with_email.post("/bpa/register", json=data)
 
     assert response.status_code == 200
-    called_data = mock_post.call_args[1]["json"]
-    bpa_service = called_data["app_metadata"]["services"][0]
-    assert len(bpa_service["resources"]) == len(mock_settings.organizations)
+    called_data = mock_auth0_client.create_user.call_args[0][0]
+    bpa_service = called_data.app_metadata.services[0]
+    assert len(bpa_service.resources) == len(mock_settings.organizations)
 
     email_service_cls.return_value.send.assert_called_once()

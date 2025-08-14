@@ -1,15 +1,21 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from httpx import AsyncClient
+from httpx import HTTPStatusError
+from sqlmodel import Session
 
-from auth.management import get_management_token
 from auth.ses import EmailService
+from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from schemas.biocommons import BiocommonsRegisterData
+from db.models import BiocommonsUser, PlatformEnum
+from db.setup import get_db_session
+from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.service import Resource, Service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
 
@@ -34,28 +40,7 @@ def send_approval_email(registration: BPARegistrationRequest, bpa_resources: lis
     email_service.send(approver_email, subject, body_html)
 
 
-@router.post(
-    "/register",
-    response_model=Dict[str, Any],
-    responses={
-        400: {"description": "Bad Request - Validation error"},
-        409: {"description": "Conflict - User already exists"},
-        500: {"description": "Internal server error"},
-    },
-)
-async def register_bpa_user(
-    registration: BPARegistrationRequest,
-    background_tasks: BackgroundTasks,
-    settings: Settings = Depends(get_settings)
-) -> Dict[str, Any]:
-    """Register a new BPA user with selected organization resources."""
-    url = f"https://{settings.auth0_domain}/api/v2/users"
-    token = get_management_token(settings=settings)
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-    now = datetime.now(timezone.utc)
-
-    # Create BPA resources
+def _get_bpa_resources(registration: BPARegistrationRequest, settings: Settings, update_time: datetime) -> list[Resource]:
     bpa_resources = []
     for org_id, is_selected in registration.organizations.items():
         if not is_selected:
@@ -68,13 +53,35 @@ async def register_bpa_user(
             id=org_id,
             name=settings.organizations[org_id],
             status="pending",
-            last_updated=now,
-            initial_request_time=now,
+            last_updated=update_time,
+            initial_request_time=update_time,
             updated_by="system",
         ).model_dump(mode="json")
         bpa_resources.append(resource)
+    return bpa_resources
 
-    # Create BPA service
+
+
+@router.post(
+    "/register",
+    response_model=Dict[str, Any],
+    responses={
+        400: {"description": "Bad Request - Validation error"},
+        409: {"description": "Conflict - User already exists"},
+        500: {"description": "Internal server error"},
+    },
+)
+async def register_bpa_user(
+    registration: BPARegistrationRequest,
+    background_tasks: BackgroundTasks,
+    settings: Settings = Depends(get_settings),
+    db_session: Session = Depends(get_db_session),
+    auth0_client: Auth0Client = Depends(get_auth0_client)
+) -> Dict[str, Any]:
+    """Register a new BPA user with selected organization resources."""
+    now = datetime.now(timezone.utc)
+
+    bpa_resources = _get_bpa_resources(registration, settings, update_time=now)
     bpa_service = Service(
         name="Bioplatforms Australia Data Portal",
         id="bpa",
@@ -91,24 +98,33 @@ async def register_bpa_user(
     )
 
     try:
-        async with AsyncClient() as client:
-            response = await client.post(
-                url, headers=headers, json=user_data.model_dump(mode="json")
-            )
-            if response.status_code != 201:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Registration failed: {response.json()['message']}",
-                )
+        logger.info("Registering user with Auth0")
+        auth0_user_data = auth0_client.create_user(user_data)
+
+        logger.info("Adding user to DB")
+        _create_bpa_user_record(auth0_user_data, db_session)
 
         if bpa_resources and settings.send_email:
             background_tasks.add_task(send_approval_email, registration, bpa_resources)
 
-        return {"message": "User registered successfully", "user": response.json()}
+        return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
 
-    except HTTPException:
-        raise
+    except HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to register user: {str(e)}"
         )
+
+
+def _create_bpa_user_record(auth0_user_data: Auth0UserData, session: Session) -> BiocommonsUser:
+    db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+    bpa_membership = db_user.add_platform_membership(
+        platform=PlatformEnum.BPA_DATA_PORTAL,
+        db_session=session,
+        auto_approve=True
+    )
+    session.add(db_user)
+    session.add(bpa_membership)
+    session.commit()
+    return db_user

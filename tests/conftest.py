@@ -1,10 +1,12 @@
 import os
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 from moto import mock_aws
 from moto.core import patch_client
+from polyfactory import BaseFactory
 from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
@@ -12,8 +14,6 @@ from auth.ses import EmailService, get_email_service
 from auth.validator import get_current_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.core import BaseModel
-from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from galaxy.config import GalaxySettings, get_galaxy_settings
 from main import app
@@ -29,6 +29,7 @@ from tests.db.datagen import (
 @pytest.fixture(scope="function")
 def test_db_engine():
     from db import models  # noqa: F401
+    from db.core import BaseModel
     engine = create_engine(
         # Use in-memory DB by default
         "sqlite://",
@@ -55,6 +56,8 @@ def test_db_session(session):
     """
     Override the get_db_session dependency to return the test DB.
     """
+    from db.setup import get_db_session
+
     def get_db_session_override():
         yield session
     app.dependency_overrides[get_db_session] = get_db_session_override
@@ -77,7 +80,12 @@ def ignore_env_file():
     app.dependency_overrides[get_galaxy_settings] = get_galaxy_settings_no_env_file
     # Make sure we always use in-memory DB for test DB
     os.environ.pop("DB_HOST", None)
-    os.environ["DB_URL"] = "sqlite://"
+    os.environ["DB_URL"] = "sqlite:///file:dummy_db?mode=memory&uri=true"
+
+
+@pytest.fixture(autouse=True)
+def ignore_db_config(mocker):
+    mocker.patch("db.setup.get_db_config", return_value=("sqlite:///file:dummy_db?mode=memory&uri=true", {}))
 
 
 @pytest.fixture(autouse=True)
@@ -121,9 +129,10 @@ def test_client(mock_settings, mock_galaxy_settings):
     def override_settings():
         return mock_settings
 
-    # Apply override
+    # Apply overrides
     app.dependency_overrides[get_settings] = override_settings
     app.dependency_overrides[get_galaxy_settings] = lambda: mock_galaxy_settings
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     # Create client
     client = TestClient(app)
@@ -206,12 +215,23 @@ def mock_galaxy_client():
 
 
 @pytest.fixture
-def auth0_client():
-    return Auth0Client(domain="auth0.example.com", management_token="dummy-token")
+def test_auth0_client():
+    """
+    Don't mock the Auth0Client, just return a dummy one. You will need to
+    mock/patch the actual calls to Auth0.
+    """
+    auth0_client = Auth0Client(domain="auth0.example.com", management_token="dummy-token")
+    app.dependency_overrides[get_auth0_client] = lambda: auth0_client
+    yield auth0_client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture
 def mock_auth0_client(mocker):
+    """
+    Fully mocked Auth0Client - use when we want to just patch the results
+    of Auth0 calls
+    """
     mock_client = mocker.patch("auth0.client.Auth0Client")
     app.dependency_overrides[get_auth0_client] = lambda: mock_client
     yield mock_client
@@ -254,3 +274,14 @@ def mock_email_service(aws_credentials):
         app.dependency_overrides[get_email_service] = lambda: email_service
         yield email_service
         app.dependency_overrides.clear()
+
+
+def now_freeze_aware(tz=None):
+    from datetime import datetime  # local import to ensure freezegun patches are seen
+    return datetime.now(tz) if tz else datetime.now()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def freezegun_polyfactory_compat():
+    # Use frozen time when freezegun is active, otherwise real time
+    BaseFactory.add_provider(datetime, now_freeze_aware)
