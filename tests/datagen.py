@@ -5,6 +5,7 @@ from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 
 from schemas.biocommons import Auth0UserData, BiocommonsAppMetadata
+from schemas.biocommons_register import BiocommonsRegistrationRequest
 from schemas.bpa import BPARegistrationRequest
 from schemas.galaxy import GalaxyRegistrationData
 from schemas.tokens import AccessTokenPayload
@@ -12,11 +13,11 @@ from schemas.user import SessionUser
 
 
 def random_auth0_id() -> str:
-    return "auth0|" + ''.join(random.choices('0123456789abcdef', k=24))
+    return "auth0|" + "".join(random.choices("0123456789abcdef", k=24))
 
 
 def random_auth0_role_id() -> str:
-    return "rol_" + ''.join(random.choices(ascii_letters + digits, k=16))
+    return "rol_" + "".join(random.choices(ascii_letters + digits, k=16))
 
 
 class AccessTokenPayloadFactory(ModelFactory[AccessTokenPayload]):
@@ -31,14 +32,12 @@ class SessionUserFactory(ModelFactory[SessionUser]): ...
 
 
 class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
-
     @classmethod
     def user_id(cls) -> str:
         return random_auth0_id()
 
 
 class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
-
     @post_generated
     @classmethod
     def password_confirmation(cls, password: str) -> str:
@@ -62,3 +61,11 @@ class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
 
 
 class AppMetadataFactory(ModelFactory[BiocommonsAppMetadata]): ...
+
+
+class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationRequest]):
+    """Factory for generating BioCommons registration test data."""
+
+    @classmethod
+    def bundle(cls) -> str:
+        return "bpa-galaxy"
