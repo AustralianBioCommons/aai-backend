@@ -7,7 +7,6 @@ from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
 
 class GalaxyRegistrationData(BaseModel):
     email: EmailStr
-    # TODO: Update name of this field in frontend from
     username: BiocommonsUsername
     password: BiocommonsPassword
     confirmPassword: str
