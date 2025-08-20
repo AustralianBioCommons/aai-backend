@@ -23,7 +23,6 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
     dumped = user_data.model_dump(mode="json")
     assert "user_metadata" not in dumped
 
-    # Test that all required fields are present
     assert dumped["email"] == "test@example.com"
     assert dumped["username"] == "testuser"
     assert dumped["name"] == "Test User"
@@ -60,8 +59,16 @@ def test_biocommons_registration_tsi_bundle():
 
 def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session):
     """Test database record creation for bpa-galaxy bundle"""
-    from db.models import PlatformEnum
+    from db.models import BiocommonsGroup, PlatformEnum
     from routers.biocommons_register import _create_biocommons_user_record
+
+    group = BiocommonsGroup(
+        group_id="biocommons/group/bpa_galaxy",
+        name="BPA Data Portal & Galaxy Access",
+        admin_roles=[],
+    )
+    test_db_session.add(group)
+    test_db_session.commit()
 
     registration = BiocommonsRegistrationRequest(
         first_name="BPA",
@@ -79,35 +86,38 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session):
         user_id="auth0|bpagalaxy123",
     )
 
-    # Create user record
     user = _create_biocommons_user_record(auth0_data, registration, test_db_session)
 
-    # Verify user basic data
     assert user.username == "bpagalaxy"
     assert user.email == "bpa.galaxy@example.com"
     assert user.id == "auth0|bpagalaxy123"
 
-    # Verify group membership
     assert len(user.group_memberships) == 1
     group_membership = user.group_memberships[0]
     assert group_membership.group_id == "biocommons/group/bpa_galaxy"
     assert group_membership.approval_status.value == "pending"
 
-    # Verify platform memberships (should have both BPA and Galaxy)
     assert len(user.platform_memberships) == 2
     platform_ids = {pm.platform_id for pm in user.platform_memberships}
     assert PlatformEnum.BPA_DATA_PORTAL in platform_ids
     assert PlatformEnum.GALAXY in platform_ids
 
-    # Verify all platform memberships are pending
     for pm in user.platform_memberships:
         assert pm.approval_status.value == "pending"
 
 
 def test_create_biocommons_user_record_tsi_bundle(test_db_session):
     """Test database record creation for tsi bundle"""
-    from db.models import PlatformEnum
+    from db.models import BiocommonsGroup, PlatformEnum
     from routers.biocommons_register import _create_biocommons_user_record
+
+    group = BiocommonsGroup(
+        group_id="biocommons/group/tsi",
+        name="Threatened Species Initiative",
+        admin_roles=[],
+    )
+    test_db_session.add(group)
+    test_db_session.commit()
 
     registration = BiocommonsRegistrationRequest(
         first_name="TSI",
@@ -125,67 +135,88 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session):
         user_id="auth0|tsiuser123",
     )
 
-    # Create user record
     user = _create_biocommons_user_record(auth0_data, registration, test_db_session)
 
-    # Verify user basic data
     assert user.username == "tsiuser"
     assert user.email == "tsi.user@example.com"
 
-    # Verify group membership (should be TSI group)
     assert len(user.group_memberships) == 1
     group_membership = user.group_memberships[0]
     assert group_membership.group_id == "biocommons/group/tsi"
     assert group_membership.approval_status.value == "pending"
 
-    # Verify platform memberships (should still have both BPA and Galaxy)
     assert len(user.platform_memberships) == 2
     platform_ids = {pm.platform_id for pm in user.platform_memberships}
     assert PlatformEnum.BPA_DATA_PORTAL in platform_ids
     assert PlatformEnum.GALAXY in platform_ids
 
 
-def test_biocommons_group_creation(test_db_session):
-    """Test that BiocommonsGroup records are created when they don't exist"""
-    from db.models import BiocommonsGroup
+def test_biocommons_group_must_exist(test_db_session):
+    """Test that registration fails when the required group doesn't exist"""
+    import pytest
+
     from routers.biocommons_register import _create_biocommons_user_record
 
     registration = BiocommonsRegistrationRequest(
         first_name="New",
-        last_name="Group",
-        email="new.group@example.com",
-        username="newgroup",
+        last_name="User",
+        email="new.user@example.com",
+        username="newuser",
         password="StrongPass1!",
         bundle="bpa-galaxy",
     )
 
     auth0_data = Auth0UserDataFactory.build(
-        email="new.group@example.com", username="newgroup", user_id="auth0|newgroup123"
+        email="new.user@example.com", username="newuser", user_id="auth0|newuser123"
     )
 
-    # Verify group doesn't exist initially
-    group = test_db_session.get(BiocommonsGroup, "biocommons/group/bpa_galaxy")
-    assert group is None
+    with pytest.raises(
+        ValueError, match="Group 'biocommons/group/bpa_galaxy' not found"
+    ):
+        _create_biocommons_user_record(auth0_data, registration, test_db_session)
 
-    # Create user record (should create group)
-    _create_biocommons_user_record(auth0_data, registration, test_db_session)
 
-    # Verify group was created
-    group = test_db_session.get(BiocommonsGroup, "biocommons/group/bpa_galaxy")
-    assert group is not None
-    assert group.group_id == "biocommons/group/bpa_galaxy"
-    assert group.name == "BPA Data Portal & Galaxy Access"
-    assert group.admin_roles == []
+def test_biocommons_group_membership_with_existing_group(test_db_session):
+    """Test that user is assigned to group when group exists"""
+    from db.models import BiocommonsGroup
+    from routers.biocommons_register import _create_biocommons_user_record
+
+    group = BiocommonsGroup(
+        group_id="biocommons/group/bpa_galaxy",
+        name="BPA Data Portal & Galaxy Access",
+        admin_roles=[],
+    )
+    test_db_session.add(group)
+    test_db_session.commit()
+
+    registration = BiocommonsRegistrationRequest(
+        first_name="Test",
+        last_name="User",
+        email="test.user@example.com",
+        username="testuser",
+        password="StrongPass1!",
+        bundle="bpa-galaxy",
+    )
+
+    auth0_data = Auth0UserDataFactory.build(
+        email="test.user@example.com", username="testuser", user_id="auth0|testuser123"
+    )
+
+    user = _create_biocommons_user_record(auth0_data, registration, test_db_session)
+
+    assert len(user.group_memberships) == 1
+    assert user.group_memberships[0].group_id == "biocommons/group/bpa_galaxy"
+    assert user.group_memberships[0].approval_status.value == "pending"
 
 
 def test_bundle_validation():
     """Test that only valid bundles are accepted"""
     with pytest.raises(ValueError):
         BiocommonsRegistrationRequest(
-            first_name="Invalid",
+            first_name="Test",
             last_name="Bundle",
-            email="invalid@example.com",
-            username="invalid",
+            email="test@example.com",
+            username="test",
             password="StrongPass1!",
             bundle="invalid-bundle",
         )
@@ -204,3 +235,117 @@ def test_biocommons_registration_name_formatting():
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
     assert user_data.name == "John Doe-Smith"
+
+
+def test_successful_biocommons_registration_endpoint(
+    test_client_with_email, mock_auth0_client, test_db_session, mocker
+):
+    """Test successful biocommons registration via HTTP endpoint"""
+    from db.models import BiocommonsGroup, BiocommonsUser, PlatformEnum
+    from tests.datagen import random_auth0_id
+
+    group = BiocommonsGroup(
+        group_id="biocommons/group/bpa_galaxy",
+        name="BPA Data Portal & Galaxy Access",
+        admin_roles=[],
+    )
+    test_db_session.add(group)
+    test_db_session.commit()
+
+    user_id = random_auth0_id()
+    mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(
+        user_id=user_id, email="test@example.com", username="testuser"
+    )
+
+    mock_email_cls = mocker.patch(
+        "routers.biocommons_register.EmailService", autospec=True
+    )
+    mock_email_cls.return_value.send.return_value = None
+
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "test@example.com",
+        "username": "testuser",
+        "password": "StrongPass1!",
+        "bundle": "bpa-galaxy",
+    }
+
+    response = test_client_with_email.post(
+        "/biocommons/register", json=registration_data
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "User registered successfully"
+    assert "user" in response.json()
+
+    db_user = test_db_session.get(BiocommonsUser, user_id)
+    assert db_user is not None
+    assert db_user.username == "testuser"
+    assert db_user.email == "test@example.com"
+
+    assert len(db_user.group_memberships) == 1
+    assert db_user.group_memberships[0].group_id == "biocommons/group/bpa_galaxy"
+
+    assert len(db_user.platform_memberships) == 2
+    platform_ids = {pm.platform_id for pm in db_user.platform_memberships}
+    assert PlatformEnum.BPA_DATA_PORTAL in platform_ids
+    assert PlatformEnum.GALAXY in platform_ids
+
+    mock_email_cls.return_value.send.assert_called_once()
+
+
+def test_biocommons_registration_auth0_conflict_error(
+    test_client, mock_auth0_client, test_db_session
+):
+    """Test handling of Auth0 conflict error (user already exists)"""
+    from httpx import HTTPStatusError, Request, Response
+
+    from db.models import BiocommonsGroup
+
+    group = BiocommonsGroup(
+        group_id="biocommons/group/bpa_galaxy",
+        name="BPA Data Portal & Galaxy Access",
+        admin_roles=[],
+    )
+    test_db_session.add(group)
+    test_db_session.commit()
+
+    response = Response(409, json={"error": "user_exists"})
+    request = Request("POST", "https://example.com")
+    mock_auth0_client.create_user.side_effect = HTTPStatusError(
+        "User already exists", request=request, response=response
+    )
+
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "existing@example.com",
+        "username": "existinguser",
+        "password": "StrongPass1!",
+        "bundle": "bpa-galaxy",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "User already exists"
+
+
+def test_biocommons_registration_missing_group_error(test_client, mock_auth0_client):
+    """Test error when required group doesn't exist in database"""
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "test@example.com",
+        "username": "testuser",
+        "password": "StrongPass1!",
+        "bundle": "bpa-galaxy",
+    }
+
+    mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build()
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Internal server error"

@@ -15,6 +15,18 @@ from schemas.biocommons_register import BiocommonsRegistrationRequest
 
 logger = logging.getLogger(__name__)
 
+# Bundle configuration mapping bundle names to their groups and included platforms
+BUNDLES = {
+    "bpa-galaxy": {
+        "group_id": "biocommons/group/bpa_galaxy",
+        "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
+    },
+    "tsi": {
+        "group_id": "biocommons/group/tsi",
+        "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
+    },
+}
+
 router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"])
 
 
@@ -99,38 +111,25 @@ def _create_biocommons_user_record(
     session.add(db_user)
     session.flush()
 
-    # Map bundle to group information
-    bundle_group_map = {
-        "bpa-galaxy": {
-            "id": "biocommons/group/bpa_galaxy",
-            "name": "BPA Data Portal & Galaxy Access",
-        },
-        "tsi": {"id": "biocommons/group/tsi", "name": "Threatened Species Initiative"},
-    }
+    # Get bundle configuration
+    bundle_config = BUNDLES[registration.bundle]
+    group_id = bundle_config["group_id"]
 
-    group_info = bundle_group_map[registration.bundle]
-
-    # Create or get the BiocommonsGroup record
-    db_group = session.get(BiocommonsGroup, group_info["id"])
+    # Verify the group exists (this will raise an error if it doesn't)
+    db_group = session.get(BiocommonsGroup, group_id)
     if not db_group:
-        db_group = BiocommonsGroup(
-            group_id=group_info["id"],
-            name=group_info["name"],
-            admin_roles=[],
+        raise ValueError(
+            f"Group '{group_id}' not found. Groups must be pre-configured in the database."
         )
-        session.add(db_group)
-        session.flush()
 
     # Create group membership
     group_membership = db_user.add_group_membership(
-        group_id=group_info["id"], db_session=session, auto_approve=False
+        group_id=group_id, db_session=session, auto_approve=False
     )
     session.add(group_membership)
 
-    # Add platform memberships based on bundle
-    platforms_to_add = [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY]
-
-    for platform in platforms_to_add:
+    # Add platform memberships based on bundle configuration
+    for platform in bundle_config["platforms"]:
         platform_membership = db_user.add_platform_membership(
             platform=platform, db_session=session, auto_approve=False
         )
