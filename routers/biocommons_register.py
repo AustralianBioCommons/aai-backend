@@ -11,12 +11,15 @@ from config import Settings, get_settings
 from db.models import BiocommonsGroup, BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
-from schemas.biocommons_register import BiocommonsRegistrationRequest
+from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleType
 
 logger = logging.getLogger(__name__)
 
 # Bundle configuration mapping bundle names to their groups and included platforms
-BUNDLES = {
+# Note: Platforms listed here are auto-approved upon registration,
+# while group memberships require manual approval
+# Currently BPA Data Portal and Galaxy are auto-approved for all bundles
+BUNDLES: dict[BundleType, dict] = {
     "bpa-galaxy": {
         "group_id": "biocommons/group/bpa_galaxy",
         "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
@@ -131,7 +134,7 @@ def _create_biocommons_user_record(
     # Add platform memberships based on bundle configuration
     for platform in bundle_config["platforms"]:
         platform_membership = db_user.add_platform_membership(
-            platform=platform, db_session=session, auto_approve=False
+            platform=platform, db_session=session, auto_approve=True
         )
         session.add(platform_membership)
 

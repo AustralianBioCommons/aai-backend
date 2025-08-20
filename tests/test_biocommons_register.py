@@ -103,7 +103,7 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session):
     assert PlatformEnum.GALAXY in platform_ids
 
     for pm in user.platform_memberships:
-        assert pm.approval_status.value == "pending"
+        assert pm.approval_status.value == "approved"
 
 
 def test_create_biocommons_user_record_tsi_bundle(test_db_session):
