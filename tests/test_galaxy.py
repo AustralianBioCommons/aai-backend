@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
@@ -136,7 +137,6 @@ def test_register(mock_settings, test_client, mock_auth0_client, test_db_session
     assert membership_history.approval_status == "approved"
 
 
-
 @pytest.mark.respx(base_url="https://mock-domain")
 def test_register_json_types(mock_auth0_client, mock_settings, test_client, mock_galaxy_client, test_db_session):
     """
@@ -160,3 +160,67 @@ def test_register_requires_token(test_client):
     resp = test_client.post("/galaxy/register", json=user_data.model_dump())
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Missing registration token"
+
+
+def test_register_duplicate_galaxy_username(test_client, mock_galaxy_client):
+    """
+    Test we raise an error if the galaxy username is already taken
+    """
+    user_data = GalaxyRegistrationDataFactory.build()
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
+    headers = {"registration-token": token_resp.json()["token"]}
+    mock_galaxy_client.username_exists.return_value = True
+    resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
+    assert resp.status_code == 400
+    details = resp.json()
+    assert details["message"] == "Username already exists in Galaxy"
+    assert "username" in details["field_errors"][0]["field"]
+
+
+def test_register_duplicate_auth0_username(test_client, mock_galaxy_client, mock_auth0_client):
+    """Test registration with duplicate Auth0 username"""
+    user_data = GalaxyRegistrationDataFactory.build()
+    error = httpx.HTTPStatusError(
+        "User already exists",
+        request=httpx.Request("POST", "https://api.example.com/data"),
+        response=httpx.Response(409, text="Registration failed: User already exists"),
+    )
+    mock_galaxy_client.username_exists.return_value = False
+    mock_auth0_client.create_user.side_effect = error
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
+    headers = {"registration-token": token_resp.json()["token"]}
+    response = test_client.post("/galaxy/register", json=user_data.model_dump(mode="json"), headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username or email already in use"
+
+
+def test_register_generic_auth0_error(test_client, mock_galaxy_client, mock_auth0_client):
+    """Test registration error when Auth0 returns a generic error (that we don't have special handling for)"""
+    user_data = GalaxyRegistrationDataFactory.build()
+    error = httpx.HTTPStatusError(
+        "Generic error",
+        request=httpx.Request("POST", "https://api.example.com/data"),
+        response=httpx.Response(400, text="generic error"),
+    )
+    mock_galaxy_client.username_exists.return_value = False
+    mock_auth0_client.create_user.side_effect = error
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
+    headers = {"registration-token": token_resp.json()["token"]}
+    response = test_client.post("/galaxy/register", json=user_data.model_dump(mode="json"), headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Auth0 error: generic error"
+
+
+def test_register_invalid_email(test_client):
+    user_data = GalaxyRegistrationDataFactory.build()
+    user_data.email = "invalid-email"
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
+    headers = {"registration-token": token_resp.json()["token"]}
+    response = test_client.post("/galaxy/register", json=user_data.model_dump(mode="json"), headers=headers)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid data submitted"
+    field_errors = response.json()["field_errors"]
+    assert field_errors[0]["field"] == "email"
