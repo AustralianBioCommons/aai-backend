@@ -27,7 +27,7 @@ def test_galaxy_registration_data_password_match():
     with pytest.raises(ValidationError, match="Passwords do not match"):
         GalaxyRegistrationData(email="user@example.com",
                                password="SecurePassword123!",
-                               password_confirmation="OtherPassword123!",
+                               confirmPassword="OtherPassword123!",
                                username="valid_username")
 
 
@@ -64,7 +64,7 @@ def test_to_biocommons_register_data():
     data = GalaxyRegistrationData(
         email="user@example.com",
         password="SecurePassword123!",
-        password_confirmation="SecurePassword123!",
+        confirmPassword="SecurePassword123!",
         username="valid_username"
     )
 
@@ -87,7 +87,7 @@ def test_to_biocommons_register_data_empty_fields():
     data = GalaxyRegistrationData(
         email="user@example.com",
         password="SecurePassword123!",
-        password_confirmation="SecurePassword123!",
+        confirmPassword="SecurePassword123!",
         username="valid_username"
     )
 

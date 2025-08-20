@@ -40,9 +40,9 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
 class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
     @post_generated
     @classmethod
-    def password_confirmation(cls, password: str) -> str:
+    def confirmPassword(cls, password: str) -> str:
         """
-        Use the same value as password for password_confirmation.
+        Use the same value as password for confirmPassword.
         """
         return password
 
