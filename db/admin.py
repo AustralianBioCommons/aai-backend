@@ -16,6 +16,8 @@ from db.models import (
     BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
+    PlatformMembership,
+    PlatformMembershipHistory,
 )
 from db.setup import get_engine
 
@@ -75,7 +77,7 @@ class AdminAuth(AuthenticationBackend):
 class BiocommonsUserAdmin(ModelView, model=BiocommonsUser):
     can_edit = False
     can_create = False
-    can_delete = False
+    can_delete = True
     column_list = ["id", "username", "email", "created_at"]
     column_default_sort = ("created_at", True)
 
@@ -124,6 +126,36 @@ class GroupMembershipHistoryAdmin(ModelView, model=GroupMembershipHistory):
         "approval_status",
         "updated_at",
         "updated_by_email",
+    ]
+    column_default_sort = ("updated_at", True)
+
+
+class PlatformMembershipAdmin(ModelView, model=PlatformMembership):
+    can_edit = False
+    can_create = False
+    can_delete = True
+    column_list = [
+        "id",
+        "platform_id",
+        "user_id",
+        "approval_status",
+        "updated_at",
+        "updated_by"
+    ]
+    column_default_sort = ("updated_at", True)
+
+
+class PlatformMembershipHistoryAdmin(ModelView, model=PlatformMembershipHistory):
+    can_edit = False
+    can_create = False
+    can_delete = True
+    column_list = [
+        "id",
+        "platform_id",
+        "user_id",
+        "approval_status",
+        "updated_at",
+        "updated_by"
     ]
     column_default_sort = ("updated_at", True)
 
