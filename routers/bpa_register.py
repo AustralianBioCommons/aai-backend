@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
+from starlette.responses import JSONResponse
 
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
@@ -122,7 +123,7 @@ async def register_bpa_user(
             response = RegistrationErrorResponse(message="Username or email already in use")
         else:
             response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
-        return response
+        return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
     # Unknown errors should return 500
     except Exception as e:
         raise HTTPException(
