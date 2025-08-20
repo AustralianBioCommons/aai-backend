@@ -33,15 +33,17 @@ class BiocommonsUser(BaseModel, table=True):
     #   Use a separate data model to validate this
     email: str = Field(unique=True)
     username: str = Field(unique=True)
-    created_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    created_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    )
 
     platform_memberships: list["PlatformMembership"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id"}
+        sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id"},
     )
     group_memberships: list["GroupMembership"] = Relationship(
         back_populates="user",
-        sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id"}
+        sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id"},
     )
 
     @classmethod
@@ -57,14 +59,12 @@ class BiocommonsUser(BaseModel, table=True):
         """
         Create a new BiocommonsUser object from Auth0 user data (no API call).
         """
-        return cls(
-            id=data.user_id,
-            email=data.email,
-            username=data.username
-        )
+        return cls(id=data.user_id, email=data.email, username=data.username)
 
     @classmethod
-    def get_or_create(cls, auth0_id: str, db_session: Session, auth0_client: Auth0Client) -> Self:
+    def get_or_create(
+        cls, auth0_id: str, db_session: Session, auth0_client: Auth0Client
+    ) -> Self:
         """
         Get the user from the DB, or create it from Auth0 data if it doesn't exist.
         """
@@ -75,12 +75,29 @@ class BiocommonsUser(BaseModel, table=True):
             db_session.commit()
         return user
 
-    def add_platform_membership(self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False) -> "PlatformMembership":
+    def add_platform_membership(
+        self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False
+    ) -> "PlatformMembership":
         membership = PlatformMembership(
             platform_id=platform,
             user=self,
-            approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
+            approval_status=ApprovalStatusEnum.APPROVED
+            if auto_approve
+            else ApprovalStatusEnum.PENDING,
             updated_by=None,
+        )
+        db_session.add(membership)
+        membership.save_history(db_session)
+        return membership
+
+    def add_group_membership(
+        self, group_id: str, db_session: Session, auto_approve: bool = False
+    ) -> "GroupMembership":
+        membership = GroupMembership(
+            group_id=group_id,
+            user_id=self.id,
+            approval_status=ApprovalStatusEnum.PENDING,
+            updated_by_id=None,
         )
         db_session.add(membership)
         membership.save_history(db_session)
@@ -94,15 +111,32 @@ class PlatformMembership(BaseModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     user_id: str = Field(foreign_key="biocommons_user.id")
-    user: "BiocommonsUser" = Relationship(back_populates="platform_memberships",
-                                          sa_relationship_kwargs={"foreign_keys": "PlatformMembership.user_id",})
-    approval_status: ApprovalStatusEnum = Field(sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum"))
-    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    user: "BiocommonsUser" = Relationship(
+        back_populates="platform_memberships",
+        sa_relationship_kwargs={
+            "foreign_keys": "PlatformMembership.user_id",
+        },
+    )
+    approval_status: ApprovalStatusEnum = Field(
+        sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
+    )
+    updated_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    )
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
-    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembership.updated_by_id",})
+    updated_by: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "PlatformMembership.updated_by_id",
+        }
+    )
 
-    def save_history(self, session: Session) -> 'PlatformMembershipHistory':
+    def save_history(self, session: Session) -> "PlatformMembershipHistory":
+        # Make sure this object is in the session before accessing relationships
+        if self not in session:
+            session.add(self)
+        session.flush()  # Ensure relationships are loaded
+
         history = PlatformMembershipHistory(
             platform_id=self.platform_id,
             user=self.user,
@@ -114,17 +148,27 @@ class PlatformMembership(BaseModel, table=True):
         return history
 
 
-
-
 class PlatformMembershipHistory(BaseModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     user_id: str = Field(foreign_key="biocommons_user.id")
-    user: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembershipHistory.user_id",})
-    approval_status: ApprovalStatusEnum = Field(sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum"))
-    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    user: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "PlatformMembershipHistory.user_id",
+        }
+    )
+    approval_status: ApprovalStatusEnum = Field(
+        sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
+    )
+    updated_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    )
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
-    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "PlatformMembershipHistory.updated_by_id",})
+    updated_by: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "PlatformMembershipHistory.updated_by_id",
+        }
+    )
 
 
 class GroupMembership(BaseModel, table=True):
@@ -133,6 +177,7 @@ class GroupMembership(BaseModel, table=True):
     Note: only one row per user/group, the approval history
     is kept separately in the GroupMembershipHistory table
     """
+
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="user_group_pairing"),
     )
@@ -140,22 +185,34 @@ class GroupMembership(BaseModel, table=True):
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
     group: "BiocommonsGroup" = Relationship(back_populates="members")
     user_id: str = Field(foreign_key="biocommons_user.id")
-    user: "BiocommonsUser" = Relationship(back_populates="group_memberships",
-                                          sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id",})
+    user: "BiocommonsUser" = Relationship(
+        back_populates="group_memberships",
+        sa_relationship_kwargs={
+            "foreign_keys": "GroupMembership.user_id",
+        },
+    )
     approval_status: ApprovalStatusEnum = Field(
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
-    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    updated_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    )
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
-    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "GroupMembership.updated_by_id",})
+    updated_by: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "GroupMembership.updated_by_id",
+        }
+    )
 
     @classmethod
-    def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> Self | None:
+    def get_by_user_id(
+        cls, user_id: str, group_id: str, session: Session
+    ) -> Self | None:
         return session.exec(
-            select(GroupMembership)
-            .where(GroupMembership.user_id == user_id,
-                   GroupMembership.group_id == group_id)
+            select(GroupMembership).where(
+                GroupMembership.user_id == user_id, GroupMembership.group_id == group_id
+            )
         ).one_or_none()
 
     def save(self, session: Session, commit: bool = True) -> Self:
@@ -169,7 +226,14 @@ class GroupMembership(BaseModel, table=True):
             session.commit()
         return self
 
-    def save_history(self, session: Session, commit: bool = True) -> 'GroupMembershipHistory':
+    def save_history(
+        self, session: Session, commit: bool = True
+    ) -> "GroupMembershipHistory":
+        # Make sure this object is in the session before accessing relationships
+        if self not in session:
+            session.add(self)
+        session.flush()
+
         history = GroupMembershipHistory(
             group=self.group,
             user=self.user,
@@ -194,25 +258,40 @@ class GroupMembershipHistory(BaseModel, table=True):
     """
     Stores the full history of approval decisions for each user
     """
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
     group: "BiocommonsGroup" = Relationship(back_populates="approval_history")
     user_id: str = Field(foreign_key="biocommons_user.id")
-    user: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "GroupMembershipHistory.user_id",})
+    user: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "GroupMembershipHistory.user_id",
+        }
+    )
     approval_status: ApprovalStatusEnum = Field(
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
-    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime)
+    updated_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    )
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
-    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "GroupMembershipHistory.updated_by_id",})
+    updated_by: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "GroupMembershipHistory.updated_by_id",
+        }
+    )
 
     @classmethod
-    def get_by_user_id(cls, user_id: str, group_id: str, session: Session) -> list[Self] | None:
+    def get_by_user_id(
+        cls, user_id: str, group_id: str, session: Session
+    ) -> list[Self] | None:
         return session.exec(
             select(GroupMembershipHistory)
-            .where(GroupMembershipHistory.user_id == user_id,
-                   GroupMembershipHistory.group_id == group_id)
+            .where(
+                GroupMembershipHistory.user_id == user_id,
+                GroupMembershipHistory.group_id == group_id,
+            )
             .order_by(GroupMembershipHistory.updated_at.desc())
         ).all()
 
@@ -226,10 +305,14 @@ class Auth0Role(BaseModel, table=True):
     id: str = Field(primary_key=True, unique=True)
     name: str
     description: str = Field(default="")
-    admin_groups: list["BiocommonsGroup"] = Relationship(back_populates="admin_roles", link_model=GroupRoleLink)
+    admin_groups: list["BiocommonsGroup"] = Relationship(
+        back_populates="admin_roles", link_model=GroupRoleLink
+    )
 
     @classmethod
-    def get_or_create_by_id(cls, auth0_id: str, session: Session, auth0_client: Auth0Client) -> Self:
+    def get_or_create_by_id(
+        cls, auth0_id: str, session: Session, auth0_client: Auth0Client
+    ) -> Self:
         # Try to get from the DB
         role = session.get(Auth0Role, auth0_id)
         if role is not None:
@@ -237,18 +320,20 @@ class Auth0Role(BaseModel, table=True):
         # Try to get from the API and save to the DB
         role_data = auth0_client.get_role_by_id(role_id=auth0_id)
         role = cls(
-            id=role_data.id,
-            name=role_data.name,
-            description=role_data.description
+            id=role_data.id, name=role_data.name, description=role_data.description
         )
         session.add(role)
         session.commit()
         return role
 
     @classmethod
-    def get_or_create_by_name(cls, name: str, session: Session, auth0_client: Auth0Client = None) -> Self:
+    def get_or_create_by_name(
+        cls, name: str, session: Session, auth0_client: Auth0Client = None
+    ) -> Self:
         # Try to get from the DB
-        role = session.exec(select(Auth0Role).where(Auth0Role.name == name)).one_or_none()
+        role = session.exec(
+            select(Auth0Role).where(Auth0Role.name == name)
+        ).one_or_none()
         if role is not None:
             return role
         # Try to get from the API and save to the DB
@@ -265,9 +350,13 @@ class BiocommonsGroup(BaseModel, table=True):
     # Human-readable name for the group
     name: str = Field(unique=True)
     # List of roles that are allowed to approve group membership
-    admin_roles: list[Auth0Role] = Relationship(back_populates="admin_groups", link_model=GroupRoleLink)
+    admin_roles: list[Auth0Role] = Relationship(
+        back_populates="admin_groups", link_model=GroupRoleLink
+    )
     members: list[GroupMembership] = Relationship(back_populates="group")
-    approval_history: list[GroupMembershipHistory] = Relationship(back_populates="group")
+    approval_history: list[GroupMembershipHistory] = Relationship(
+        back_populates="group"
+    )
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
         """

@@ -8,7 +8,15 @@ from starlette.middleware.sessions import SessionMiddleware
 # This has to be imported even if unused
 from db import models  # noqa: F401
 from db.admin import DatabaseAdmin
-from routers import admin, biocommons_groups, bpa_register, galaxy_register, user, utils
+from routers import (
+    admin,
+    biocommons_groups,
+    biocommons_register,
+    bpa_register,
+    galaxy_register,
+    user,
+    utils,
+)
 
 # Load .env to get CORS_ALLOWED_ORIGINS.
 # Note that for most env variables, we use pydantic-settings
@@ -26,9 +34,11 @@ async def lifespan(app: FastAPI):
     # NOTE: we only create the database and tables automatically in development:
     # we assume that if the DB is an sqlite DB, we are in dev.
     from db.setup import create_db_and_tables
+
     create_db_and_tables()
     DatabaseAdmin.setup(app=app, secret_key=SECRET_KEY)
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
@@ -48,6 +58,7 @@ def public_route():
 
 app.include_router(admin.router)
 app.include_router(user.router)
+app.include_router(biocommons_register.router)
 app.include_router(bpa_register.router)
 app.include_router(galaxy_register.router)
 app.include_router(utils.router)
