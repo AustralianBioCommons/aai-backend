@@ -12,4 +12,4 @@ class RegistrationErrorResponse(BaseModel):
     errors for individual fields where possible
     """
     message: str = Field(description="Overall error message")
-    field_errors: list[FieldError] = []
+    field_errors: list[FieldError] = Field(default_factory=list)
