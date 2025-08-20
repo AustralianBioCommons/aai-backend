@@ -1,6 +1,6 @@
 from typing import Self
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, model_validator
 
 from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
 
@@ -10,10 +10,10 @@ class GalaxyRegistrationData(BaseModel):
     # TODO: Update name of this field in frontend from
     username: BiocommonsUsername
     password: BiocommonsPassword
-    confirm_password: str = Field(alias='confirmPassword')
+    confirmPassword: str
 
     @model_validator(mode='after')
     def check_passwords_match(self) -> Self:
-        if self.password != self.confirm_password:
+        if self.password != self.confirmPassword:
             raise ValueError('Passwords do not match')
         return self
