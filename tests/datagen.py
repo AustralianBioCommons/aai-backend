@@ -43,7 +43,7 @@ class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
     @classmethod
     def password_confirmation(cls, password: str) -> str:
         """
-        Use the same value as password for password_confirmation.
+        Use the same value as password for confirm_password.
         """
         return password
 
