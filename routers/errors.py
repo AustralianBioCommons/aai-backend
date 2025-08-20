@@ -14,6 +14,10 @@ from schemas.responses import FieldError, RegistrationErrorResponse
 
 
 class RegistrationRoute(APIRoute):
+    """
+    Custom route class for registration requests, returns RegistrationErrorResponse
+    for validation errors.
+    """
     def get_route_handler(self) -> Callable:
         original_route_handler = super().get_route_handler()
 
