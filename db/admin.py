@@ -171,6 +171,8 @@ class DatabaseAdmin:
         Auth0RoleAdmin,
         GroupMembershipAdmin,
         GroupMembershipHistoryAdmin,
+        PlatformMembershipAdmin,
+        PlatformMembershipHistoryAdmin,
     )
 
     def __init__(self, app: FastAPI, secret_key: str):
