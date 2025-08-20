@@ -4,7 +4,9 @@ from typing import Annotated, Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 from fastapi.params import Depends
+from httpx import HTTPStatusError
 from sqlmodel import Session
+from starlette.responses import JSONResponse
 
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
@@ -12,13 +14,17 @@ from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from galaxy.client import GalaxyClient, get_galaxy_client
 from register.tokens import create_registration_token, verify_registration_token
+from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
+from schemas.responses import FieldError, RegistrationErrorResponse
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/galaxy", tags=["galaxy", "registration"]
+    prefix="/galaxy",
+    tags=["galaxy", "registration"],
+    route_class=RegistrationRoute
 )
 
 
@@ -48,15 +54,25 @@ def register(
     try:
         existing = galaxy_client.username_exists(galaxy_username)
         if existing:
-            raise HTTPException(status_code=400, detail="Username already exists in galaxy")
+            username_error = FieldError(field="username", message="Username already exists in Galaxy")
+            error_response = RegistrationErrorResponse(
+                message="Username already exists in Galaxy",
+                field_errors=[username_error]
+            )
+            return JSONResponse(status_code=400, content=error_response.model_dump(mode="json"))
     except httpx.HTTPError as e:
         logger.warning(f"Failed to check username in Galaxy: {e}")
 
     try:
         logger.info("Registering user with Auth0")
         auth0_user_data = auth0_client.create_user(user_data)
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=f'Registration failed: {e}')
+    except HTTPStatusError as e:
+        # Catch specific errors where possible and return a useful error message
+        if e.response.status_code == 409:
+            response = RegistrationErrorResponse(message="Username or email already in use")
+        else:
+            response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
+        return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
     # Add to database and record Galaxy membership
     logger.info("Adding user to DB")
     _create_galaxy_user_record(auth0_user_data, db_session)
