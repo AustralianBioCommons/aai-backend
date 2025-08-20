@@ -144,8 +144,8 @@ def test_registration_duplicate_user(
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Registration failed: User already exists"
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username or email already in use"
 
 
 def test_registration_auth0_error(
@@ -155,15 +155,14 @@ def test_registration_auth0_error(
     error = httpx.HTTPStatusError(
         "User already exists",
         request=httpx.Request("POST", "https://api.example.com/data"),
-        response=httpx.Response(400, text="Registration failed: Invalid request"),
+        response=httpx.Response(400, text="Something went wrong"),
     )
     mock_auth0_client.create_user.side_effect = error
-
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Registration failed: Invalid request"
+    assert response.json()["message"] == "Auth0 error: Something went wrong"
 
 
 def test_registration_with_invalid_organization(
@@ -189,7 +188,10 @@ def test_registration_request_validation(test_client):
 
     response = test_client.post("/bpa/register", json=invalid_data)
 
-    assert response.status_code == 422
+    assert response.status_code == 400
+    error_data = response.json()
+    assert error_data["message"] == "Invalid data submitted"
+    assert any(error["field"] == "email" for error in error_data["field_errors"])
 
 
 def test_no_selected_organizations(
@@ -238,8 +240,10 @@ def test_registration_email_format(test_client, valid_registration_data):
 
     response = test_client.post("/bpa/register", json=data)
 
-    assert response.status_code == 422
-    assert "email" in response.json()["detail"][0]["loc"]
+    assert response.status_code == 400
+    details = response.json()
+    errors = details["field_errors"]
+    assert "email" in [error["field"] for error in errors]
 
 
 def test_all_organizations_selected(
