@@ -29,6 +29,7 @@ class GalaxyClient:
         for an exact match.
         """
         resp = self.client.get("/api/users", params={"f_name": username})
+        resp.raise_for_status()
         returned_users = [GalaxyUserModel(**u) for u in resp.json()]
         for user in returned_users:
             if user.username == username:
