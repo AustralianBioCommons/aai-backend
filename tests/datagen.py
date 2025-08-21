@@ -38,6 +38,10 @@ class BiocommonsRegisterDataFactory(ModelFactory[BiocommonsRegisterData]):
     def connection(cls) -> str:
         return "Username-Password-Authentication"
 
+
+class BiocommonsRegistrationRequestFactory(ModelFactory[BiocommonsRegistrationRequest]): ...
+
+
 class SessionUserFactory(ModelFactory[SessionUser]): ...
 
 

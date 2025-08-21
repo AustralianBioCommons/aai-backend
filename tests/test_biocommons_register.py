@@ -2,7 +2,10 @@ import pytest
 
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
-from tests.datagen import Auth0UserDataFactory
+from tests.datagen import (
+    Auth0UserDataFactory,
+    BiocommonsRegistrationRequestFactory,
+)
 
 
 def test_biocommons_registration_data_excludes_null_user_metadata():
@@ -35,6 +38,17 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
     assert app_metadata["registration_from"] == "biocommons"
     assert app_metadata.get("services", []) == []
     assert app_metadata.get("groups", []) == []
+
+
+def test_biocommons_registration_invalid_field(test_client):
+    user_data = BiocommonsRegistrationRequestFactory.build()
+    user_data.email = "invalid-email"
+    response = test_client.post("/biocommons/register", json=user_data.model_dump(mode="json"))
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid data submitted"
+    field_errors = response.json()["field_errors"]
+    assert field_errors[0]["field"] == "email"
 
 
 def test_biocommons_registration_tsi_bundle():
