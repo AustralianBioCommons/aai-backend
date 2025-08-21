@@ -45,7 +45,8 @@ def create_group(
     """
     # Check group exists in Auth0
     try:
-        auth0_client.get_role_by_name(group_info.name)
+        # Note: our "group ids" are actually the Auth0 role names
+        auth0_client.get_role_by_name(name=group_info.group_id)
     except ValueError:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
