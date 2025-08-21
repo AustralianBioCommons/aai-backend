@@ -4,6 +4,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
+from httpx import HTTPStatusError, Request, Response
 from jose import jwt
 from pydantic import ValidationError
 from sqlmodel import select
@@ -28,7 +29,7 @@ def test_galaxy_registration_data_password_match():
     with pytest.raises(ValidationError, match="Passwords do not match"):
         GalaxyRegistrationData(email="user@example.com",
                                password="SecurePassword123!",
-                               password_confirmation="OtherPassword123!",
+                               confirmPassword="OtherPassword123!",
                                username="valid_username")
 
 
@@ -65,7 +66,7 @@ def test_to_biocommons_register_data():
     data = GalaxyRegistrationData(
         email="user@example.com",
         password="SecurePassword123!",
-        password_confirmation="SecurePassword123!",
+        confirmPassword="SecurePassword123!",
         username="valid_username"
     )
 
@@ -88,7 +89,7 @@ def test_to_biocommons_register_data_empty_fields():
     data = GalaxyRegistrationData(
         email="user@example.com",
         password="SecurePassword123!",
-        password_confirmation="SecurePassword123!",
+        confirmPassword="SecurePassword123!",
         username="valid_username"
     )
 
@@ -224,3 +225,24 @@ def test_register_invalid_email(test_client):
     assert response.json()["message"] == "Invalid data submitted"
     field_errors = response.json()["field_errors"]
     assert field_errors[0]["field"] == "email"
+
+
+def test_register_galaxy_error(test_client, mock_galaxy_client, mock_auth0_client, test_db_session):
+    """
+    Test registration can continue if there's an error with the Galaxy API - don't
+    want this to block registration
+    """
+    # Generate user data to be returned in the response
+    # (doesn't have to match the registration data for now)
+    auth0_user_data = Auth0UserDataFactory.build()
+    mock_auth0_client.create_user.return_value = auth0_user_data
+    user_data = GalaxyRegistrationDataFactory.build()
+    token_resp = test_client.get("/galaxy/register/get-registration-token")
+    headers = {"registration-token": token_resp.json()["token"]}
+    mock_galaxy_client.username_exists.side_effect = HTTPStatusError(
+        message="Galaxy error",
+        request=Request(method="get", url="http://galaxy.example.com"),
+        response=Response(status_code=500)
+    )
+    resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
+    assert resp.status_code == 200

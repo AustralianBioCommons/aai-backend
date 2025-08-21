@@ -4,6 +4,7 @@ Schemas for how we represent users in Auth0 for BioCommons.
 These are the core schemas we use for storing/representing users
 and their metadata
 """
+
 import re
 from datetime import datetime, timezone
 from typing import Annotated, List, Literal, Optional, Self
@@ -16,11 +17,17 @@ from schemas.service import Group, Identity
 
 # From Auth0 password settings
 ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
-VALID_PASSWORD_REGEX = re.compile(f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$")
+VALID_PASSWORD_REGEX = re.compile(
+    f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$"
+)
 
 AppId = Literal["biocommons", "galaxy", "bpa"]
-BiocommonsUsername = Annotated[str, StringConstraints(min_length=3, max_length=128, pattern='^[-_a-z0-9]+$')]
-BiocommonsPassword = Annotated[str, StringConstraints(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX)]
+BiocommonsUsername = Annotated[
+    str, StringConstraints(min_length=3, max_length=128, pattern="^[-_a-z0-9]+$")
+]
+BiocommonsPassword = Annotated[
+    str, StringConstraints(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX)
+]
 
 
 class BPAMetadata(BaseModel):
@@ -32,6 +39,7 @@ class BiocommonsUserMetadata(BaseModel):
     User metadata we use for user-changeable data
     like preferred usernames
     """
+
     bpa: Optional[BPAMetadata] = None
 
 
@@ -41,6 +49,7 @@ class BiocommonsAppMetadata(BaseModel):
     Note we expect all app_metadata from Auth0 to match this format
     (if not empty).
     """
+
     groups: List[Group] = Field(default_factory=list)
     services: List[Service] = Field(default_factory=list)
     registration_from: Optional[AppId] = None
@@ -69,7 +78,9 @@ class BiocommonsAppMetadata(BaseModel):
         """Get a service by its ID."""
         return next((s for s in self.services if s.id == service_id), None)
 
-    def get_resource_by_id(self, service_id: str, resource_id: str) -> Optional[Resource]:
+    def get_resource_by_id(
+        self, service_id: str, resource_id: str
+    ) -> Optional[Resource]:
         """Get a resource by its ID."""
         service = self.get_service_by_id(service_id)
         if service:
@@ -96,7 +107,9 @@ class BiocommonsAppMetadata(BaseModel):
 
         resource = service.get_resource_by_id(resource_id)
         if not resource:
-            raise ValueError(f"Resource '{resource_id}' not found in service '{service_id}'.")
+            raise ValueError(
+                f"Resource '{resource_id}' not found in service '{service_id}'."
+            )
 
         resource.status = "approved"
         resource.last_updated = datetime.now(timezone.utc)
@@ -107,6 +120,7 @@ class BiocommonsRegisterData(BaseModel):
     """
     Data we send to the /api/v2/users endpoint to register a user
     """
+
     email: EmailStr
     email_verified: bool = False
     password: BiocommonsPassword
@@ -116,11 +130,17 @@ class BiocommonsRegisterData(BaseModel):
     user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 
+    def model_dump(self, **kwargs):
+        """Override model_dump to exclude user_metadata when it's None"""
+        data = super().model_dump(**kwargs)
+        if data.get("user_metadata") is None:
+            data.pop("user_metadata", None)
+        return data
+
     @classmethod
     def from_bpa_registration(
-            cls,
-            registration: 'schemas.bpa.BPARegistrationRequest',
-            bpa_service: Service) -> Self:
+        cls, registration: "schemas.bpa.BPARegistrationRequest", bpa_service: Service
+    ) -> Self:
         return cls(
             email=registration.email,
             password=registration.password,
@@ -130,15 +150,15 @@ class BiocommonsRegisterData(BaseModel):
                 bpa=BPAMetadata(registration_reason=registration.reason),
             ),
             app_metadata=BiocommonsAppMetadata(
-                services=[bpa_service],
-                registration_from="bpa"
+                services=[bpa_service], registration_from="bpa"
             ),
         )
 
     @classmethod
     def from_galaxy_registration(
-            cls,
-            registration: 'schemas.galaxy.GalaxyRegistrationData',):
+        cls,
+        registration: "schemas.galaxy.GalaxyRegistrationData",
+    ):
         # Galaxy registration is approved automatically
         galaxy_service = Service(
             name="Galaxy Australia",
@@ -146,7 +166,7 @@ class BiocommonsRegisterData(BaseModel):
             initial_request_time=datetime.now(),
             status="approved",
             last_updated=datetime.now(),
-            updated_by=""
+            updated_by="",
         )
         return BiocommonsRegisterData(
             email=registration.email,
@@ -155,8 +175,24 @@ class BiocommonsRegisterData(BaseModel):
             email_verified=False,
             connection="Username-Password-Authentication",
             app_metadata=BiocommonsAppMetadata(
-                services=[galaxy_service],
-                registration_from='galaxy'
+                services=[galaxy_service], registration_from="galaxy"
+            ),
+        )
+
+    @classmethod
+    def from_biocommons_registration(
+        cls,
+        registration: "schemas.biocommons_register.BiocommonsRegistrationRequest",
+    ):
+        return BiocommonsRegisterData(
+            email=registration.email,
+            username=registration.username,
+            password=registration.password,
+            name=f"{registration.first_name} {registration.last_name}",
+            email_verified=False,
+            connection="Username-Password-Authentication",
+            app_metadata=BiocommonsAppMetadata(
+                registration_from="biocommons",
             ),
         )
 
@@ -166,6 +202,7 @@ class Auth0UserData(BaseModel):
     Represents the user data we get back from Auth0 for Biocommons users
     (with our user and app metadata, if defined).
     """
+
     created_at: datetime
     email: EmailStr
     username: BiocommonsUsername

@@ -1,3 +1,5 @@
+import json
+
 import pytest
 import respx
 from httpx import Response
@@ -5,6 +7,7 @@ from httpx import Response
 from auth0.client import UsersWithTotals
 from tests.datagen import (
     Auth0UserDataFactory,
+    BiocommonsRegisterDataFactory,
     random_auth0_id,
     random_auth0_role_id,
 )
@@ -131,3 +134,34 @@ def test_add_roles_to_user(test_auth0_client):
     call_data = route.calls[0].request.content
     # Check role_id is passed as a list
     assert call_data == b'{"roles":["' +role_id.encode() + b'"]}'
+
+
+@respx.mock
+def test_create_user(test_auth0_client):
+    """
+    Test that we call the Auth0 API to create a user with the data we expect
+    """
+    register_data = BiocommonsRegisterDataFactory.build()
+    # Mock the response from the Auth0 API, non-matching data
+    auth0_data = Auth0UserDataFactory.build()
+    route = respx.post("https://auth0.example.com/api/v2/users").respond(201, json=auth0_data.model_dump(mode="json"))
+    test_auth0_client.create_user(register_data)
+    assert route.called
+    assert json.loads(route.calls.last.request.content) == register_data.model_dump(mode="json", exclude_none=True)
+
+
+@respx.mock
+def test_create_user_omits_none(test_auth0_client):
+    """
+    Test that None/null fields are omitted from the request to Auth0 API
+    """
+    register_data = BiocommonsRegisterDataFactory.build(name=None, user_metadata=None)
+    # Mock the response from the Auth0 API, non-matching data
+    auth0_data = Auth0UserDataFactory.build()
+    route = respx.post("https://auth0.example.com/api/v2/users").respond(201, json=auth0_data.model_dump(mode="json"))
+    test_auth0_client.create_user(register_data)
+    assert route.called
+    call_data = json.loads(route.calls.last.request.content)
+    assert call_data == register_data.model_dump(mode="json", exclude_none=True)
+    assert "name" not in call_data
+    assert "user_metadata" not in call_data

@@ -13,8 +13,11 @@ from config import get_settings
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
+    BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
+    PlatformMembership,
+    PlatformMembershipHistory,
 )
 from db.setup import get_engine
 
@@ -32,11 +35,11 @@ def setup_oauth():
         api_base_url=f"https://{settings.auth0_domain}",
         access_token_url=f"https://{settings.auth0_domain}/oauth/token",
         authorize_url=f"https://{settings.auth0_domain}/authorize",
-        server_metadata_url=f'https://{settings.auth0_domain}/.well-known/openid-configuration',
+        server_metadata_url=f"https://{settings.auth0_domain}/.well-known/openid-configuration",
         client_kwargs={
             "scope": "openid profile email",
-            "audience": settings.auth0_audience
-        }
+            "audience": settings.auth0_audience,
+        },
     )
     return oauth.create_client("auth0")
 
@@ -63,12 +66,20 @@ class AdminAuth(AuthenticationBackend):
         roles = request.session.get("biocommons_roles")
         if not roles:
             print("Redirecting to Auth0 for login.")
-            redirect_uri = request.url_for('login_auth0')
+            redirect_uri = request.url_for("login_auth0")
             return await self.auth0_client.authorize_redirect(request, redirect_uri)
         for role in roles:
             if role in settings.admin_roles:
                 return True
         return False
+
+
+class BiocommonsUserAdmin(ModelView, model=BiocommonsUser):
+    can_edit = False
+    can_create = False
+    can_delete = True
+    column_list = ["id", "username", "email", "created_at"]
+    column_default_sort = ("created_at", True)
 
 
 class GroupAdmin(ModelView, model=BiocommonsGroup):
@@ -88,10 +99,18 @@ class GroupMembershipAdmin(ModelView, model=GroupMembership):
     can_edit = False
     can_create = False
     can_delete = False
-    column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
+    column_list = [
+        "name",
+        "group_id",
+        "user_email",
+        "user_id",
+        "approval_status",
+        "updated_at",
+        "updated_by_email",
+    ]
     column_filters = [
         AllUniqueStringValuesFilter(GroupMembership.group_id),
-        AllUniqueStringValuesFilter(GroupMembership.approval_status)
+        AllUniqueStringValuesFilter(GroupMembership.approval_status),
     ]
 
 
@@ -99,7 +118,45 @@ class GroupMembershipHistoryAdmin(ModelView, model=GroupMembershipHistory):
     can_edit = False
     can_create = False
     can_delete = False
-    column_list = ["name", "group_id", "user_email", "user_id", "approval_status", "updated_at", "updated_by_email"]
+    column_list = [
+        "name",
+        "group_id",
+        "user_email",
+        "user_id",
+        "approval_status",
+        "updated_at",
+        "updated_by_email",
+    ]
+    column_default_sort = ("updated_at", True)
+
+
+class PlatformMembershipAdmin(ModelView, model=PlatformMembership):
+    can_edit = False
+    can_create = False
+    can_delete = True
+    column_list = [
+        "id",
+        "platform_id",
+        "user_id",
+        "approval_status",
+        "updated_at",
+        "updated_by"
+    ]
+    column_default_sort = ("updated_at", True)
+
+
+class PlatformMembershipHistoryAdmin(ModelView, model=PlatformMembershipHistory):
+    can_edit = False
+    can_create = False
+    can_delete = True
+    column_list = [
+        "id",
+        "platform_id",
+        "user_id",
+        "approval_status",
+        "updated_at",
+        "updated_by"
+    ]
     column_default_sort = ("updated_at", True)
 
 
@@ -107,7 +164,16 @@ class DatabaseAdmin:
     """
     Sets up the Admin app for the database.
     """
-    views = (GroupAdmin, Auth0RoleAdmin, GroupMembershipAdmin, GroupMembershipHistoryAdmin,)
+
+    views = (
+        BiocommonsUserAdmin,
+        GroupAdmin,
+        Auth0RoleAdmin,
+        GroupMembershipAdmin,
+        GroupMembershipHistoryAdmin,
+        PlatformMembershipAdmin,
+        PlatformMembershipHistoryAdmin,
+    )
 
     def __init__(self, app: FastAPI, secret_key: str):
         self.app = app
@@ -116,8 +182,10 @@ class DatabaseAdmin:
             app,
             engine=get_engine(),
             base_url="/db_admin",
-            authentication_backend=AdminAuth(secret_key=secret_key, auth0_client=self.auth0_client),
-            title="AAI Backend Admin"
+            authentication_backend=AdminAuth(
+                secret_key=secret_key, auth0_client=self.auth0_client
+            ),
+            title="AAI Backend Admin",
         )
         self.admin.app.router.add_route("/auth/auth0", self.login_auth0)
 
@@ -138,6 +206,8 @@ class DatabaseAdmin:
         if not payload:
             raise HTTPException(status_code=401, detail="Could not verify JWT.")
         if not payload.has_admin_role(settings):
-            raise HTTPException(status_code=401, detail="User does not have admin role.")
-        request.session['biocommons_roles'] = payload.biocommons_roles
+            raise HTTPException(
+                status_code=401, detail="User does not have admin role."
+            )
+        request.session["biocommons_roles"] = payload.biocommons_roles
         return RedirectResponse(request.url_for("admin:index"), status_code=302)

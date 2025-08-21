@@ -97,7 +97,8 @@ class Auth0Client:
 
     def create_user(self, user: BiocommonsRegisterData) -> Auth0UserData:
         url = f"https://{self.domain}/api/v2/users"
-        resp = self._client.post(url, json=user.model_dump(mode="json"))
+        # Exclude None values to avoid validation errors.
+        resp = self._client.post(url, json=user.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
