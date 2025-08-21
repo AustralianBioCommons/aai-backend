@@ -47,9 +47,10 @@ def test_create_group(test_client, as_admin_user, test_auth0_client, test_db_ses
             "admin_roles": [admin_role.name]
         }
     )
-    print(resp.json())
     assert resp.status_code == 200
     assert route.called
+    role_lookup = route.calls[0].request.url.params
+    assert role_lookup["name_filter"] == "biocommons/group/tsi"
     group_from_db = test_db_session.exec(select(BiocommonsGroup).where(BiocommonsGroup.group_id == "biocommons/group/tsi")).one()
     assert group_from_db.group_id == "biocommons/group/tsi"
     assert group_from_db.name == "Threatened Species Initiative"
