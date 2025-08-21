@@ -1,32 +1,39 @@
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
+from starlette.responses import JSONResponse
 
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
+from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
+from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 from schemas.service import Resource, Service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/bpa", tags=["bpa", "registration"])
+router = APIRouter(
+    prefix="/bpa",
+    tags=["bpa", "registration"],
+    # Overriding route class to handle registration errors
+    route_class=RegistrationRoute
+)
 
 
-def send_approval_email(registration: BPARegistrationRequest, bpa_resources: list):
+def send_approval_email(registration: BPARegistrationRequest, bpa_resources: list[Resource]):
     email_service = EmailService()
     approver_email = "aai-dev@biocommons.org.au"
     subject = "New BPA User Access Request"
 
     org_list_html = "".join(
-        f"<li>{res['name']} (ID: {res['id']})</li>" for res in bpa_resources
+        f"<li>{res.name} (ID: {res.id})</li>" for res in bpa_resources
     )
 
     body_html = f"""
@@ -61,14 +68,24 @@ def _get_bpa_resources(registration: BPARegistrationRequest, settings: Settings,
     return bpa_resources
 
 
+def _get_bpa_service_request(registration: BPARegistrationRequest, settings: Settings, update_time: datetime) -> Service:
+    bpa_resources = _get_bpa_resources(registration, settings, update_time)
+    return Service(
+        name="Bioplatforms Australia Data Portal",
+        id="bpa",
+        initial_request_time=update_time,
+        status="pending",
+        last_updated=update_time,
+        updated_by="system",
+        resources=bpa_resources,
+    )
+
 
 @router.post(
     "/register",
-    response_model=Dict[str, Any],
     responses={
-        400: {"description": "Bad Request - Validation error"},
-        409: {"description": "Conflict - User already exists"},
-        500: {"description": "Internal server error"},
+        200: {"model": RegistrationResponse},
+        400: {"model": RegistrationErrorResponse},
     },
 )
 async def register_bpa_user(
@@ -77,20 +94,10 @@ async def register_bpa_user(
     settings: Settings = Depends(get_settings),
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client)
-) -> Dict[str, Any]:
+):
     """Register a new BPA user with selected organization resources."""
     now = datetime.now(timezone.utc)
-
-    bpa_resources = _get_bpa_resources(registration, settings, update_time=now)
-    bpa_service = Service(
-        name="Bioplatforms Australia Data Portal",
-        id="bpa",
-        initial_request_time=now,
-        status="pending",
-        last_updated=now,
-        updated_by="system",
-        resources=bpa_resources,
-    )
+    bpa_service = _get_bpa_service_request(registration=registration, settings=settings, update_time=now)
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_bpa_registration(
@@ -104,13 +111,20 @@ async def register_bpa_user(
         logger.info("Adding user to DB")
         _create_bpa_user_record(auth0_user_data, db_session)
 
-        if bpa_resources and settings.send_email:
-            background_tasks.add_task(send_approval_email, registration, bpa_resources)
+        if bpa_service.resources and settings.send_email:
+            background_tasks.add_task(send_approval_email, registration, bpa_resources=bpa_service.resources)
 
         return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
 
+    # Return HTTP status errors as RegistrationErrorResponse
     except HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+        # Catch specific errors where possible and return a useful error message
+        if e.response.status_code == 409:
+            response = RegistrationErrorResponse(message="Username or email already in use")
+        else:
+            response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
+        return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
+    # Unknown errors should return 500
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to register user: {str(e)}"

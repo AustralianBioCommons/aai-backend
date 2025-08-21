@@ -92,6 +92,7 @@ class Auth0Client:
     def get_user(self, user_id: str) -> Auth0UserData:
         url = f"https://{self.domain}/api/v2/users/{user_id}"
         resp = self._client.get(url)
+        resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
     def create_user(self, user: BiocommonsRegisterData) -> Auth0UserData:

@@ -1,17 +1,19 @@
 import logging
-from typing import Any, Dict
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
+from starlette.responses import JSONResponse
 
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsGroup, BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
+from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleType
+from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ BUNDLES: dict[BundleType, dict] = {
     },
 }
 
-router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"])
+router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], route_class=RegistrationRoute)
 
 
 def send_approval_email(registration: BiocommonsRegistrationRequest):
@@ -53,11 +55,9 @@ def send_approval_email(registration: BiocommonsRegistrationRequest):
 
 @router.post(
     "/register",
-    response_model=Dict[str, Any],
     responses={
-        400: {"description": "Bad Request - Validation error"},
-        409: {"description": "Conflict - User already exists"},
-        500: {"description": "Internal server error"},
+        200: {"model": RegistrationResponse},
+        400: {"model": RegistrationErrorResponse},
     },
 )
 async def register_biocommons_user(
@@ -66,7 +66,7 @@ async def register_biocommons_user(
     settings: Settings = Depends(get_settings),
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
-) -> Dict[str, Any]:
+):
     """Register a new BioCommons user."""
 
     # Create Auth0 user data
@@ -93,12 +93,12 @@ async def register_biocommons_user(
 
     except HTTPStatusError as e:
         logger.error(f"Auth0 registration failed: {e}")
-        error_detail = "Registration failed"
+        # Catch specific errors where possible and return a useful error message
         if e.response.status_code == 409:
-            error_detail = "User already exists"
-        elif e.response.status_code == 400:
-            error_detail = "Invalid registration data"
-        raise HTTPException(status_code=e.response.status_code, detail=error_detail)
+            response = RegistrationErrorResponse(message="Username or email already in use")
+        else:
+            response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
+        return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
     except Exception as e:
         logger.error(f"Unexpected error during registration: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
