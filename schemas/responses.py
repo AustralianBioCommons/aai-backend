@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from schemas.biocommons import Auth0UserData
+
 
 class FieldError(BaseModel):
     field: str
@@ -13,3 +15,8 @@ class RegistrationErrorResponse(BaseModel):
     """
     message: str = Field(description="Overall error message")
     field_errors: list[FieldError] = Field(default_factory=list)
+
+
+class RegistrationResponse(BaseModel):
+    message: str
+    user: Auth0UserData
