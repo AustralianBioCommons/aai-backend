@@ -13,8 +13,8 @@ from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
-from schemas.bpa import BPARegistrationRequest, BPARegistrationResponse
-from schemas.responses import RegistrationErrorResponse
+from schemas.bpa import BPARegistrationRequest
+from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 from schemas.service import Resource, Service
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def _get_bpa_service_request(registration: BPARegistrationRequest, settings: Set
 @router.post(
     "/register",
     responses={
-        200: {"model": BPARegistrationResponse},
+        200: {"model": RegistrationResponse},
         400: {"model": RegistrationErrorResponse},
     },
 )

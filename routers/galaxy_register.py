@@ -17,7 +17,11 @@ from register.tokens import create_registration_token, verify_registration_token
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
-from schemas.responses import FieldError, RegistrationErrorResponse
+from schemas.responses import (
+    FieldError,
+    RegistrationErrorResponse,
+    RegistrationResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +37,13 @@ async def get_registration_token(settings: Settings = Depends(get_settings)):
     return {"token": create_registration_token(settings)}
 
 
-@router.post("/register")
+@router.post(
+    "/register",
+    responses={
+        200: {"model": RegistrationResponse},
+        400: {"model": RegistrationErrorResponse},
+    }
+)
 def register(
         registration_data: GalaxyRegistrationData,
         settings: Annotated[Settings, Depends(get_settings)],
