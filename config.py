@@ -40,6 +40,11 @@ class Settings(BaseSettings):
         "bpa-wheat-pathogens-transcript": "Wheat Pathogens Transcript",
     }
 
+    ckan_base_url: str
+    ckan_api_key: Optional[str] = None
+    ckan_timeout_s: float = 10.0
+    ckan_verify_ssl: bool = True
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

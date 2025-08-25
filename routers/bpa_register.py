@@ -16,6 +16,7 @@ from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 from schemas.service import Resource, Service
+from services.ckan_client import CKANClient, get_ckan_client
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +143,23 @@ def _create_bpa_user_record(auth0_user_data: Auth0UserData, session: Session) ->
     session.add(bpa_membership)
     session.commit()
     return db_user
+
+def _get_bpa_autoregister_list(ckan_client: CKANClient, settings: Settings) -> dict[str, str]:
+    """
+    Returns a mapping of organization slug -> title for organizations that
+    are enabled for auto-registration.
+
+    Prefers CKAN (single source of truth). Falls back to settings.organizations
+    if CKAN is unreachable or returns an unexpected payload.
+    """
+    try:
+        orgs = ckan_client.get_autoregister_organizations()
+        # Keep a simple slug->title map; use CKAN's group "name" (slug) as the ID we store
+        mapping = {o.name: o.title for o in orgs}
+        if mapping:
+            return mapping
+        logger.warning("CKAN returned an empty autoregister org list; falling back to settings.organizations")
+    except Exception as e:
+        logger.warning("Failed to fetch autoregister orgs from CKAN: %s; falling back to settings.organizations", e)
+    # Fallback (legacy)
+    return settings.organizations
