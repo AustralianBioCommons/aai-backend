@@ -494,7 +494,6 @@ def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker):
 
     mocker.patch("auth.validator.verify_jwt", return_value=admin_token)
     mocker.patch("auth.validator.get_current_user", return_value=admin_user)
-    mocker.patch("auth.management.get_management_token", return_value="mock_token")
 
     response = test_client.get(
         "/me/is-admin",
@@ -516,7 +515,6 @@ def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
 
     mocker.patch("auth.validator.verify_jwt", return_value=user_token)
     mocker.patch("auth.validator.get_current_user", return_value=user)
-    mocker.patch("auth.management.get_management_token", return_value="mock_token")
 
     response = test_client.get(
         "/me/is-admin",
