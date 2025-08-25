@@ -9,7 +9,14 @@ import re
 from datetime import datetime, timezone
 from typing import Annotated, List, Literal, Optional, Self
 
-from pydantic import BaseModel, EmailStr, Field, HttpUrl, StringConstraints
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    EmailStr,
+    Field,
+    HttpUrl,
+)
+from pydantic_core import PydanticCustomError
 
 import schemas
 from schemas import Resource, Service
@@ -21,13 +28,52 @@ VALID_PASSWORD_REGEX = re.compile(
     f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$"
 )
 
+
+def ValidatedString(
+    *,
+    min_length: int | None = None,
+    max_length: int | None = None,
+    pattern: str | re.Pattern[str] | None = None,
+    messages: dict[Literal["min_length", "max_length", "pattern"] , str] | None = None,
+):
+    """
+    Define a string type where we can customize the error messages to make
+     them more user-friendly – pydantic's
+    StringConstraints doesn't support this easily
+    """
+    compiled = re.compile(pattern) if pattern else None
+
+    def _check(v: str) -> str:
+        if not isinstance(v, str):
+            raise PydanticCustomError("string_type", "Value must be a string.")
+
+        if min_length is not None and len(v) < min_length:
+            raise PydanticCustomError("string_too_short", messages["min_length"] or f"Must be at least {min_length} characters.")
+
+        if max_length is not None and len(v) > max_length:
+            raise PydanticCustomError("string_too_long", messages["max_length"] or f"Must be at most {max_length} characters.")
+
+        if compiled and not compiled.fullmatch(v):
+            raise PydanticCustomError("string_pattern_mismatch", messages["pattern"] or "Invalid format.")
+
+        return v
+
+    # Use only AfterValidator so OUR messages are the ones users see
+    return Annotated[str, AfterValidator(_check)]
+
+
 AppId = Literal["biocommons", "galaxy", "bpa"]
-BiocommonsUsername = Annotated[
-    str, StringConstraints(min_length=3, max_length=128, pattern="^[-_a-z0-9]+$")
-]
-BiocommonsPassword = Annotated[
-    str, StringConstraints(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX)
-]
+BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[-_a-z0-9]+$", messages={
+    "min_length": "Username must be at least 3 characters.",
+    "max_length": "Username must be 128 characters or less.",
+    "pattern": "Username must only contain lowercase letters, numbers, hyphens and underscores."
+})
+BiocommonsPassword = ValidatedString(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX, messages={
+    "min_length": "Password must be at least 8 characters.",
+    "max_length": "Password must be 128 characters or less.",
+    "pattern": "Password must contain at least one uppercase letter, one lowercase letter, one number, "
+               f"and one special character. Allowed special characters: {ALLOWED_SPECIAL_CHARS}"
+})
 
 
 class BPAMetadata(BaseModel):
