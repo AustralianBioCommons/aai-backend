@@ -1,10 +1,12 @@
 import random
 from string import ascii_letters, digits
 
+from faker import Faker
 from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 
 from schemas.biocommons import (
+    ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
     BiocommonsAppMetadata,
     BiocommonsRegisterData,
@@ -14,6 +16,27 @@ from schemas.bpa import BPARegistrationRequest
 from schemas.galaxy import GalaxyRegistrationData
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
+
+fake = Faker()
+
+
+class BiocommonsProviders:
+    @staticmethod
+    def biocommons_username() -> str:
+        # Must pass regex ^[-_a-z0-9]+$ and length 3–128
+        return fake.slug()
+
+    @staticmethod
+    def biocommons_password() -> str:
+        pw = fake.password(
+            length=20,
+            special_chars=True,
+            digits=True,
+            upper_case=True,
+            lower_case=True,
+        )
+        pw = "".join(c for c in pw if c.isalnum() or c in ALLOWED_SPECIAL_CHARS)
+        return pw
 
 
 def random_auth0_id() -> str:
@@ -38,8 +61,13 @@ class BiocommonsRegisterDataFactory(ModelFactory[BiocommonsRegisterData]):
     def connection(cls) -> str:
         return "Username-Password-Authentication"
 
+    password = BiocommonsProviders.biocommons_password
+    username = BiocommonsProviders.biocommons_username
 
-class BiocommonsRegistrationRequestFactory(ModelFactory[BiocommonsRegistrationRequest]): ...
+
+class BiocommonsRegistrationRequestFactory(ModelFactory[BiocommonsRegistrationRequest]):
+    password = BiocommonsProviders.biocommons_password
+    username = BiocommonsProviders.biocommons_username
 
 
 class SessionUserFactory(ModelFactory[SessionUser]): ...
@@ -49,6 +77,8 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
     @classmethod
     def user_id(cls) -> str:
         return random_auth0_id()
+
+    username = BiocommonsProviders.biocommons_username
 
 
 class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
@@ -60,6 +90,8 @@ class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
         """
         return password
 
+    password = BiocommonsProviders.biocommons_password
+    username = BiocommonsProviders.biocommons_username
 
 class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
     """Factory for generating BPA registration test data."""
@@ -73,6 +105,9 @@ class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
             "ausarg": True,
         }
 
+    password = BiocommonsProviders.biocommons_password
+    username = BiocommonsProviders.biocommons_username
+
 
 class AppMetadataFactory(ModelFactory[BiocommonsAppMetadata]): ...
 
@@ -83,3 +118,6 @@ class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationReque
     @classmethod
     def bundle(cls) -> str:
         return "bpa-galaxy"
+
+    password = BiocommonsProviders.biocommons_password
+    username = BiocommonsProviders.biocommons_username
