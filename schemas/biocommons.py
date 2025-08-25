@@ -27,6 +27,10 @@ ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
 VALID_PASSWORD_REGEX = re.compile(
     f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$"
 )
+PASSWORD_FORMAT_MESSAGE = (
+    "Password must contain at least one uppercase letter, one lowercase letter, one number, "
+    f"and one special character. Allowed special characters: {ALLOWED_SPECIAL_CHARS}"
+)
 
 
 def ValidatedString(
@@ -71,8 +75,7 @@ BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[-_
 BiocommonsPassword = ValidatedString(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX, messages={
     "min_length": "Password must be at least 8 characters.",
     "max_length": "Password must be 128 characters or less.",
-    "pattern": "Password must contain at least one uppercase letter, one lowercase letter, one number, "
-               f"and one special character. Allowed special characters: {ALLOWED_SPECIAL_CHARS}"
+    "pattern": PASSWORD_FORMAT_MESSAGE
 })
 
 
