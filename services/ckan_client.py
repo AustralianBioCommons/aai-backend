@@ -4,9 +4,10 @@ from typing import Optional
 
 import httpx
 from fastapi import Depends
-from schemas.bpa import OrgOut
 
 from config import Settings, get_settings
+from schemas.bpa import OrgOut
+
 
 class CKANClient:
     """
