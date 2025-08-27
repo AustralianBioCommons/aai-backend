@@ -12,3 +12,11 @@ class BPARegistrationRequest(BaseModel):
     reason: str
     password: BiocommonsPassword
     organizations: Dict[str, bool]
+
+class OrgOut(BaseModel):
+    """
+    Minimal org payload for the portal dropdown.
+    """
+    id: str
+    name: str
+    title: str
