@@ -1,9 +1,13 @@
+import httpx
 import logging
+
 from datetime import datetime, timezone
+from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
+from starlette import status
 from starlette.responses import JSONResponse
 
 from auth.ses import EmailService
@@ -13,9 +17,10 @@ from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
-from schemas.bpa import BPARegistrationRequest
+from schemas.bpa import BPARegistrationRequest, OrgOut
 from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 from schemas.service import Resource, Service
+from services.ckan_client import CKANClient, get_ckan_client
 
 logger = logging.getLogger(__name__)
 
@@ -142,3 +147,36 @@ def _create_bpa_user_record(auth0_user_data: Auth0UserData, session: Session) ->
     session.add(bpa_membership)
     session.commit()
     return db_user
+
+@router.get(
+    "/organizations/autoregister",
+    response_model=List[OrgOut],
+    summary="List CKAN organizations eligible for auto-registration",
+)
+def list_autoregister_organizations(
+    ckan: CKANClient = Depends(get_ckan_client),
+) -> List[OrgOut]:
+    """
+    Returns the minimal set of CKAN organizations eligible for auto-registration,
+    suitable for populating the portal dropdown.
+    """
+    try:
+        return ckan.get_autoregister_organizations()
+    except httpx.HTTPError as e:
+        # Network / HTTP errors talking to CKAN
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Upstream CKAN error: {str(e)}",
+        )
+    except ValueError as e:
+        # CKAN Action API returned success=false
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e),
+        )
+    except Exception:
+        # Unknown error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unexpected server error.",
+        )

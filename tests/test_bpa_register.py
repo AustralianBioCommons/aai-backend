@@ -10,6 +10,7 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
+from main import app
 from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
@@ -17,6 +18,7 @@ from tests.datagen import (
     BPARegistrationDataFactory,
     random_auth0_id,
 )
+from services.ckan_client import get_ckan_client
 
 
 @pytest.fixture
@@ -272,3 +274,50 @@ def test_all_organizations_selected(
     assert len(bpa_service.resources) == len(mock_settings.organizations)
 
     email_service_cls.return_value.send.assert_called_once()
+
+
+class _DummyCKAN:
+    def __init__(self, return_value=None, raise_exc=None):
+        self.return_value = [] if return_value is None else return_value
+        self.raise_exc = raise_exc
+        self.called = False
+
+    def get_autoregister_organizations(self):
+        self.called = True
+        if self.raise_exc:
+            raise self.raise_exc
+        return self.return_value
+
+
+def test_get_bpa_orgs_success(test_client):
+    """Test successful retrieval of BPA organizations."""
+    mock_organizations = [
+        {"id": "org1", "name": "Org One", "title": "Org One"},
+        {"id": "org2", "name": "Org Two", "title": "Org Two"},
+        {"id": "org3", "name": "Org Three", "title": "Org Three"},
+    ]
+    dummy = _DummyCKAN(return_value=mock_organizations)
+
+    # Override the FastAPI dependency used by the route
+    app.dependency_overrides[get_ckan_client] = lambda: dummy
+    try:
+        response = test_client.get("/bpa/organizations/autoregister")
+    finally:
+        app.dependency_overrides.pop(get_ckan_client, None)
+
+    assert response.status_code == 200
+    assert response.json() == mock_organizations
+    assert dummy.called is True
+
+
+def test_get_bpa_orgs_failure(test_client):
+    """If the underlying client raises, expect a 502 from the error handler."""
+    dummy = _DummyCKAN(raise_exc=ValueError("boom"))
+
+    app.dependency_overrides[get_ckan_client] = lambda: dummy
+    try:
+        response = test_client.get("/bpa/organizations/autoregister")
+    finally:
+        app.dependency_overrides.pop(get_ckan_client, None)
+
+    assert response.status_code == 502
