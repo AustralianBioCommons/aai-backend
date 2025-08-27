@@ -1,9 +1,8 @@
-import httpx
 import logging
-
 from datetime import datetime, timezone
 from typing import List
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session

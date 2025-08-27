@@ -13,12 +13,12 @@ from db.models import (
 from main import app
 from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
+from services.ckan_client import get_ckan_client
 from tests.datagen import (
     Auth0UserDataFactory,
     BPARegistrationDataFactory,
     random_auth0_id,
 )
-from services.ckan_client import get_ckan_client
 
 
 @pytest.fixture
