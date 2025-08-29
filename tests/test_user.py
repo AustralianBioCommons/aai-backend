@@ -71,6 +71,7 @@ def mock_user_data():
         "/me/resources/approved",
         "/me/resources/pending",
         "/me/all/pending",
+        "/me/is-email-verified",
     ],
 )
 def test_endpoints_require_auth(endpoint, test_client):
@@ -529,3 +530,40 @@ def test_check_is_admin_without_authentication(test_client):
     """Test that admin check requires authentication"""
     response = test_client.get("/me/is-admin")
     assert response.status_code == 401
+
+def test_check_is_email_verified_true(mock_auth_token, auth_headers, mocker, test_client):
+    """Returns True when Auth0 user has verified email"""
+    mock_user = Auth0UserDataFactory.build(email_verified=True)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user)
+    mocker.patch("routers.user.get_management_token", return_value="mock_management_token")
+
+    response = test_client.get("/me/is-email-verified", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"is_email_verified": True}
+
+
+def test_check_is_email_verified_false(mock_auth_token, auth_headers, mocker, test_client):
+    """Returns False when Auth0 user email is not verified"""
+    mock_user = Auth0UserDataFactory.build(email_verified=False)
+    mocker.patch("routers.user.get_user_data", return_value=mock_user)
+    mocker.patch("routers.user.get_management_token", return_value="mock_management_token")
+
+    response = test_client.get("/me/is-email-verified", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"is_email_verified": False}
+
+
+def test_check_is_email_verified_failed_fetch(mock_auth_token, auth_headers, mocker, test_client):
+    """Propagates HTTPException when user data fetch fails"""
+    mocker.patch(
+        "routers.user.get_user_data",
+        side_effect=HTTPException(status_code=403, detail="Failed to fetch user data"),
+    )
+    mocker.patch("routers.user.get_management_token", return_value="mock_management_token")
+
+    response = test_client.get("/me/is-email-verified", headers=auth_headers)
+
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Failed to fetch user data"}
