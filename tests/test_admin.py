@@ -16,6 +16,7 @@ from tests.datagen import (
     Auth0UserDataFactory,
     SessionUserFactory,
 )
+from tests.db.datagen import BiocommonsUserFactory
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
 
@@ -64,20 +65,29 @@ def test_user_is_admin_nonadmin_user(mock_settings):
         user_is_admin(current_user=user, settings=mock_settings)
 
 
-def test_get_users(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserDataFactory.batch(3)
-    mock_auth0_client.get_users.return_value = users
+def test_get_users(test_client, as_admin_user, mock_auth0_client, test_db_session):
+    # Create some test users in the database
+    db_users = BiocommonsUserFactory.batch(3)
+    for user in db_users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
     resp = test_client.get("/admin/users")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
 
 
-def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserDataFactory.batch(3)
-    mock_auth0_client.get_users.return_value = users
+def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client, test_db_session):
+    # Create some test users in the database
+    db_users = BiocommonsUserFactory.batch(3)
+    for user in db_users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
     resp = test_client.get("/admin/users?page=2&per_page=10")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
+    # Page 2 with per_page=10 should be empty since we only have 3 users
+    assert len(resp.json()) == 0
 
 
 def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client):

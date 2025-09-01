@@ -117,7 +117,7 @@ class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationReque
 
     @classmethod
     def bundle(cls) -> str:
-        return "bpa-galaxy"
+        return "bpa_galaxy"
 
     password = BiocommonsProviders.biocommons_password
     username = BiocommonsProviders.biocommons_username

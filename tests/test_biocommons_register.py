@@ -16,7 +16,7 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
         email="test@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle="bpa-galaxy",
+        bundle="bpa_galaxy",
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -72,7 +72,7 @@ def test_biocommons_registration_tsi_bundle():
 
 
 def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session):
-    """Test database record creation for bpa-galaxy bundle"""
+    """Test database record creation for bpa_galaxy bundle"""
     from db.models import BiocommonsGroup, PlatformEnum
     from routers.biocommons_register import _create_biocommons_user_record
 
@@ -90,7 +90,7 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session):
         email="bpa.galaxy@example.com",
         username="bpagalaxy",
         password="StrongPass1!",
-        bundle="bpa-galaxy",
+        bundle="bpa_galaxy",
     )
 
     auth0_data = Auth0UserDataFactory.build(
@@ -177,7 +177,7 @@ def test_biocommons_group_must_exist(test_db_session):
         email="new.user@example.com",
         username="newuser",
         password="StrongPass1!",
-        bundle="bpa-galaxy",
+        bundle="bpa_galaxy",
     )
 
     auth0_data = Auth0UserDataFactory.build(
@@ -185,7 +185,7 @@ def test_biocommons_group_must_exist(test_db_session):
     )
 
     with pytest.raises(
-        ValueError, match="Group 'biocommons/group/bpa_galaxy' not found"
+        ValueError, match="Group 'biocommons/group/bpa_galaxy' not found. Groups must be pre-configured in the database."
     ):
         _create_biocommons_user_record(auth0_data, registration, test_db_session)
 
@@ -209,7 +209,7 @@ def test_biocommons_group_membership_with_existing_group(test_db_session):
         email="test.user@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle="bpa-galaxy",
+        bundle="bpa_galaxy",
     )
 
     auth0_data = Auth0UserDataFactory.build(
@@ -282,7 +282,7 @@ def test_successful_biocommons_registration_endpoint(
         "email": "test@example.com",
         "username": "testuser",
         "password": "StrongPass1!",
-        "bundle": "bpa-galaxy",
+        "bundle": "bpa_galaxy",
     }
 
     response = test_client_with_email.post(
@@ -337,7 +337,7 @@ def test_biocommons_registration_auth0_conflict_error(
         "email": "existing@example.com",
         "username": "existinguser",
         "password": "StrongPass1!",
-        "bundle": "bpa-galaxy",
+        "bundle": "bpa_galaxy",
     }
 
     response = test_client.post("/biocommons/register", json=registration_data)
@@ -354,7 +354,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
         "email": "test@example.com",
         "username": "testuser",
         "password": "StrongPass1!",
-        "bundle": "bpa-galaxy",
+        "bundle": "bpa_galaxy",
     }
 
     mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build()
