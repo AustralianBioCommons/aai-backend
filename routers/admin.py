@@ -76,6 +76,21 @@ def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
     return resp
 
 
+@router.get("/users/unverified", response_model=list[Auth0UserData])
+def get_unverified_users(
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+):
+    """
+    Return users whose email is not verified, using Auth0 search for efficiency.
+    """
+    return client.get_users(
+        page=pagination.page,
+        per_page=pagination.per_page,
+        q="email_verified:false",
+    )
+
+
 @router.get("/users/{user_id}",
             response_model=Auth0UserData)
 def get_user(user_id: Annotated[str, UserIdParam],

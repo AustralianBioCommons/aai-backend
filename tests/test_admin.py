@@ -298,3 +298,20 @@ def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client
     resp = test_client.post(f"/admin/users/{user.user_id}/verification-email/resend")
     assert resp.status_code == 200
     assert resp.json() == {"message": "Verification email resent."}
+
+
+def test_get_unverified_users(test_client, as_admin_user, mock_auth0_client):
+    u1 = Auth0UserDataFactory.build(email_verified=False)
+    u2 = Auth0UserDataFactory.build(email_verified=False)
+    mock_auth0_client.get_users.return_value = [u1, u2]
+
+    resp = test_client.get("/admin/users/unverified?page=2&per_page=10")
+    assert resp.status_code == 200
+
+    mock_auth0_client.get_users.assert_called_once_with(
+        page=2, per_page=10, q="email_verified:false"
+    )
+
+    data = resp.json()
+    assert len(data) == 2
+    assert all(u["email_verified"] is False for u in data)
