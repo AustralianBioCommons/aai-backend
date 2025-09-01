@@ -1,15 +1,18 @@
 import random
+import string
 from string import ascii_letters, digits
 
 from faker import Faker
 from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
+from pydantic import TypeAdapter, ValidationError
 
 from auth0.client import EmailVerificationResponse
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
     BiocommonsAppMetadata,
+    BiocommonsPassword,
     BiocommonsRegisterData,
 )
 from schemas.biocommons_register import BiocommonsRegistrationRequest
@@ -29,15 +32,24 @@ class BiocommonsProviders:
 
     @staticmethod
     def biocommons_password() -> str:
-        pw = fake.password(
-            length=20,
-            special_chars=True,
-            digits=True,
-            upper_case=True,
-            lower_case=True,
-        )
-        pw = "".join(c for c in pw if c.isalnum() or c in ALLOWED_SPECIAL_CHARS)
-        return pw
+        """
+        Generate a password compatible with our requirements.
+
+        Since the requirements are a bit complex and might not be satisfied
+        by a random choice, generate multiple times until we get a compatible one
+        """
+        chars = string.ascii_letters + string.digits + ALLOWED_SPECIAL_CHARS
+        password_adapter = TypeAdapter(BiocommonsPassword)
+        for i in range(20):
+            try:
+                password = ''.join(random.choices(chars, k=20))
+                password_adapter.validate_python(password)
+                break
+            except ValidationError:
+                continue
+        else:
+            raise ValueError("Failed to generate password")
+        return password
 
 
 def random_auth0_id() -> str:
