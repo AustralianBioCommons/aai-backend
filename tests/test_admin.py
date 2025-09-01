@@ -290,11 +290,19 @@ def test_approve_resource(test_client, as_admin_user, mock_auth0_client, mocker)
     assert resource_data["status"] == "approved"
     assert resource_data["id"] == resource.id
 
+def test_get_unverified_users(test_client, as_admin_user, mock_auth0_client):
+    # Mix of verified and unverified users
+    u1 = Auth0UserDataFactory.build(email_verified=False)
+    u2 = Auth0UserDataFactory.build(email_verified=True)
+    u3 = Auth0UserDataFactory.build(email_verified=False)
 
-def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
-    user = Auth0UserDataFactory.build()
-    response_data = EmailVerificationResponseFactory.build()
-    mock_auth0_client.resend_verification_email.return_value = response_data
-    resp = test_client.post(f"/admin/users/{user.user_id}/verification-email/resend")
+    mock_auth0_client.get_users.return_value = [u1, u2, u3]
+
+    resp = test_client.get("/admin/users/unverified")
     assert resp.status_code == 200
-    assert resp.json() == {"message": "Verification email resent."}
+
+    data = resp.json()
+    assert len(data) == 2
+    returned_ids = {u["user_id"] for u in data}
+    assert returned_ids == {u1.user_id, u3.user_id}
+    assert all(u["email_verified"] is False for u in data)

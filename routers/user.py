@@ -89,15 +89,6 @@ async def check_is_admin(
     """Check if the current user has admin privileges."""
     return {"is_admin": user.is_admin(settings)}
 
-
-@router.get("/is-email-verified")
-async def check_is_email_verified(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    user_data = await get_user_data(user, settings)
-    return {"is_email_verified": user_data.email_verified}
-
 @router.get("/services/approved", response_model=Dict[str, List[Service]])
 async def get_approved_services(
     user: Annotated[SessionUser, Depends(get_current_user)],
