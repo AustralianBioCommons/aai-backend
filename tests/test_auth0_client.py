@@ -8,6 +8,7 @@ from auth0.client import UsersWithTotals
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegisterDataFactory,
+    EmailVerificationResponseFactory,
     random_auth0_id,
     random_auth0_role_id,
 )
@@ -165,3 +166,21 @@ def test_create_user_omits_none(test_auth0_client):
     assert call_data == register_data.model_dump(mode="json", exclude_none=True)
     assert "name" not in call_data
     assert "user_metadata" not in call_data
+
+
+@respx.mock
+def test_resend_verification_email(test_auth0_client):
+    """
+    Test resending a verification email
+    """
+    user_id = random_auth0_id()
+    # Expected response from Auth0 API
+    resp_data = EmailVerificationResponseFactory.build()
+    route = respx.post(
+        "https://auth0.example.com/api/v2/jobs/verification-email"
+    ).respond(201, json=resp_data.model_dump(mode="json"))
+    resp = test_auth0_client.resend_verification_email(user_id)
+    assert route.called
+    call_data = json.loads(route.calls.last.request.content)
+    assert call_data == {"user_id": user_id}
+    assert resp == resp_data
