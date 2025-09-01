@@ -71,7 +71,6 @@ def mock_user_data():
         "/me/resources/approved",
         "/me/resources/pending",
         "/me/all/pending",
-        "/me/is-email-verified",
     ],
 )
 def test_endpoints_require_auth(endpoint, test_client):

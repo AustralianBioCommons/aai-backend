@@ -89,6 +89,7 @@ async def check_is_admin(
     """Check if the current user has admin privileges."""
     return {"is_admin": user.is_admin(settings)}
 
+
 @router.get("/services/approved", response_model=Dict[str, List[Service]])
 async def get_approved_services(
     user: Annotated[SessionUser, Depends(get_current_user)],
