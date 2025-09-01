@@ -14,7 +14,6 @@ from tests.datagen import (
     AccessTokenPayloadFactory,
     AppMetadataFactory,
     Auth0UserDataFactory,
-    EmailVerificationResponseFactory,
     SessionUserFactory,
 )
 
