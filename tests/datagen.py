@@ -5,6 +5,7 @@ from faker import Faker
 from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 
+from auth0.client import EmailVerificationResponse
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
@@ -121,3 +122,6 @@ class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationReque
 
     password = BiocommonsProviders.biocommons_password
     username = BiocommonsProviders.biocommons_username
+
+
+class EmailVerificationResponseFactory(ModelFactory[EmailVerificationResponse]): ...
