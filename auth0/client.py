@@ -48,6 +48,25 @@ class UsersWithTotals(BaseModel):
     total: int
 
 
+class EmailVerificationResponse(BaseModel):
+    status: str
+    type: str
+    created_at: Optional[str] = None
+    id: str
+
+
+class IdentityData(BaseModel):
+    user_id: str
+    provider: str
+
+
+class EmailVerificationRequest(BaseModel):
+    user_id: str
+    client_id: Optional[str] = None
+    identity: Optional[IdentityData] = None
+    organization_id: Optional[str] = None
+
+
 class Auth0Client:
     """
     Implements the Auth0 management API.
@@ -232,6 +251,13 @@ class Auth0Client:
         except ValueError:
             role = self.create_role(name, description)
         return role
+
+    def resend_verification_email(self, user_id: str) -> EmailVerificationResponse:
+        url = f"https://{self.domain}/api/v2/jobs/verification-email"
+        request_body = EmailVerificationRequest(user_id=user_id)
+        resp = self._client.post(url, json=request_body.model_dump(mode="json", exclude_none=True))
+        resp.raise_for_status()
+        return EmailVerificationResponse(**resp.json())
 
 
 def get_auth0_client(settings: Settings = Depends(get_settings),

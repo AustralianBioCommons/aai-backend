@@ -14,6 +14,7 @@ from tests.datagen import (
     AccessTokenPayloadFactory,
     AppMetadataFactory,
     Auth0UserDataFactory,
+    EmailVerificationResponseFactory,
     SessionUserFactory,
 )
 
@@ -288,3 +289,12 @@ def test_approve_resource(test_client, as_admin_user, mock_auth0_client, mocker)
     resource_data = service_data["resources"][0]
     assert resource_data["status"] == "approved"
     assert resource_data["id"] == resource.id
+
+
+def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
+    user = Auth0UserDataFactory.build()
+    response_data = EmailVerificationResponseFactory.build()
+    mock_auth0_client.resend_verification_email.return_value = response_data
+    resp = test_client.post(f"/admin/users/{user.user_id}/verification-email/resend")
+    assert resp.status_code == 200
+    assert resp.json() == {"message": "Verification email resent."}
