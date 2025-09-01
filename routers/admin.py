@@ -83,6 +83,13 @@ def get_user(user_id: Annotated[str, UserIdParam],
     return client.get_user(user_id)
 
 
+@router.post("/users/{user_id}/verification-email/resend")
+def resend_verification_email(user_id: Annotated[str, UserIdParam],
+                              client: Annotated[Auth0Client, Depends(get_auth0_client)]):
+    client.resend_verification_email(user_id)
+    return {"message": "Verification email resent."}
+
+
 @router.post("/users/{user_id}/services/{service_id}/approve")
 def approve_service(user_id: Annotated[str, UserIdParam],
                     service_id: Annotated[str, ServiceIdParam],
