@@ -37,8 +37,8 @@ PLATFORM_MAPPING = {
 }
 
 GROUP_MAPPING = {
-    "tsi": {"enum": GroupEnum.TSI, "name": "TSI"},
-    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia"},
+    "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative Bundle"},
+    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"},
 }
 
 class BiocommonsUserResponse(BaseModel):
