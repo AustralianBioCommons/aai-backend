@@ -8,7 +8,7 @@ from starlette.responses import JSONResponse
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsGroup, BiocommonsUser, PlatformEnum
+from db.models import BiocommonsGroup, BiocommonsUser, GroupEnum, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 # while group memberships require manual approval
 # Currently BPA Data Portal and Galaxy are auto-approved for all bundles
 BUNDLES: dict[BundleType, dict] = {
-    "bpa-galaxy": {
-        "group_id": "biocommons/group/bpa_galaxy",
+    "bpa_galaxy": {
+        "group_id": GroupEnum.BPA_GALAXY,
         "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
     },
     "tsi": {
-        "group_id": "biocommons/group/tsi",
+        "group_id": GroupEnum.TSI,
         "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
     },
 }
@@ -122,7 +122,7 @@ def _create_biocommons_user_record(
     db_group = session.get(BiocommonsGroup, group_id)
     if not db_group:
         raise ValueError(
-            f"Group '{group_id}' not found. Groups must be pre-configured in the database."
+            f"Group '{group_id.value}' not found. Groups must be pre-configured in the database."
         )
 
     # Create group membership

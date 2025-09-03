@@ -17,6 +17,7 @@ from tests.datagen import (
     EmailVerificationResponseFactory,
     SessionUserFactory,
 )
+from tests.db.datagen import BiocommonsUserFactory
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
 
@@ -65,20 +66,29 @@ def test_user_is_admin_nonadmin_user(mock_settings):
         user_is_admin(current_user=user, settings=mock_settings)
 
 
-def test_get_users(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserDataFactory.batch(3)
-    mock_auth0_client.get_users.return_value = users
+def test_get_users(test_client, as_admin_user, mock_auth0_client, test_db_session):
+    # Create some test users in the database
+    db_users = BiocommonsUserFactory.batch(3)
+    for user in db_users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
     resp = test_client.get("/admin/users")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
 
 
-def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserDataFactory.batch(3)
-    mock_auth0_client.get_users.return_value = users
+def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client, test_db_session):
+    # Create some test users in the database
+    db_users = BiocommonsUserFactory.batch(3)
+    for user in db_users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
     resp = test_client.get("/admin/users?page=2&per_page=10")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
+    # Page 2 with per_page=10 should be empty since we only have 3 users
+    assert len(resp.json()) == 0
 
 
 def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client):
@@ -88,6 +98,107 @@ def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client)
     assert resp.status_code == 422
     error_msg = resp.json()["detail"]
     assert "Invalid page params" in error_msg
+
+
+def test_get_users_filter_by_platform(test_client, as_admin_user, test_db_session):
+    from db.models import ApprovalStatusEnum, PlatformEnum, PlatformMembership
+    from tests.db.datagen import BiocommonsUserFactory
+
+    galaxy_users = BiocommonsUserFactory.batch(2)
+    other_users = BiocommonsUserFactory.batch(2)
+
+    for user in galaxy_users + other_users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    for user in galaxy_users:
+        membership = PlatformMembership(
+            user_id=user.id,
+            platform_id=PlatformEnum.GALAXY,
+            approval_status=ApprovalStatusEnum.APPROVED
+        )
+        test_db_session.add(membership)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?filter_by=galaxy")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+    resp = test_client.get("/admin/users?filter_by=bpa_data_portal")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 0
+
+
+def test_get_users_filter_by_group(test_client, as_admin_user, test_db_session):
+    from db.models import (
+        ApprovalStatusEnum,
+        BiocommonsGroup,
+        GroupEnum,
+        GroupMembership,
+    )
+    from tests.db.datagen import BiocommonsUserFactory
+
+    tsi_group = BiocommonsGroup(
+        group_id=GroupEnum.TSI,
+        name="Threatened Species Initiative Bundle"
+    )
+    test_db_session.add(tsi_group)
+    test_db_session.commit()
+
+    tsi_users = BiocommonsUserFactory.batch(2)
+    other_users = BiocommonsUserFactory.batch(2)
+
+    for user in tsi_users + other_users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    for user in tsi_users:
+        membership = GroupMembership(
+            user_id=user.id,
+            group_id=GroupEnum.TSI,
+            approval_status=ApprovalStatusEnum.APPROVED
+        )
+        test_db_session.add(membership)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?filter_by=tsi")
+    assert resp.status_code == 200
+    assert len(resp.json()) == 2
+
+    resp = test_client.get("/admin/users?filter_by=bpa_galaxy")
+    assert resp.status_code == 404
+    assert "Group 'bpa_galaxy' not found" in resp.json()["detail"]
+
+
+def test_get_users_invalid_filter(test_client, as_admin_user, test_db_session):
+    resp = test_client.get("/admin/users?filter_by=invalid_filter")
+    assert resp.status_code == 400
+    assert "Invalid filter_by value 'invalid_filter'" in resp.json()["detail"]
+
+
+def test_get_filter_options(test_client, as_admin_user):
+    resp = test_client.get("/admin/filters")
+    assert resp.status_code == 200
+
+    options = resp.json()
+    assert isinstance(options, list)
+    assert len(options) == 4
+
+    for option in options:
+        assert "id" in option
+        assert "name" in option
+        assert isinstance(option["id"], str)
+        assert isinstance(option["name"], str)
+
+    option_ids = {opt["id"] for opt in options}
+    expected_ids = {"galaxy", "bpa_data_portal", "tsi", "bpa_galaxy"}
+    assert option_ids == expected_ids
+
+    option_dict = {opt["id"]: opt["name"] for opt in options}
+    assert option_dict["galaxy"] == "Galaxy Australia"
+    assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
+    assert option_dict["tsi"] == "Threatened Species Initiative Bundle"
+    assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"
 
 
 def test_get_user(test_client, as_admin_user, mock_auth0_client):

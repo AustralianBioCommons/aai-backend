@@ -25,6 +25,12 @@ class PlatformEnum(str, Enum):
     BPA_DATA_PORTAL = "bpa_data_portal"
 
 
+# Not used for Groups in the database yet
+class GroupEnum(str, Enum):
+    TSI = "biocommons/group/tsi"
+    BPA_GALAXY = "biocommons/group/bpa_galaxy"
+
+
 class BiocommonsUser(BaseModel, table=True):
     __tablename__ = "biocommons_user"
     # Auth0 ID
