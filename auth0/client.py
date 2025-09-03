@@ -92,7 +92,7 @@ class Auth0Client:
     def _convert_roles(resp: httpx.Response):
         return Auth0Client._convert_list(resp, RoleData)
 
-    def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None) -> list[Auth0UserData] | UsersWithTotals:
+    def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None,  q: Optional[str] = None) -> list[Auth0UserData] | UsersWithTotals:
         params = {}
         if page is not None:
             # Convert from 1-based pagination to 0-based.
@@ -102,6 +102,9 @@ class Auth0Client:
             params["per_page"] = per_page
         if include_totals is not None:
             params["include_totals"] = include_totals
+        if q is not None:
+            params["q"] = q
+            params["search_engine"] = "v3"
         url = f"https://{self.domain}/api/v2/users"
         resp = self._client.get(url, params=params)
         if include_totals:
