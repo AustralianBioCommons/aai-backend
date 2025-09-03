@@ -1,14 +1,23 @@
 import asyncio
 import logging
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
-from pydantic import BaseModel, ValidationError
-from sqlmodel import Session
+from pydantic import BaseModel, Field, ValidationError
+from sqlmodel import Session, select
 
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
+from db.models import (
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupEnum,
+    GroupMembership,
+    PlatformEnum,
+    PlatformMembership,
+)
 from db.setup import get_db_session
 from routers.user import update_user_metadata
 from schemas.biocommons import Auth0UserData, Auth0UserDataWithMemberships
@@ -20,6 +29,27 @@ logger = logging.getLogger('uvicorn.error')
 UserIdParam = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$")
 ServiceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
 ResourceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
+
+
+PLATFORM_MAPPING = {
+    "galaxy": {"enum": PlatformEnum.GALAXY, "name": "Galaxy Australia"},
+    "bpa_data_portal": {"enum": PlatformEnum.BPA_DATA_PORTAL, "name": "Bioplatforms Australia Data Portal"},
+}
+
+GROUP_MAPPING = {
+    "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative Bundle"},
+    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"},
+}
+
+
+class BiocommonsUserResponse(BaseModel):
+    """
+    Response schema for BiocommonsUser from the database
+    """
+    id: str = Field(description="Auth0 user ID")
+    email: str = Field(description="User email address")
+    username: str = Field(description="User username")
+    created_at: datetime = Field(description="User creation timestamp")
 
 
 class PaginationParams(BaseModel):
@@ -48,12 +78,70 @@ router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
 
 
+@router.get("/filters")
+def get_filter_options():
+    """
+    Get available filter options for users endpoint.
+
+    Returns a list of all available filter options with their short IDs and display names.
+    Uses the same IDs as defined in PLATFORM_MAPPING and GROUP_MAPPING.
+    """
+    options = []
+
+    for platform_id, platform_data in PLATFORM_MAPPING.items():
+        options.append({
+            "id": platform_id,
+            "name": platform_data["name"]
+        })
+
+    for group_id, group_data in GROUP_MAPPING.items():
+        options.append({
+            "id": group_id,
+            "name": group_data["name"]
+        })
+
+    return options
+
+
 @router.get("/users",
-            response_model=list[Auth0UserData], )
-def get_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
-              pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    resp = client.get_users(page=pagination.page, per_page=pagination.per_page)
-    return resp
+            response_model=list[BiocommonsUserResponse])
+def get_users(db_session: Annotated[Session, Depends(get_db_session)],
+              pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+              filter_by: str = Query(None, description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')")):
+    """
+    Get all users from the database with pagination and optional filtering.
+
+    Args:
+        filter_by: Optional filter parameter. Can be:
+            - Group bundle names: 'tsi', 'bpa_galaxy'
+            - Platform names: 'galaxy', 'bpa_data_portal'
+    """
+    base_query = select(BiocommonsUser)
+
+    if filter_by:
+        if filter_by in GROUP_MAPPING:
+            full_group_id = GROUP_MAPPING[filter_by]["enum"].value
+
+            group_statement = select(BiocommonsGroup).where(BiocommonsGroup.group_id == full_group_id)
+            group = db_session.exec(group_statement).first()
+            if not group:
+                raise HTTPException(status_code=404, detail=f"Group '{filter_by}' not found")
+
+            base_query = base_query.join(GroupMembership, BiocommonsUser.id == GroupMembership.user_id).where(GroupMembership.group_id == full_group_id)
+
+        elif filter_by in PLATFORM_MAPPING:
+            platform_enum_value = PLATFORM_MAPPING[filter_by]["enum"]
+            base_query = base_query.join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id).where(PlatformMembership.platform_id == platform_enum_value)
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid filter_by value '{filter_by}'"
+            )
+
+    user_query = base_query.offset(pagination.start_index).limit(pagination.per_page)
+    users = db_session.exec(user_query).all()
+    return users
 
 
 # NOTE: This must appear before /users/{user_id} so it takes precedence
@@ -76,6 +164,21 @@ def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
     resp = client.get_revoked_users(page=pagination.page, per_page=pagination.per_page)
     return resp
+
+
+@router.get("/users/unverified", response_model=list[Auth0UserData])
+def get_unverified_users(
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+):
+    """
+    Return users whose email is not verified, using Auth0 search for efficiency.
+    """
+    return client.get_users(
+        page=pagination.page,
+        per_page=pagination.per_page,
+        q="email_verified:false",
+    )
 
 
 @router.get("/users/{user_id}",

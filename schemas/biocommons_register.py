@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 
 from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
 
-BundleType = Literal["bpa-galaxy", "tsi"]
+BundleType = Literal["bpa_galaxy", "tsi"]
 
 
 class BiocommonsRegistrationRequest(BaseModel):
