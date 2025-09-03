@@ -5,11 +5,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, ValidationError
+from sqlmodel import Session
 
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
+from db.setup import get_db_session
 from routers.user import update_user_metadata
-from schemas.biocommons import Auth0UserData
+from schemas.biocommons import Auth0UserData, Auth0UserDataWithMemberships
 from schemas.user import SessionUser
 
 logger = logging.getLogger('uvicorn.error')
@@ -81,6 +83,25 @@ def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
 def get_user(user_id: Annotated[str, UserIdParam],
              client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     return client.get_user(user_id)
+
+
+@router.get("/users/{user_id}/details",
+            response_model=Auth0UserDataWithMemberships)
+def get_user_details(user_id: Annotated[str, UserIdParam],
+                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                     db_session: Annotated[Session, Depends(get_db_session)]):
+    """
+    Get user data from Auth0, along with group and platform membership information
+    from our user DB.
+    """
+    user = client.get_user(user_id)
+    from db.models import BiocommonsUser
+    db_user = db_session.get_one(BiocommonsUser, user_id)
+    details = Auth0UserDataWithMemberships.from_auth0_data(
+        auth0_data=user,
+        db_data=db_user,
+    )
+    return details
 
 
 @router.post("/users/{user_id}/verification-email/resend")
