@@ -18,7 +18,12 @@ from tests.datagen import (
     EmailVerificationResponseFactory,
     SessionUserFactory,
 )
-from tests.db.datagen import BiocommonsUserFactory
+from tests.db.datagen import (
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    GroupMembershipFactory,
+    PlatformMembershipFactory,
+)
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
 
@@ -134,9 +139,9 @@ def test_get_users_filter_by_group(test_client, as_admin_user, test_db_session):
     from db.models import (
         ApprovalStatusEnum,
         BiocommonsGroup,
-        GroupEnum,
         GroupMembership,
     )
+    from db.types import GroupEnum
     from tests.db.datagen import BiocommonsUserFactory
 
     tsi_group = BiocommonsGroup(
@@ -410,6 +415,26 @@ def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client
     resp = test_client.post(f"/admin/users/{user.user_id}/verification-email/resend")
     assert resp.status_code == 200
     assert resp.json() == {"message": "Verification email resent."}
+
+
+def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories):
+    user = Auth0UserDataFactory.build()
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi")
+    db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])
+    group_membership = GroupMembershipFactory.create_sync(group=group, user=db_user, approval_status="approved")
+    platform_membership = PlatformMembershipFactory.create_sync(user=db_user, platform_id="galaxy")
+    mock_auth0_client.get_user.return_value = user
+    test_db_session.commit()
+    resp = test_client.get(f"/admin/users/{user.user_id}/details")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["email"] == user.email
+    groups = data["group_memberships"]
+    group_membership_data = group_membership.get_data().model_dump(mode="json")
+    assert groups[0] == group_membership_data
+    platforms = data["platform_memberships"]
+    platform_membership_data = platform_membership.get_data().model_dump(mode="json")
+    assert platforms[0] == platform_membership_data
 
 
 def test_get_unverified_users(test_client, as_admin_user, mock_auth0_client):

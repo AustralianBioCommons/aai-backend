@@ -18,7 +18,9 @@ from pydantic import (
 )
 from pydantic_core import PydanticCustomError
 
+import db
 import schemas
+from db.types import GroupMembershipData, PlatformMembershipData
 from schemas import Resource, Service
 from schemas.service import Group, Identity
 
@@ -289,3 +291,21 @@ class Auth0UserData(BaseModel):
     def approved_resources(self) -> List[Resource]:
         """Get all resources with approved status across all services."""
         return self.app_metadata.get_approved_resources()
+
+
+class Auth0UserDataWithMemberships(Auth0UserData):
+    """
+    User data from Auth0, plus group and platform membership data from our
+    database
+    """
+    platform_memberships: list[PlatformMembershipData] = Field(default_factory=list)
+    group_memberships: list[GroupMembershipData] = Field(default_factory=list)
+
+    @classmethod
+    def from_auth0_data(cls, auth0_data: Auth0UserData, db_data: 'db.models.BiocommonsUser') -> Self:
+        """
+        Create from Auth0 user data and DB user data.
+        """
+        platforms = [platform.get_data() for platform in db_data.platform_memberships]
+        groups = [group.get_data() for group in db_data.group_memberships]
+        return cls(**auth0_data.model_dump(), platform_memberships=platforms, group_memberships=groups)
