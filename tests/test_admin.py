@@ -7,6 +7,7 @@ from freezegun import freeze_time
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
+from auth0.client import Auth0Client
 from main import app
 from routers.admin import PaginationParams
 from schemas import Resource, Service
@@ -426,3 +427,27 @@ def test_get_unverified_users(test_client, as_admin_user, mock_auth0_client):
     data = resp.json()
     assert len(data) == 2
     assert all(u["email_verified"] is False for u in data)
+
+
+def test_auth0client_get_users_forwards_filter_to_httpx(mocker):
+    client = Auth0Client(domain="tenant.example.auth0.com", management_token="tok")
+
+    # Mock the underlying httpx client and its response
+    fake_resp = mocker.Mock()
+    fake_resp.json.return_value = []  # get_users() reads .json() only
+    client._client = mocker.Mock()
+    client._client.get.return_value = fake_resp
+
+    # Call with a filter + pagination
+    client.get_users(page=2, per_page=10, q="email_verified:false")
+
+    # Assert the HTTP call had the filter and v3 search, with 0-based page
+    client._client.get.assert_called_once()
+    called_url = client._client.get.call_args[0][0]
+    called_params = client._client.get.call_args.kwargs["params"]
+
+    assert called_url.endswith("/api/v2/users")
+    assert called_params["q"] == "email_verified:false"
+    assert called_params["search_engine"] == "v3"
+    assert called_params["page"] == 1
+    assert called_params["per_page"] == 10
