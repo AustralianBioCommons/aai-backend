@@ -138,9 +138,9 @@ def test_get_users_filter_by_group(test_client, as_admin_user, test_db_session):
     from db.models import (
         ApprovalStatusEnum,
         BiocommonsGroup,
-        GroupEnum,
         GroupMembership,
     )
+    from db.types import GroupEnum
     from tests.db.datagen import BiocommonsUserFactory
 
     tsi_group = BiocommonsGroup(

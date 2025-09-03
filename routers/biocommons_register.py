@@ -8,8 +8,9 @@ from starlette.responses import JSONResponse
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsGroup, BiocommonsUser, GroupEnum, PlatformEnum
+from db.models import BiocommonsGroup, BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
+from db.types import GroupEnum
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleType

@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Self
 
 from pydantic import AwareDatetime
@@ -18,12 +17,6 @@ from db.types import (
     PlatformMembershipData,
 )
 from schemas.user import SessionUser
-
-
-# Not used for Groups in the database yet
-class GroupEnum(str, Enum):
-    TSI = "biocommons/group/tsi"
-    BPA_GALAXY = "biocommons/group/bpa_galaxy"
 
 
 class BiocommonsUser(BaseModel, table=True):

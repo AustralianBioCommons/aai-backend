@@ -37,3 +37,9 @@ class GroupMembershipData(BaseModel):
     group_name: str
     approval_status: ApprovalStatusEnum
     updated_by: str
+
+
+# Not used for Groups in the database yet
+class GroupEnum(str, Enum):
+    TSI = "biocommons/group/tsi"
+    BPA_GALAXY = "biocommons/group/bpa_galaxy"

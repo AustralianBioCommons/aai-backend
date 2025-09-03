@@ -13,12 +13,12 @@ from auth0.client import Auth0Client, get_auth0_client
 from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
-    GroupEnum,
     GroupMembership,
     PlatformEnum,
     PlatformMembership,
 )
 from db.setup import get_db_session
+from db.types import GroupEnum
 from routers.user import update_user_metadata
 from schemas.biocommons import Auth0UserData, Auth0UserDataWithMemberships
 from schemas.user import SessionUser
