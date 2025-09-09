@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime, timezone
-from enum import Enum
 from typing import Self
 
 from pydantic import AwareDatetime
@@ -8,27 +7,16 @@ from sqlalchemy import UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 
+import schemas
 from auth0.client import Auth0Client
 from db.core import BaseModel
-from schemas.biocommons import Auth0UserData
+from db.types import (
+    ApprovalStatusEnum,
+    GroupMembershipData,
+    PlatformEnum,
+    PlatformMembershipData,
+)
 from schemas.user import SessionUser
-
-
-class ApprovalStatusEnum(str, Enum):
-    APPROVED = "approved"
-    PENDING = "pending"
-    REVOKED = "revoked"
-
-
-class PlatformEnum(str, Enum):
-    GALAXY = "galaxy"
-    BPA_DATA_PORTAL = "bpa_data_portal"
-
-
-# Not used for Groups in the database yet
-class GroupEnum(str, Enum):
-    TSI = "biocommons/group/tsi"
-    BPA_GALAXY = "biocommons/group/bpa_galaxy"
 
 
 class BiocommonsUser(BaseModel, table=True):
@@ -61,7 +49,7 @@ class BiocommonsUser(BaseModel, table=True):
         return cls.from_auth0_data(user_data)
 
     @classmethod
-    def from_auth0_data(cls, data: Auth0UserData) -> Self:
+    def from_auth0_data(cls, data: 'schemas.biocommons.Auth0UserData') -> Self:
         """
         Create a new BiocommonsUser object from Auth0 user data (no API call).
         """
@@ -152,6 +140,22 @@ class PlatformMembership(BaseModel, table=True):
         )
         session.add(history)
         return history
+
+    def get_data(self) -> PlatformMembershipData:
+        """
+        Get a data model for this membership, suitable for returning to the frontend.
+        """
+        if self.updated_by is not None:
+            updated_by = self.updated_by.email
+        else:
+            updated_by = '(automatic)'
+        return PlatformMembershipData(
+            id=self.id,
+            platform_id=self.platform_id,
+            user_id=self.user_id,
+            approval_status=self.approval_status,
+            updated_by=updated_by,
+        )
 
 
 class PlatformMembershipHistory(BaseModel, table=True):
@@ -258,6 +262,22 @@ class GroupMembership(BaseModel, table=True):
         role = auth0_client.get_role_by_name(self.group_id)
         auth0_client.add_roles_to_user(user_id=self.user_id, role_id=role.id)
         return True
+
+    def get_data(self) -> GroupMembershipData:
+        """
+        Get a data model for this membership, suitable for returning to the frontend.
+        """
+        if self.updated_by is not None:
+            updated_by = self.updated_by.email
+        else:
+            updated_by = '(automatic)'
+        return GroupMembershipData(
+            id=self.id,
+            group_id=self.group_id,
+            group_name=self.group.name,
+            approval_status=self.approval_status,
+            updated_by=updated_by,
+        )
 
 
 class GroupMembershipHistory(BaseModel, table=True):

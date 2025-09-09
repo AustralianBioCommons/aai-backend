@@ -23,6 +23,7 @@ from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformMembershipFactory,
 )
 
 
@@ -248,6 +249,7 @@ def persistent_factories(test_db_session):
         BiocommonsGroupFactory,
         BiocommonsUserFactory,
         GroupMembershipFactory,
+        PlatformMembershipFactory,
     ]
     for factory in factories:
         factory.__session__ = test_db_session

@@ -1,6 +1,12 @@
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 
-from db.models import Auth0Role, BiocommonsGroup, BiocommonsUser, GroupMembership
+from db.models import (
+    Auth0Role,
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupMembership,
+    PlatformMembership,
+)
 from tests.datagen import random_auth0_id
 
 
@@ -21,4 +27,8 @@ class BiocommonsGroupFactory(SQLAlchemyFactory[BiocommonsGroup]):
 
 
 class GroupMembershipFactory(SQLAlchemyFactory[GroupMembership]):
+    __set_relationships__ = True
+
+
+class PlatformMembershipFactory(SQLAlchemyFactory[PlatformMembership]):
     __set_relationships__ = True
