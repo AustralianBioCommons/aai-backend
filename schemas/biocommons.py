@@ -254,7 +254,7 @@ class Auth0UserData(BaseModel):
 
     created_at: datetime
     email: EmailStr
-    username: BiocommonsUsername
+    username: Optional[BiocommonsUsername] = None
     email_verified: bool
     identities: List[Identity]
     name: str

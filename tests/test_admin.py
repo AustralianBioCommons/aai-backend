@@ -177,6 +177,155 @@ def test_get_users_invalid_filter(test_client, as_admin_user, test_db_session):
     assert "Invalid filter_by value 'invalid_filter'" in resp.json()["detail"]
 
 
+def test_get_users_search_by_email_exact(test_client, as_admin_user, test_db_session):
+    from tests.db.datagen import BiocommonsUserFactory
+
+    user1 = BiocommonsUserFactory.build(email="john.doe@example.com", username="johndoe")
+    user2 = BiocommonsUserFactory.build(email="jane.smith@example.com", username="janesmith")
+    user3 = BiocommonsUserFactory.build(email="bob.wilson@example.com", username="bobwilson")
+
+    for user in [user1, user2, user3]:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?search=john.doe@example.com")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["email"] == "john.doe@example.com"
+
+
+def test_get_users_search_by_email_partial(test_client, as_admin_user, test_db_session):
+    from tests.db.datagen import BiocommonsUserFactory
+
+    user1 = BiocommonsUserFactory.build(email="john.doe@example.com", username="johndoe")
+    user2 = BiocommonsUserFactory.build(email="jane.smith@example.com", username="janesmith")
+    user3 = BiocommonsUserFactory.build(email="bob.wilson@different.com", username="bobwilson")
+
+    for user in [user1, user2, user3]:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?search=example.com")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 2
+    emails = [user["email"] for user in results]
+    assert "john.doe@example.com" in emails
+    assert "jane.smith@example.com" in emails
+    assert "bob.wilson@different.com" not in emails
+
+
+def test_get_users_search_by_username(test_client, as_admin_user, test_db_session):
+    from tests.db.datagen import BiocommonsUserFactory
+
+    user1 = BiocommonsUserFactory.build(email="john@example.com", username="johndoe")
+    user2 = BiocommonsUserFactory.build(email="jane@example.com", username="janesmith")
+    user3 = BiocommonsUserFactory.build(email="bob@example.com", username="bobwilson")
+
+    for user in [user1, user2, user3]:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?search=john")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["username"] == "johndoe"
+
+
+def test_get_users_search_by_username_partial(test_client, as_admin_user, test_db_session):
+    from tests.db.datagen import BiocommonsUserFactory
+
+    user1 = BiocommonsUserFactory.build(email="john@example.com", username="johnsmith")
+    user2 = BiocommonsUserFactory.build(email="jane@example.com", username="johndoe")
+    user3 = BiocommonsUserFactory.build(email="bob@example.com", username="bobwilson")
+
+    for user in [user1, user2, user3]:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?search=john")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 2
+    usernames = [user["username"] for user in results]
+    assert "johnsmith" in usernames
+    assert "johndoe" in usernames
+    assert "bobwilson" not in usernames
+
+
+def test_get_users_search_case_insensitive(test_client, as_admin_user, test_db_session):
+    from tests.db.datagen import BiocommonsUserFactory
+
+    user1 = BiocommonsUserFactory.build(email="John.Doe@Example.Com", username="JohnDoe")
+
+    test_db_session.add(user1)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?search=JOHN")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["username"] == "JohnDoe"
+
+    resp = test_client.get("/admin/users?search=john.doe@example.com")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["email"] == "John.Doe@Example.Com"
+
+
+def test_get_users_search_empty_string(test_client, as_admin_user, test_db_session):
+    from tests.db.datagen import BiocommonsUserFactory
+
+    users = BiocommonsUserFactory.batch(3)
+    for user in users:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?search=")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 3
+
+    resp = test_client.get("/admin/users?search=   ")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 3
+
+
+def test_get_users_search_with_filter(test_client, as_admin_user, test_db_session):
+    from db.models import ApprovalStatusEnum, PlatformEnum, PlatformMembership
+    from tests.db.datagen import BiocommonsUserFactory
+
+    user1 = BiocommonsUserFactory.build(email="john@example.com", username="johndoe")
+    user2 = BiocommonsUserFactory.build(email="jane@example.com", username="janesmith")
+
+    for user in [user1, user2]:
+        test_db_session.add(user)
+    test_db_session.commit()
+
+    membership = PlatformMembership(
+        user_id=user1.id,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users?filter_by=galaxy&search=john")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["username"] == "johndoe"
+
+    resp = test_client.get("/admin/users?filter_by=galaxy&search=jane")
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 0
+
+
 def test_get_filter_options(test_client, as_admin_user):
     resp = test_client.get("/admin/filters")
     assert resp.status_code == 200

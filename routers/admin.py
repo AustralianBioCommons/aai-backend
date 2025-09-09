@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from auth.validator import get_current_user, user_is_admin
@@ -106,7 +107,8 @@ def get_filter_options():
             response_model=list[BiocommonsUserResponse])
 def get_users(db_session: Annotated[Session, Depends(get_db_session)],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
-              filter_by: str = Query(None, description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')")):
+              filter_by: str = Query(None, description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"),
+              search: str = Query(None, description="Search users by username or email")):
     """
     Get all users from the database with pagination and optional filtering.
 
@@ -114,6 +116,7 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
         filter_by: Optional filter parameter. Can be:
             - Group bundle names: 'tsi', 'bpa_galaxy'
             - Platform names: 'galaxy', 'bpa_data_portal'
+        search: Optional search parameter for username or email
     """
     base_query = select(BiocommonsUser)
 
@@ -136,6 +139,24 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid filter_by value '{filter_by}'"
+            )
+
+    if search:
+        s = search.strip().lower()
+
+        if "@" in s:
+            base_query = base_query.where(
+                or_(
+                    func.lower(BiocommonsUser.email) == s,
+                    func.lower(BiocommonsUser.email).ilike(f"%{s}%")
+                )
+            )
+        else:
+            base_query = base_query.where(
+                or_(
+                    func.lower(BiocommonsUser.username).ilike(f"%{s}%"),
+                    func.lower(BiocommonsUser.email).ilike(f"%{s}%")
+                )
             )
 
     user_query = base_query.offset(pagination.start_index).limit(pagination.per_page)
