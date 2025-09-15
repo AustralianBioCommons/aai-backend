@@ -26,6 +26,7 @@ class BiocommonsUser(BaseModel, table=True):
     # Note: sqlmodel can't validate emails easily.
     #   Use a separate data model to validate this
     email: str = Field(unique=True)
+    email_verified: bool = Field(default=False, nullable=False)
     username: str = Field(unique=True)
     created_at: AwareDatetime = Field(
         default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
