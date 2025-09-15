@@ -107,6 +107,7 @@ class Auth0Client:
             params["search_engine"] = "v3"
         url = f"https://{self.domain}/api/v2/users"
         resp = self._client.get(url, params=params)
+        resp.raise_for_status()
         if include_totals:
             return UsersWithTotals(**resp.json())
         return self._convert_users(resp)
