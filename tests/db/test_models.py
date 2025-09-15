@@ -72,6 +72,7 @@ def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     assert user.id == user_data.user_id
     assert user.email == user_data.email
     assert user.username == user_data.username
+    assert user.email_verified == user_data.email_verified
 
 
 def test_get_or_create_biocommons_user(test_db_session, mock_auth0_client, persistent_factories):

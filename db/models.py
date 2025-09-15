@@ -54,7 +54,7 @@ class BiocommonsUser(BaseModel, table=True):
         """
         Create a new BiocommonsUser object from Auth0 user data (no API call).
         """
-        return cls(id=data.user_id, email=data.email, username=data.username)
+        return cls(id=data.user_id, email=data.email, username=data.username, email_verified=data.email_verified)
 
     @classmethod
     def get_or_create(
