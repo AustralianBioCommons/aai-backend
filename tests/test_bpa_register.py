@@ -28,7 +28,6 @@ def valid_registration_data():
         email="test@example.com",
         reason="Need access to BPA resources",
         password="SecurePass123!",
-        organizations=BPARegistrationDataFactory.get_default_organizations(),
     ).model_dump()
 
 
@@ -95,12 +94,7 @@ def test_successful_registration(
     assert bpa_service.status == "pending"
     assert bpa_service.last_updated is not None
     assert bpa_service.updated_by == "system"
-    assert len(bpa_service.resources) == 2
-
-    for resource in bpa_service.resources:
-        assert resource.last_updated is not None
-        assert resource.initial_request_time is not None
-        assert resource.updated_by == "system"
+    assert len(bpa_service.resources) == 0
 
     assert (
         called_data.user_metadata.bpa.registration_reason
@@ -165,25 +159,11 @@ def test_registration_auth0_error(
     assert response.json()["message"] == "Auth0 error: Something went wrong"
 
 
-def test_registration_with_invalid_organization(
-    test_client, valid_registration_data
-):
-    """Test registration with invalid organization ID"""
-    data = valid_registration_data.copy()
-    data["organizations"] = {"invalid-org-id": True}
-
-    response = test_client.post("/bpa/register", json=data)
-
-    assert response.status_code == 400
-    assert "Invalid organization ID" in response.json()["detail"]
-
-
 def test_registration_request_validation(test_client):
     """Test request validation"""
     invalid_data = {
         "username": "testuser",
         "email": "invalid-email",
-        "organizations": {},
     }
 
     response = test_client.post("/bpa/register", json=invalid_data)
@@ -192,45 +172,6 @@ def test_registration_request_validation(test_client):
     error_data = response.json()
     assert error_data["message"] == "Invalid data submitted"
     assert any(error["field"] == "email" for error in error_data["field_errors"])
-
-
-def test_no_selected_organizations(
-    test_client, test_db_session, mock_auth0_client, valid_registration_data
-):
-    """Test registration with no organizations selected"""
-    data = valid_registration_data.copy()
-    data["organizations"] = {
-        "bpa-bioinformatics-workshop": False,
-        "cipps": False,
-        "ausarg": False,
-    }
-    user_data = Auth0UserDataFactory.build()
-    mock_auth0_client.create_user.return_value = user_data
-
-    response = test_client.post("/bpa/register", json=data)
-
-    assert response.status_code == 200
-    # Check user data sent to Auth0
-    called_data = mock_auth0_client.create_user.call_args[0][0]
-    bpa_service = called_data.app_metadata.services[0]
-    assert len(bpa_service.resources) == 0
-
-
-def test_empty_organizations_dict(
-    test_client, test_db_session, mock_auth0_client, valid_registration_data
-):
-    """Test registration with empty organizations dictionary"""
-    data = valid_registration_data.copy()
-    data["organizations"] = {}
-    user_data = Auth0UserDataFactory.build()
-    mock_auth0_client.create_user.return_value = user_data
-
-    response = test_client.post("/bpa/register", json=data)
-
-    assert response.status_code == 200
-    called_data = mock_auth0_client.create_user.call_args[0][0]
-    bpa_service = called_data.app_metadata.services[0]
-    assert len(bpa_service.resources) == 0
 
 
 def test_registration_email_format(test_client, valid_registration_data):
@@ -244,31 +185,3 @@ def test_registration_email_format(test_client, valid_registration_data):
     details = response.json()
     errors = details["field_errors"]
     assert "email" in [error["field"] for error in errors]
-
-
-def test_all_organizations_selected(
-    test_client_with_email,
-    test_db_session,
-    mock_settings,
-    mocker,
-    mock_auth0_client,
-    valid_registration_data,
-):
-    """Test registration with all organizations selected"""
-    data = valid_registration_data.copy()
-    data["organizations"] = {k: True for k in mock_settings.organizations.keys()}
-
-    user_data = Auth0UserDataFactory.build()
-    mock_auth0_client.create_user.return_value = user_data
-
-    email_service_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
-    email_service_cls.return_value.send.return_value = True
-
-    response = test_client_with_email.post("/bpa/register", json=data)
-
-    assert response.status_code == 200
-    called_data = mock_auth0_client.create_user.call_args[0][0]
-    bpa_service = called_data.app_metadata.services[0]
-    assert len(bpa_service.resources) == len(mock_settings.organizations)
-
-    email_service_cls.return_value.send.assert_called_once()
