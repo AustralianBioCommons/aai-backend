@@ -60,9 +60,9 @@ class AaiBackendDeployStack(Stack):
 
         # Task definition for Fargate
         task_definition = ecs.FargateTaskDefinition(self, "AaiBackendTaskDef",
-                                                    memory_limit_mib=1024,
-                                                    cpu=512)
-        # Allow executing comands in the ECS container
+                                                    memory_limit_mib=2048,
+                                                    cpu=1024)
+        # Allow executing commands in the ECS container
         task_definition.task_role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore")
         )
