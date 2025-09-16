@@ -85,6 +85,25 @@ class AaiBackendDeployStack(Stack):
             },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="FastAPI"),
         )
+        # Run the job scheduler as a separate container
+        task_definition.add_container(
+            "SchedulerContainer",
+            image=ecs.ContainerImage.from_ecr_repository(
+                ecr_repo,
+                tag="latest"
+            ),
+            # Override the default command to run the scheduler
+            command=["uv", "run", "python", "run_scheduler.py"],
+            environment={
+                "FORCE_REDEPLOY": str(datetime.datetime.now()),
+                "DB_HOST": self.db_host,
+            },
+            secrets={
+                "DB_USER": ecs.Secret.from_secrets_manager(db_secret, field="username"),
+                "DB_PASSWORD": ecs.Secret.from_secrets_manager(db_secret, field="password"),
+            },
+            logging=ecs.LogDrivers.aws_logs(stream_prefix="Scheduler"),
+        )
 
         container.add_port_mappings(
             ecs.PortMapping(container_port=8000)
