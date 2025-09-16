@@ -107,7 +107,7 @@ class BiocommonsUser(BaseModel, table=True):
         membership = GroupMembership(
             group_id=group_id,
             user_id=self.id,
-            approval_status=ApprovalStatusEnum.PENDING,
+            approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
             updated_by_id=None,
         )
         db_session.add(membership)
