@@ -78,7 +78,7 @@ class BiocommonsUserAdmin(ModelView, model=BiocommonsUser):
     can_edit = False
     can_create = False
     can_delete = True
-    column_list = ["id", "username", "email", "created_at"]
+    column_list = ["id", "username", "email", "email_verified", "created_at"]
     column_default_sort = ("created_at", True)
 
 

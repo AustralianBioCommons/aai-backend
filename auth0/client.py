@@ -38,7 +38,7 @@ class UsersWithTotals(BaseModel):
     """
     Response from Auth0 users API when include_totals is True.
 
-    :var start: 0-based page number
+    :var start: index of the first item
     :var limit: number of items per page
     :var total: total number of items
     """
@@ -107,6 +107,7 @@ class Auth0Client:
             params["search_engine"] = "v3"
         url = f"https://{self.domain}/api/v2/users"
         resp = self._client.get(url, params=params)
+        resp.raise_for_status()
         if include_totals:
             return UsersWithTotals(**resp.json())
         return self._convert_users(resp)

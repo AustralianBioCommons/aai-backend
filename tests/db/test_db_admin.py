@@ -81,10 +81,11 @@ def test_admin_auth_authenticate_empty_roles_list_redirects(mock_settings):
     assert result == "redirect_response"
 
 
-def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings):
+def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine):
     """Test that admin panel is accessible with valid admin session"""
     with patch("db.admin.get_settings", return_value=mock_settings), \
-            patch("db.admin.setup_oauth") as mock_setup_oauth:
+            patch("db.admin.setup_oauth") as mock_setup_oauth, \
+            patch("db.admin.get_engine", return_value=test_db_engine):
         mock_oauth_client = Mock()
         mock_oauth_client.authorize_redirect = AsyncMock()
         mock_oauth_client.authorize_access_token = AsyncMock()
