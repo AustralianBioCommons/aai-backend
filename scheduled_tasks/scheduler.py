@@ -1,5 +1,3 @@
-import logging
-
 from apscheduler.events import (
     EVENT_JOB_ERROR,
     EVENT_JOB_EXECUTED,
@@ -8,17 +6,17 @@ from apscheduler.events import (
 )
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from loguru import logger
 
 
 def job_listener(event: JobExecutionEvent):
-    log = logging.getLogger("scheduled_tasks.tasks")
-    extra = {"job_id": event.job_id, "run_time": getattr(event, "scheduled_run_time", None)}
-    if event.code == EVENT_JOB_EXECUTED:
-        log.info("job executed successfully", extra=extra)
-    elif event.code == EVENT_JOB_ERROR:
-        log.error("job failed: %s\n%s", event.exception, event.traceback, extra=extra)
-    elif event.code == EVENT_JOB_MISSED:
-        log.warning("job missed its run time", extra=extra)
+    with logger.contextualize(job_id=event.job_id, run_time=getattr(event, "scheduled_run_time", None)):
+        if event.code == EVENT_JOB_EXECUTED:
+            logger.info("job executed successfully")
+        elif event.code == EVENT_JOB_ERROR:
+            logger.error("job failed: %s\n%s")
+        elif event.code == EVENT_JOB_MISSED:
+            logger.warning("job missed its run time")
 
 
 def create_scheduler():
