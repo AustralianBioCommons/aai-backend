@@ -11,7 +11,7 @@ from scheduled_tasks.tasks import sync_auth0_users
 
 
 def schedule_jobs(scheduler: AsyncIOScheduler):
-    hourly_trigger = IntervalTrigger(minutes=2)
+    hourly_trigger = IntervalTrigger(minutes=60)
     logger.info("Adding job: sync_auth0_users")
     scheduler.add_job(
         sync_auth0_users,
