@@ -7,7 +7,7 @@ from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import TypeAdapter, ValidationError
 
-from auth0.client import EmailVerificationResponse
+from auth0.client import EmailVerificationResponse, UsersWithTotals
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
@@ -137,3 +137,19 @@ class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationReque
 
 
 class EmailVerificationResponseFactory(ModelFactory[EmailVerificationResponse]): ...
+
+
+class UsersWithTotalsFactory(ModelFactory[UsersWithTotals]):
+    """
+    Factory for generating Auth0 users API response.
+    It's tricky to define this factory so total/start/limit always match, best
+    to define them manually in each test.
+    """
+    total = 20
+    limit = 10
+    start = 0
+
+    @post_generated
+    @classmethod
+    def users(cls, limit: int) -> list[Auth0UserData]:
+        return Auth0UserDataFactory.batch(size=limit)
