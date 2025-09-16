@@ -1,12 +1,11 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
 from starlette.responses import JSONResponse
 
-from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser, PlatformEnum
@@ -25,21 +24,6 @@ router = APIRouter(
     # Overriding route class to handle registration errors
     route_class=RegistrationRoute
 )
-
-
-def send_approval_email(registration: BPARegistrationRequest):
-    email_service = EmailService()
-    approver_email = "aai-dev@biocommons.org.au"
-    subject = "New BPA User Access Request"
-
-    body_html = f"""
-        <p>A new user has requested access to the Bioplatforms Australia Data Portal service.</p>
-        <p><strong>User:</strong> {registration.fullname} ({registration.email})</p>
-        <p><strong>Reason:</strong> {registration.reason}</p>
-        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the AAI Admin Portal</a> to review access.</p>
-    """
-
-    email_service.send(approver_email, subject, body_html)
 
 
 def _get_bpa_service_request(registration: BPARegistrationRequest, settings: Settings, update_time: datetime) -> Service:
@@ -62,7 +46,6 @@ def _get_bpa_service_request(registration: BPARegistrationRequest, settings: Set
 )
 async def register_bpa_user(
     registration: BPARegistrationRequest,
-    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client)
@@ -82,9 +65,6 @@ async def register_bpa_user(
 
         logger.info("Adding user to DB")
         _create_bpa_user_record(auth0_user_data, db_session)
-
-        if settings.send_email:
-            background_tasks.add_task(send_approval_email, registration)
 
         return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
 

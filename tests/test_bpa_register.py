@@ -49,22 +49,17 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 
 def test_successful_registration(
-    test_client_with_email, mocker, valid_registration_data,
-        mock_auth0_client, test_db_session
+    test_client, valid_registration_data, mock_auth0_client, test_db_session
 ):
     """Test successful user registration with BPA service"""
-    test_client = test_client_with_email
     user_id = random_auth0_id()
     mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(user_id=user_id)
-    mock_email_cls = mocker.patch("routers.bpa_register.EmailService", autospec=True)
-    mock_email_cls.return_value.send.return_value = None
 
     response = test_client.post("/bpa/register", json=valid_registration_data)
 
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
 
-    mock_email_cls.return_value.send.assert_called_once()
     # Check user is created in the database
     db_user = test_db_session.get(BiocommonsUser, user_id)
     assert db_user is not None
