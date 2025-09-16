@@ -70,6 +70,22 @@ class BiocommonsUser(BaseModel, table=True):
             db_session.commit()
         return user
 
+    def update_from_auth0(self, auth0_id: str, auth0_client: Auth0Client) -> Self:
+        """
+        Fetch user data from Auth0 and update this object with it.
+        Currently only updates email_verified.
+        """
+        user_data = auth0_client.get_user(user_id=auth0_id)
+        return self.update_from_auth0_data(user_data)
+
+    def update_from_auth0_data(self, data: 'schemas.biocommons.Auth0UserData') -> Self:
+        """
+        Update this object with data from Auth0, without fetching.
+        Currently only updates email_verified.
+        """
+        self.email_verified = data.email_verified
+        return self
+
     def add_platform_membership(
         self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False
     ) -> "PlatformMembership":
