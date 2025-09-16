@@ -131,4 +131,12 @@ class AaiBackendDeployStack(Stack):
 
         service.target_group.configure_health_check(path="/", healthy_http_codes="200-399")
 
+        # Output relevant ARNs and IDs
         CfnOutput(self, "LoadBalancerDNS", value=service.load_balancer.load_balancer_dns_name)
+        CfnOutput(self, "ServiceArn", value=service.service.service_arn)
+        CfnOutput(self, "ServiceName", value=service.service.service_name)
+        CfnOutput(self, "ClusterArn", value=cluster.cluster_arn)
+        CfnOutput(self, "ClusterName", value=cluster.cluster_name)
+        CfnOutput(self, "TaskDefinitionArn", value=task_definition.task_definition_arn)
+        CfnOutput(self, "TaskDefinitionFamily", value=task_definition.family)
+        CfnOutput(self, "LoadBalancerArn", value=service.load_balancer.load_balancer_arn)
