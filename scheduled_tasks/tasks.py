@@ -20,7 +20,7 @@ async def sync_auth0_users():
     while True:
         for user in users.users:
             SCHEDULER.add_job(update_auth0_user, args=[user], id=f"update_user_{user.user_id}", replace_existing=True)
-        current_fetched = (users.start * users.limit) + len(users.users)
+        current_fetched = users.start + len(users.users)
         if current_fetched >= users.total:
             break
         current_page += 1

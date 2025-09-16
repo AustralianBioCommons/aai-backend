@@ -38,7 +38,7 @@ class UsersWithTotals(BaseModel):
     """
     Response from Auth0 users API when include_totals is True.
 
-    :var start: 0-based page number
+    :var start: index of the first item
     :var limit: number of items per page
     :var total: total number of items
     """
