@@ -109,15 +109,6 @@ class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
 class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
     """Factory for generating BPA registration test data."""
 
-    @classmethod
-    def get_default_organizations(cls) -> dict:
-        """Default organization selection."""
-        return {
-            "bpa-bioinformatics-workshop": True,
-            "cipps": False,
-            "ausarg": True,
-        }
-
     password = BiocommonsProviders.biocommons_password
     username = BiocommonsProviders.biocommons_username
 
