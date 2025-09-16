@@ -17,6 +17,7 @@ dependencies = [
     "sqladmin>=0.21.0",
     "itsdangerous>=2.2.0",
     "apscheduler[redis,sqlalchemy]~=3.11",
+    "loguru>=0.7.3",
 ]
 
 [project.optional-dependencies]
