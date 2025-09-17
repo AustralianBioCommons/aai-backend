@@ -21,7 +21,7 @@ from db.models import (
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum, GroupEnum
 from routers.user import update_user_metadata
-from schemas.biocommons import Auth0UserData, Auth0UserDataWithMemberships
+from schemas.biocommons import Auth0UserDataWithMemberships
 from schemas.user import SessionUser
 
 logger = logging.getLogger('uvicorn.error')
@@ -231,10 +231,11 @@ def get_unverified_users(
 
 
 @router.get("/users/{user_id}",
-            response_model=Auth0UserData)
+            response_model=BiocommonsUserResponse)
 def get_user(user_id: Annotated[str, UserIdParam],
-             client: Annotated[Auth0Client, Depends(get_auth0_client)]):
-    return client.get_user(user_id)
+             db_session: Annotated[Session, Depends(get_db_session)]):
+    user = db_session.get_one(BiocommonsUser, user_id)
+    return user
 
 
 @router.get("/users/{user_id}/details",
