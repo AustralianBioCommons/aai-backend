@@ -8,6 +8,7 @@ from freezegun import freeze_time
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client
+from db.types import ApprovalStatusEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams
 from tests.datagen import (
@@ -362,40 +363,41 @@ def test_get_user(test_client, as_admin_user, mock_auth0_client):
     assert resp.json() == user.model_dump(mode='json')
 
 
-def test_get_approved_users(test_client, as_admin_user, mock_auth0_client):
-    approved_users = Auth0UserDataFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "approved"}]})
-    mock_auth0_client.get_approved_users.return_value = approved_users
+def test_get_approved_users(test_client, test_db_session, as_admin_user, persistent_factories):
+    approved_users = BiocommonsUserFactory.create_batch_sync(3)
+    for u in approved_users:
+        u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=True)
     resp = test_client.get("/admin/users/approved")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
-    approved_ids = set(u.user_id for u in approved_users)
+    approved_ids = set(u.id for u in approved_users)
     for returned_user in resp.json():
-        assert returned_user["app_metadata"]["services"][0]["status"] == "approved"
-        assert returned_user["user_id"] in approved_ids
+        assert returned_user["id"] in approved_ids
 
 
-def test_get_pending_users(test_client, as_admin_user, mock_auth0_client):
-    pending_users = Auth0UserDataFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "pending"}]})
-    mock_auth0_client.get_pending_users.return_value = pending_users
+def test_get_pending_users(test_client, test_db_session, as_admin_user, persistent_factories):
+    pending_users = BiocommonsUserFactory.create_batch_sync(3)
+    for u in pending_users:
+        u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=False)
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
-    pending_ids = set(u.user_id for u in pending_users)
+    expected_ids = set(u.id for u in pending_users)
     for returned_user in resp.json():
-        assert returned_user["app_metadata"]["services"][0]["status"] == "pending"
-        assert returned_user["user_id"] in pending_ids
+        assert returned_user["id"] in expected_ids
 
 
-def test_get_revoked(test_client, as_admin_user, mock_auth0_client):
-    revoked_users = Auth0UserDataFactory.batch(3, app_metadata={"services": [{"name": "BPA", "status": "revoked"}]})
-    mock_auth0_client.get_revoked_users.return_value = revoked_users
+def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories):
+    revoked_users = BiocommonsUserFactory.create_batch_sync(3)
+    for u in revoked_users:
+        PlatformMembershipFactory.create_sync(user=u, platform_id="galaxy", approval_status=ApprovalStatusEnum.REVOKED)
+    test_db_session.commit()
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
-    revoked_ids = set(u.user_id for u in revoked_users)
+    expected_ids = set(u.id for u in revoked_users)
     for returned_user in resp.json():
-        assert returned_user["app_metadata"]["services"][0]["status"] == "revoked"
-        assert returned_user["user_id"] in revoked_ids
+        assert returned_user["id"] in expected_ids
 
 
 # Patch asyncio.run to work in the AnyIO worker thread
@@ -437,20 +439,13 @@ def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth
     assert platforms[0] == platform_membership_data
 
 
-def test_get_unverified_users(test_client, as_admin_user, mock_auth0_client):
-    u1 = Auth0UserDataFactory.build(email_verified=False)
-    u2 = Auth0UserDataFactory.build(email_verified=False)
-    mock_auth0_client.get_users.return_value = [u1, u2]
-
-    resp = test_client.get("/admin/users/unverified?page=2&per_page=10")
+def test_get_unverified_users(test_client, test_db_session, as_admin_user, persistent_factories):
+    BiocommonsUserFactory.create_batch_sync(2, email_verified=True)
+    BiocommonsUserFactory.create_batch_sync(3, email_verified=False)
+    resp = test_client.get("/admin/users/unverified")
     assert resp.status_code == 200
-
-    mock_auth0_client.get_users.assert_called_once_with(
-        page=2, per_page=10, q="email_verified:false"
-    )
-
     data = resp.json()
-    assert len(data) == 2
+    assert len(data) == 3
     assert all(u["email_verified"] is False for u in data)
 
 
