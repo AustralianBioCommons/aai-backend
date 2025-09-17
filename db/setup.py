@@ -17,7 +17,13 @@ def get_engine():
     global _engine
     if _engine is None:
         db_url, db_connect_args = get_db_config()
-        _engine = create_engine(db_url, connect_args=db_connect_args)
+        _engine = create_engine(
+            db_url,
+            connect_args=db_connect_args,
+            pool_size=20,
+            max_overflow=20,
+            pool_timeout=60,
+        )
     return _engine
 
 

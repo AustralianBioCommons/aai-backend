@@ -96,6 +96,7 @@ def disable_db_setup(mocker):
     by test fixtures
     """
     mocker.patch("db.setup.create_db_and_tables", return_value=None)
+    mocker.patch("db.setup.get_engine", return_value=None)
 
 
 @pytest.fixture

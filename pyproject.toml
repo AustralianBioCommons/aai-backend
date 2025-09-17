@@ -17,12 +17,15 @@ dependencies = [
     "sqladmin>=0.21.0",
     "itsdangerous>=2.2.0",
     "prometheus-fastapi-instrumentator>=6.0.0",
+    "apscheduler[redis,sqlalchemy]~=3.11",
+    "loguru>=0.7.3",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
+    "pytest-asyncio~=1.2",
     "pytest-cov>=4.1.0",
     "ruff>=0.4.4",
     "polyfactory>=2.21.0",
