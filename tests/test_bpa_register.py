@@ -73,13 +73,7 @@ def test_successful_registration(
     assert not called_data.email_verified
 
     app_metadata = called_data.app_metadata
-    assert len(app_metadata.services) == 1
-    bpa_service = app_metadata.services[0]
-    assert bpa_service.name == "Bioplatforms Australia Data Portal"
-    assert bpa_service.status == "pending"
-    assert bpa_service.last_updated is not None
-    assert bpa_service.updated_by == "system"
-    assert len(bpa_service.resources) == 0
+    assert app_metadata.registration_from == "bpa"
 
     assert (
         called_data.user_metadata.bpa.registration_reason
