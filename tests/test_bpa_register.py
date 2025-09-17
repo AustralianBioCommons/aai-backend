@@ -1,5 +1,3 @@
-from datetime import UTC, datetime
-
 import httpx
 import pytest
 from sqlmodel import select
@@ -10,7 +8,6 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from schemas import Service
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
     Auth0UserDataFactory,
@@ -33,15 +30,8 @@ def valid_registration_data():
 
 def test_to_biocommons_register_data(valid_registration_data):
     bpa_data = BPARegistrationDataFactory.build()
-    bpa_service = Service(
-        name="Bioplatforms Australia",
-        id="bpa",
-        status="approved",
-        last_updated=datetime.now(UTC),
-        updated_by="system",
-    )
     register_data = BiocommonsRegisterData.from_bpa_registration(
-        bpa_data, bpa_service=bpa_service
+        bpa_data
     )
     assert register_data.username == bpa_data.username
     assert register_data.name == bpa_data.fullname
@@ -95,30 +85,6 @@ def test_successful_registration(
         called_data.user_metadata.bpa.registration_reason
         == valid_registration_data["reason"]
     )
-
-def test_service_and_resources_have_updated_by_system():
-    service = Service(
-        name="Test Service",
-        id="svc1",
-        status="pending",
-        last_updated=datetime.now(UTC),
-        updated_by="system",
-        resources=[
-            {
-                "id": "res1",
-                "name": "Test Resource",
-                "status": "pending",
-                "last_updated": datetime.now(UTC),
-                "updated_by": "system",
-                "initial_request_time": datetime.now(UTC),
-            }
-        ],
-    )
-    assert service.updated_by == "system"
-    assert service.resources[0].updated_by == "system"
-    assert hasattr(service.resources[0], "initial_request_time")
-    assert isinstance(service.resources[0].initial_request_time, datetime)
-
 
 def test_registration_duplicate_user(
     test_client, valid_registration_data, mock_auth0_client
