@@ -60,9 +60,9 @@ class AaiBackendDeployStack(Stack):
 
         # Task definition for Fargate
         task_definition = ecs.FargateTaskDefinition(self, "AaiBackendTaskDef",
-                                                    memory_limit_mib=1024,
-                                                    cpu=512)
-        # Allow executing comands in the ECS container
+                                                    memory_limit_mib=2048,
+                                                    cpu=1024)
+        # Allow executing commands in the ECS container
         task_definition.task_role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMManagedInstanceCore")
         )
@@ -84,6 +84,25 @@ class AaiBackendDeployStack(Stack):
                 "DB_PASSWORD": ecs.Secret.from_secrets_manager(db_secret, field="password"),
             },
             logging=ecs.LogDrivers.aws_logs(stream_prefix="FastAPI"),
+        )
+        # Run the job scheduler as a separate container
+        task_definition.add_container(
+            "SchedulerContainer",
+            image=ecs.ContainerImage.from_ecr_repository(
+                ecr_repo,
+                tag="latest"
+            ),
+            # Override the default command to run the scheduler
+            command=["uv", "run", "python", "run_scheduler.py"],
+            environment={
+                "FORCE_REDEPLOY": str(datetime.datetime.now()),
+                "DB_HOST": self.db_host,
+            },
+            secrets={
+                "DB_USER": ecs.Secret.from_secrets_manager(db_secret, field="username"),
+                "DB_PASSWORD": ecs.Secret.from_secrets_manager(db_secret, field="password"),
+            },
+            logging=ecs.LogDrivers.aws_logs(stream_prefix="Scheduler"),
         )
 
         container.add_port_mappings(
@@ -112,4 +131,12 @@ class AaiBackendDeployStack(Stack):
 
         service.target_group.configure_health_check(path="/", healthy_http_codes="200-399")
 
+        # Output relevant ARNs and IDs
         CfnOutput(self, "LoadBalancerDNS", value=service.load_balancer.load_balancer_dns_name)
+        CfnOutput(self, "ServiceArn", value=service.service.service_arn)
+        CfnOutput(self, "ServiceName", value=service.service.service_name)
+        CfnOutput(self, "ClusterArn", value=cluster.cluster_arn)
+        CfnOutput(self, "ClusterName", value=cluster.cluster_name)
+        CfnOutput(self, "TaskDefinitionArn", value=task_definition.task_definition_arn)
+        CfnOutput(self, "TaskDefinitionFamily", value=task_definition.family)
+        CfnOutput(self, "LoadBalancerArn", value=service.load_balancer.load_balancer_arn)
