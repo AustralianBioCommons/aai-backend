@@ -105,6 +105,20 @@ and run the migrations:
 uv run alembic upgrade head
 ```
 
+# Job scheduler
+
+We use the `apscheduler` library to schedule recurring jobs. Currently
+this is used to synchronize user information from Auth0 to the AAI
+database. You can run the job scheduler locally using:
+
+```shell
+uv run python run_scheduler.py
+```
+
+Note that for small jobs that run on-demand, e.g. sending a notification email when a user
+signs up, you can use FastAPI's built-in [background tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/)
+within the FastAPI app, instead of using the dedicated job scheduler.
+
 # Deployment
 
 Currently the service is deployed to AWS via the CDK scripts in `deploy/`,
@@ -112,3 +126,8 @@ and updated on each commit to `main`.
 
 Secrets/configuration variables for the deployment are stored in the
 GitHub Secrets for the repository.
+
+The service deploys two containers (which both use the same image/Python environment):
+
+* The FastAPI app
+* The `apscheduler` job scheduler
