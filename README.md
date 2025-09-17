@@ -73,9 +73,12 @@ pre-commit run --all-files
 
 # Database management
 
-The deployed service uses a Postgres database on AWS RDS.
-In order to generate migrations for the database locally,
+The deployed service uses a Postgres database on AWS RDS (provisioned automatically by the
+infrastructure stack). In order to generate migrations for the database locally,
 we use a Postgres docker container to generate migrations against.
+
+At runtime the task receives database connection details through environment variables
+(`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) sourced from AWS Secrets Manager.
 
 After making any changes to the database models, run the
 `generate_migrations.py` script to create migrations:

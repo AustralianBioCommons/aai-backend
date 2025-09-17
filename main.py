@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import dotenv_values
@@ -49,6 +50,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+metrics_enabled = os.getenv("ENABLE_PROMETHEUS_METRICS", "").lower() in {"1", "true", "yes"}
+
+if metrics_enabled:
+    from prometheus_fastapi_instrumentator import Instrumentator
+
+    Instrumentator().instrument(app).expose(app, include_in_schema=False)
 
 
 @app.get("/")
