@@ -355,10 +355,9 @@ def test_get_filter_options(test_client, as_admin_user):
     assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"
 
 
-def test_get_user(test_client, as_admin_user, mock_auth0_client):
-    user = Auth0UserDataFactory.build()
-    mock_auth0_client.get_user.return_value = user
-    resp = test_client.get(f"/admin/users/{user.user_id}")
+def test_get_user(test_client, test_db_session, as_admin_user, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    resp = test_client.get(f"/admin/users/{user.id}")
     assert resp.status_code == 200
     assert resp.json() == user.model_dump(mode='json')
 
