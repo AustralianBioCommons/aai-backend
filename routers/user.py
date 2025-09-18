@@ -1,4 +1,4 @@
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
@@ -28,6 +28,11 @@ class PlatformMembershipData(PydanticBaseModel):
 class GroupMembershipData(PydanticBaseModel):
     group_id: str
     approval_status: str
+
+
+class CombinedMembershipData(PydanticBaseModel):
+    platforms: list[PlatformMembershipData]
+    groups: list[GroupMembershipData]
 
 
 async def get_user_data(
@@ -183,14 +188,17 @@ async def check_is_admin(
     return {"is_admin": user.is_admin(settings)}
 
 
-@router.get("/all/pending", response_model=Dict[str, List[Any]])
+@router.get("/all/pending",
+            response_model=CombinedMembershipData)
 async def get_all_pending(
     user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
+    db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    """Get all pending services and resources."""
-    user_data = await get_user_data(user, settings)
-    return {
-        "pending_services": user_data.pending_services,
-        "pending_resources": user_data.pending_resources,
-    }
+    """Get all pending platforms and groups."""
+    platforms_query = _get_user_platforms(user_id=user.access_token.sub,
+                                    approval_status=ApprovalStatusEnum.PENDING)
+    groups_query = _get_user_groups(user_id=user.access_token.sub,
+                              approval_status=ApprovalStatusEnum.PENDING)
+    platforms = db_session.exec(platforms_query).all()
+    groups = db_session.exec(groups_query).all()
+    return {"platforms": platforms, "groups": groups}
