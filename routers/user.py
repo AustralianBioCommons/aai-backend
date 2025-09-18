@@ -2,16 +2,28 @@ from typing import Annotated, Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
+from pydantic import BaseModel as PydanticBaseModel
+from sqlalchemy import Sequence
+from sqlmodel import Session, select
 
 from auth.management import get_management_token
 from auth.validator import get_current_user
 from config import Settings, get_settings
+from db.models import PlatformMembership
+from db.setup import get_db_session
+from db.types import ApprovalStatusEnum
 from schemas.biocommons import Auth0UserData
 from schemas.user import SessionUser
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
 )
+
+
+class PlatformMembershipData(PydanticBaseModel):
+    platform_id: str
+    approval_status: str
+
 
 
 async def get_user_data(
@@ -67,6 +79,52 @@ async def update_user_metadata(
             detail=f"Failed to update user metadata: {str(e)}",
         )
 
+
+def _get_user_platforms(user_id: str, approval_status: ApprovalStatusEnum | None = None) -> Sequence[PlatformMembership]:
+    """Utility function to get platforms for a user."""
+    query = (select(PlatformMembership)
+            .where(PlatformMembership.user_id == user_id))
+    if approval_status is not None:
+        query = query.where(PlatformMembership.approval_status == approval_status)
+    return query
+
+
+@router.get("/platforms",
+            response_model=list[PlatformMembershipData],)
+async def get_platforms(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_platforms(user_id=user.access_token.sub)
+    return db_session.exec(query).all()
+
+
+@router.get(
+    "/platforms/approved",
+    response_model=list[PlatformMembershipData],
+)
+async def get_approved_platforms(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Get approved platforms for the current user."""
+    query = _get_user_platforms(user_id=user.access_token.sub,
+                                approval_status=ApprovalStatusEnum.APPROVED)
+    return db_session.exec(query).all()
+
+
+@router.get(
+    "/platforms/pending",
+    response_model=list[PlatformMembershipData],
+)
+async def get_pending_platforms(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Get pending platforms for the current user."""
+    query = _get_user_platforms(user_id=user.access_token.sub,
+                                approval_status=ApprovalStatusEnum.PENDING)
+    return db_session.exec(query).all()
 
 @router.get("/is-admin")
 async def check_is_admin(
