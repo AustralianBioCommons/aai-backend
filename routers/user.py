@@ -2,6 +2,7 @@ from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
+from pydantic import AliasPath, Field
 from pydantic import BaseModel as PydanticBaseModel
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
@@ -26,8 +27,15 @@ class PlatformMembershipData(PydanticBaseModel):
 
 
 class GroupMembershipData(PydanticBaseModel):
+    """
+    Data model for group membership, when returned from the API.
+    Should be created automatically from GroupMembership when
+    setting a response_model on a route.
+    """
     group_id: str
     approval_status: str
+    # Get group_name from the nested group object
+    group_name: str = Field(validation_alias=AliasPath("group", "name"))
 
 
 class CombinedMembershipData(PydanticBaseModel):
