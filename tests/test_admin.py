@@ -389,7 +389,7 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, persiste
 def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories):
     revoked_users = BiocommonsUserFactory.create_batch_sync(3)
     for u in revoked_users:
-        PlatformMembershipFactory.create_sync(user=u, platform_id="galaxy", approval_status=ApprovalStatusEnum.REVOKED)
+        PlatformMembershipFactory.create_sync(user=u, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.REVOKED)
     test_db_session.commit()
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
