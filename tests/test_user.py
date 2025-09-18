@@ -216,3 +216,24 @@ def test_get_pending_groups(test_client, test_db_session, mocker, persistent_fac
     assert len(data) == 1
     ids = [group["group_id"] for group in data]
     assert pending_group.group_id in ids
+
+
+def test_get_all_pending(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns combined list of pending groups and platforms"""
+    user = BiocommonsUserFactory.create_sync()
+    groups = BiocommonsGroupFactory.create_batch_sync(size=2)
+    GroupMembershipFactory.create_sync(user=user, group=groups[0], approval_status=ApprovalStatusEnum.APPROVED)
+    pending_group = GroupMembershipFactory.create_sync(user=user, group=groups[1], approval_status=ApprovalStatusEnum.PENDING)
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.APPROVED)
+    pending_platform = PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.BPA_DATA_PORTAL, approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/all/pending", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["groups"]) == 1
+    group_ids = [group["group_id"] for group in data["groups"]]
+    assert pending_group.group_id in group_ids
+    assert len(data["platforms"]) == 1
+    platform_ids = [platform["platform_id"] for platform in data["platforms"]]
+    assert pending_platform.platform_id in platform_ids
