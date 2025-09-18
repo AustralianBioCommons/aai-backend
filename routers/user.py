@@ -3,8 +3,8 @@ from typing import Annotated, Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import Sequence
 from sqlmodel import Session, select
+from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from auth.management import get_management_token
 from auth.validator import get_current_user
@@ -90,7 +90,7 @@ async def update_user_metadata(
 
 
 def _get_user_platforms(user_id: str,
-                        approval_status: ApprovalStatusEnum | None = None) -> Sequence[PlatformMembership]:
+                        approval_status: ApprovalStatusEnum | None = None) -> SelectOfScalar[PlatformMembership]:
     """Utility function to get platforms for a user."""
     query = (select(PlatformMembership)
              .where(PlatformMembership.user_id == user_id))
@@ -100,7 +100,7 @@ def _get_user_platforms(user_id: str,
 
 
 def _get_user_groups(user_id: str,
-                     approval_status: ApprovalStatusEnum | None = None) -> Sequence[GroupMembership]:
+                     approval_status: ApprovalStatusEnum | None = None) -> SelectOfScalar[GroupMembership]:
     """Utility function to get groups for a user."""
     query = (select(GroupMembership)
              .where(GroupMembership.user_id == user_id))
