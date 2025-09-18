@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from auth.management import get_management_token
 from auth.validator import get_current_user
 from config import Settings, get_settings
-from db.models import PlatformMembership
+from db.models import GroupMembership, PlatformMembership
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
 from schemas.biocommons import Auth0UserData
@@ -22,6 +22,11 @@ router = APIRouter(
 
 class PlatformMembershipData(PydanticBaseModel):
     platform_id: str
+    approval_status: str
+
+
+class GroupMembershipData(PydanticBaseModel):
+    group_id: str
     approval_status: str
 
 
@@ -89,6 +94,16 @@ def _get_user_platforms(user_id: str,
     return query
 
 
+def _get_user_groups(user_id: str,
+                     approval_status: ApprovalStatusEnum | None = None) -> Sequence[GroupMembership]:
+    """Utility function to get groups for a user."""
+    query = (select(GroupMembership)
+             .where(GroupMembership.user_id == user_id))
+    if approval_status is not None:
+        query = query.where(GroupMembership.approval_status == approval_status)
+    return query
+
+
 @router.get("/platforms",
             response_model=list[PlatformMembershipData],)
 async def get_platforms(
@@ -124,6 +139,38 @@ async def get_pending_platforms(
     """Get pending platforms for the current user."""
     query = _get_user_platforms(user_id=user.access_token.sub,
                                 approval_status=ApprovalStatusEnum.PENDING)
+    return db_session.exec(query).all()
+
+
+@router.get("/groups",
+            response_model=list[GroupMembershipData],)
+async def get_groups(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_groups(user_id=user.access_token.sub)
+    return db_session.exec(query).all()
+
+
+@router.get("/groups/approved",
+            response_model=list[GroupMembershipData],)
+async def get_approved_groups(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_groups(user_id=user.access_token.sub,
+                             approval_status=ApprovalStatusEnum.APPROVED)
+    return db_session.exec(query).all()
+
+
+@router.get("/groups/pending",
+            response_model=list[GroupMembershipData],)
+async def get_pending_groups(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_groups(user_id=user.access_token.sub,
+                             approval_status=ApprovalStatusEnum.PENDING)
     return db_session.exec(query).all()
 
 
