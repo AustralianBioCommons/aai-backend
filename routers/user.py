@@ -25,7 +25,6 @@ class PlatformMembershipData(PydanticBaseModel):
     approval_status: str
 
 
-
 async def get_user_data(
     user: SessionUser, settings: Annotated[Settings, Depends(get_settings)]
 ) -> Auth0UserData:
@@ -80,10 +79,11 @@ async def update_user_metadata(
         )
 
 
-def _get_user_platforms(user_id: str, approval_status: ApprovalStatusEnum | None = None) -> Sequence[PlatformMembership]:
+def _get_user_platforms(user_id: str,
+                        approval_status: ApprovalStatusEnum | None = None) -> Sequence[PlatformMembership]:
     """Utility function to get platforms for a user."""
     query = (select(PlatformMembership)
-            .where(PlatformMembership.user_id == user_id))
+             .where(PlatformMembership.user_id == user_id))
     if approval_status is not None:
         query = query.where(PlatformMembership.approval_status == approval_status)
     return query
@@ -125,6 +125,7 @@ async def get_pending_platforms(
     query = _get_user_platforms(user_id=user.access_token.sub,
                                 approval_status=ApprovalStatusEnum.PENDING)
     return db_session.exec(query).all()
+
 
 @router.get("/is-admin")
 async def check_is_admin(
