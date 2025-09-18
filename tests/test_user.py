@@ -203,7 +203,7 @@ def test_get_approved_groups(test_client, test_db_session, mocker, persistent_fa
 
 
 def test_get_pending_groups(test_client, test_db_session, mocker, persistent_factories):
-    """Test that endpoint returns list of approved groups"""
+    """Test that endpoint returns list of pending groups"""
     user = BiocommonsUserFactory.create_sync()
     groups = BiocommonsGroupFactory.create_batch_sync(size=2)
     GroupMembershipFactory.create_sync(user=user, group=groups[0], approval_status=ApprovalStatusEnum.APPROVED)
