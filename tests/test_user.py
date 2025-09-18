@@ -1,7 +1,15 @@
 import pytest
+from datagen import SessionUserFactory
 
+from db.types import ApprovalStatusEnum, PlatformEnum
 from schemas.biocommons import BiocommonsAppMetadata
 from tests.datagen import AccessTokenPayloadFactory, Auth0UserDataFactory
+from tests.db.datagen import (
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    GroupMembershipFactory,
+    PlatformMembershipFactory,
+)
 
 
 # --- Test Fixtures ---
@@ -36,6 +44,12 @@ def mock_user_data():
     "endpoint",
     [
         "/me/is-admin",
+        "/me/platforms",
+        "/me/platforms/approved",
+        "/me/platforms/pending",
+        "/me/groups",
+        "/me/groups/approved",
+        "/me/groups/pending",
         "/me/all/pending",
     ],
 )
@@ -92,3 +106,110 @@ def test_check_is_admin_without_authentication(test_client):
     """Test that admin check requires authentication"""
     response = test_client.get("/me/is-admin")
     assert response.status_code == 401
+
+
+def _act_as_user(mocker, db_user):
+    """
+    Set up mocks so that the test client authenticates as the given user
+    """
+    access_token = AccessTokenPayloadFactory.build(sub=db_user.id)
+    auth0_user = SessionUserFactory.build(access_token=access_token)
+    mocker.patch("auth.validator.verify_jwt", return_value=access_token)
+    mocker.patch("auth.validator.get_current_user", return_value=auth0_user)
+    return auth0_user
+
+
+def test_get_platforms(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of platforms"""
+    user = BiocommonsUserFactory.create_sync()
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.APPROVED)
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.BPA_DATA_PORTAL, approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/platforms", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    ids = [platform["platform_id"] for platform in data]
+    assert PlatformEnum.GALAXY in ids
+    assert PlatformEnum.BPA_DATA_PORTAL in ids
+
+
+def test_get_approved_platforms(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of approved platforms"""
+    user = BiocommonsUserFactory.create_sync()
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.APPROVED)
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.BPA_DATA_PORTAL, approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/platforms/approved", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    ids = [platform["platform_id"] for platform in data]
+    assert PlatformEnum.GALAXY in ids
+    assert data[0]["approval_status"] == "approved"
+
+
+def test_get_pending_platforms(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of pending platforms"""
+    user = BiocommonsUserFactory.create_sync()
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.APPROVED)
+    PlatformMembershipFactory.create_sync(user=user, platform_id=PlatformEnum.BPA_DATA_PORTAL, approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/platforms/pending", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    ids = [platform["platform_id"] for platform in data]
+    assert PlatformEnum.BPA_DATA_PORTAL in ids
+    assert data[0]["approval_status"] == "pending"
+
+
+def test_get_groups(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of groups"""
+    user = BiocommonsUserFactory.create_sync()
+    groups = BiocommonsGroupFactory.create_batch_sync(size=2)
+    GroupMembershipFactory.create_sync(user=user, group=groups[0], approval_status=ApprovalStatusEnum.APPROVED)
+    GroupMembershipFactory.create_sync(user=user, group=groups[1], approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/groups", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    ids = [group["group_id"] for group in data]
+    assert all(group.group_id in ids for group in groups)
+
+
+def test_get_approved_groups(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of approved groups"""
+    user = BiocommonsUserFactory.create_sync()
+    groups = BiocommonsGroupFactory.create_batch_sync(size=2)
+    approved_group = GroupMembershipFactory.create_sync(user=user, group=groups[0], approval_status=ApprovalStatusEnum.APPROVED)
+    GroupMembershipFactory.create_sync(user=user, group=groups[1], approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/groups/approved", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    ids = [group["group_id"] for group in data]
+    assert approved_group.group_id in ids
+
+
+def test_get_pending_groups(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of approved groups"""
+    user = BiocommonsUserFactory.create_sync()
+    groups = BiocommonsGroupFactory.create_batch_sync(size=2)
+    GroupMembershipFactory.create_sync(user=user, group=groups[0], approval_status=ApprovalStatusEnum.APPROVED)
+    pending_group = GroupMembershipFactory.create_sync(user=user, group=groups[1], approval_status=ApprovalStatusEnum.PENDING)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+    response = test_client.get("/me/groups/pending", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    ids = [group["group_id"] for group in data]
+    assert pending_group.group_id in ids
