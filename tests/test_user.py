@@ -184,6 +184,8 @@ def test_get_groups(test_client, test_db_session, mocker, persistent_factories):
     assert len(data) == 2
     ids = [group["group_id"] for group in data]
     assert all(group.group_id in ids for group in groups)
+    names = [group["group_name"] for group in data]
+    assert all(group.name in names for group in groups)
 
 
 def test_get_approved_groups(test_client, test_db_session, mocker, persistent_factories):
