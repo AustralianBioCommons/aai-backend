@@ -70,4 +70,7 @@ def create_db_and_tables():
 def get_db_session():
     engine = get_engine()
     with Session(engine) as session:
-        yield session
+        try:
+            yield session
+        finally:
+            session.close()

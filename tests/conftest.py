@@ -62,9 +62,11 @@ def test_db_session(session):
     def get_db_session_override():
         yield session
     app.dependency_overrides[get_db_session] = get_db_session_override
-    yield session
-    app.dependency_overrides.clear()
-    session.close()
+    try:
+        yield session
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
 
 
 @pytest.fixture(autouse=True)
