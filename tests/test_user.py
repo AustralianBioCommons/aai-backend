@@ -1,9 +1,12 @@
 import pytest
-from datagen import SessionUserFactory
 
 from db.types import ApprovalStatusEnum, PlatformEnum
 from schemas.biocommons import BiocommonsAppMetadata
-from tests.datagen import AccessTokenPayloadFactory, Auth0UserDataFactory
+from tests.datagen import (
+    AccessTokenPayloadFactory,
+    Auth0UserDataFactory,
+    SessionUserFactory,
+)
 from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
