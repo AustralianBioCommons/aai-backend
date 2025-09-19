@@ -11,6 +11,7 @@ dependencies = [
     { name = "apscheduler", extra = ["redis", "sqlalchemy"] },
     { name = "authlib" },
     { name = "boto3" },
+    { name = "cachetools" },
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
     { name = "itsdangerous" },
@@ -43,6 +44,7 @@ requires-dist = [
     { name = "apscheduler", extras = ["redis", "sqlalchemy"], specifier = "~=3.11" },
     { name = "authlib", specifier = ">=1.6.1" },
     { name = "boto3", specifier = ">=1.34.0" },
+    { name = "cachetools", specifier = "~=6.2" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.12" },
     { name = "freezegun", marker = "extra == 'dev'", specifier = ">=1.5.2" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -160,6 +162,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/56/97/c34be91a7cd625b913430199c2fe8b8718753b3c4a697ecfb587d89ec499/botocore-1.39.0.tar.gz", hash = "sha256:2b8701e529a80241b989d83262a629d0d91fbd7a06ded63ecc1c9d529a383d57", size = 14095797, upload-time = "2025-06-30T19:24:54.716Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/01/b6/dcd0fd188cc28d772e0df23a31ce50af4d358ef31bfee969dc5a033482a5/botocore-1.39.0-py3-none-any.whl", hash = "sha256:d8e72850d3450aeca355b654efb32c8370bf824c1945a61cad2395dc2688581e", size = 13753356, upload-time = "2025-06-30T19:24:49.416Z" },
+]
+
+[[package]]
+name = "cachetools"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/61/e4fad8155db4a04bfb4734c7c8ff0882f078f24294d42798b3568eb63bff/cachetools-6.2.0.tar.gz", hash = "sha256:38b328c0889450f05f5e120f56ab68c8abaf424e1275522b138ffc93253f7e32", size = 30988, upload-time = "2025-08-25T18:57:30.924Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/56/3124f61d37a7a4e7cc96afc5492c78ba0cb551151e530b54669ddd1436ef/cachetools-6.2.0-py3-none-any.whl", hash = "sha256:1c76a8960c0041fcc21097e357f882197c79da0dbff766e7317890a65d7d8ba6", size = 11276, upload-time = "2025-08-25T18:57:29.684Z" },
 ]
 
 [[package]]

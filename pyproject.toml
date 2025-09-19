@@ -18,6 +18,7 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "apscheduler[redis,sqlalchemy]~=3.11",
     "loguru>=0.7.3",
+    "cachetools~=6.2",
 ]
 
 [project.optional-dependencies]
