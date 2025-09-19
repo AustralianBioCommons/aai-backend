@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import HTTPStatusError
@@ -7,14 +6,12 @@ from sqlmodel import Session
 from starlette.responses import JSONResponse
 
 from auth0.client import Auth0Client, get_auth0_client
-from config import Settings, get_settings
 from db.models import BiocommonsUser, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.bpa import BPARegistrationRequest
 from schemas.responses import RegistrationErrorResponse, RegistrationResponse
-from schemas.service import Service
 
 logger = logging.getLogger(__name__)
 
@@ -26,17 +23,6 @@ router = APIRouter(
 )
 
 
-def _get_bpa_service_request(registration: BPARegistrationRequest, settings: Settings, update_time: datetime) -> Service:
-    return Service(
-        name="Bioplatforms Australia Data Portal",
-        id="bpa",
-        initial_request_time=update_time,
-        status="pending",
-        last_updated=update_time,
-        updated_by="system",
-    )
-
-
 @router.post(
     "/register",
     responses={
@@ -46,17 +32,13 @@ def _get_bpa_service_request(registration: BPARegistrationRequest, settings: Set
 )
 async def register_bpa_user(
     registration: BPARegistrationRequest,
-    settings: Settings = Depends(get_settings),
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client)
 ):
     """Register a new BPA user."""
-    now = datetime.now(timezone.utc)
-    bpa_service = _get_bpa_service_request(registration=registration, settings=settings, update_time=now)
-
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_bpa_registration(
-        registration=registration, bpa_service=bpa_service
+        registration=registration
     )
 
     try:

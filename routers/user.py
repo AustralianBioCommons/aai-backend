@@ -1,20 +1,46 @@
-from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, List
+from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
+from pydantic import AliasPath, Field
+from pydantic import BaseModel as PydanticBaseModel
+from sqlmodel import Session, select
+from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from auth.management import get_management_token
 from auth.validator import get_current_user
 from config import Settings, get_settings
+from db.models import GroupMembership, PlatformMembership
+from db.setup import get_db_session
+from db.types import ApprovalStatusEnum
 from schemas.biocommons import Auth0UserData
-from schemas.requests import ResourceRequest, ServiceRequest
-from schemas.service import Resource, Service
 from schemas.user import SessionUser
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
 )
+
+
+class PlatformMembershipData(PydanticBaseModel):
+    platform_id: str
+    approval_status: str
+
+
+class GroupMembershipData(PydanticBaseModel):
+    """
+    Data model for group membership, when returned from the API.
+    Should be created automatically from GroupMembership when
+    setting a response_model on a route.
+    """
+    group_id: str
+    approval_status: str
+    # Get group_name from the nested group object
+    group_name: str = Field(validation_alias=AliasPath("group", "name"))
+
+
+class CombinedMembershipData(PydanticBaseModel):
+    platforms: list[PlatformMembershipData]
+    groups: list[GroupMembershipData]
 
 
 async def get_user_data(
@@ -71,14 +97,94 @@ async def update_user_metadata(
         )
 
 
-@router.get("/services", response_model=Dict[str, List[Service]])
-async def get_services(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
+def _get_user_platforms(user_id: str,
+                        approval_status: ApprovalStatusEnum | None = None) -> SelectOfScalar[PlatformMembership]:
+    """Utility function to get platforms for a user."""
+    query = (select(PlatformMembership)
+             .where(PlatformMembership.user_id == user_id))
+    if approval_status is not None:
+        query = query.where(PlatformMembership.approval_status == approval_status)
+    return query
+
+
+def _get_user_groups(user_id: str,
+                     approval_status: ApprovalStatusEnum | None = None) -> SelectOfScalar[GroupMembership]:
+    """Utility function to get groups for a user."""
+    query = (select(GroupMembership)
+             .where(GroupMembership.user_id == user_id))
+    if approval_status is not None:
+        query = query.where(GroupMembership.approval_status == approval_status)
+    return query
+
+
+@router.get("/platforms",
+            response_model=list[PlatformMembershipData],)
+async def get_platforms(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    """Get all services for the authenticated user."""
-    user_data = await get_user_data(user, settings)
-    return {"services": user_data.app_metadata.services}
+    query = _get_user_platforms(user_id=user.access_token.sub)
+    return db_session.exec(query).all()
+
+
+@router.get(
+    "/platforms/approved",
+    response_model=list[PlatformMembershipData],
+)
+async def get_approved_platforms(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Get approved platforms for the current user."""
+    query = _get_user_platforms(user_id=user.access_token.sub,
+                                approval_status=ApprovalStatusEnum.APPROVED)
+    return db_session.exec(query).all()
+
+
+@router.get(
+    "/platforms/pending",
+    response_model=list[PlatformMembershipData],
+)
+async def get_pending_platforms(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Get pending platforms for the current user."""
+    query = _get_user_platforms(user_id=user.access_token.sub,
+                                approval_status=ApprovalStatusEnum.PENDING)
+    return db_session.exec(query).all()
+
+
+@router.get("/groups",
+            response_model=list[GroupMembershipData],)
+async def get_groups(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_groups(user_id=user.access_token.sub)
+    return db_session.exec(query).all()
+
+
+@router.get("/groups/approved",
+            response_model=list[GroupMembershipData],)
+async def get_approved_groups(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_groups(user_id=user.access_token.sub,
+                             approval_status=ApprovalStatusEnum.APPROVED)
+    return db_session.exec(query).all()
+
+
+@router.get("/groups/pending",
+            response_model=list[GroupMembershipData],)
+async def get_pending_groups(
+        user: Annotated[SessionUser, Depends(get_current_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    query = _get_user_groups(user_id=user.access_token.sub,
+                             approval_status=ApprovalStatusEnum.PENDING)
+    return db_session.exec(query).all()
 
 
 @router.get("/is-admin")
@@ -90,186 +196,17 @@ async def check_is_admin(
     return {"is_admin": user.is_admin(settings)}
 
 
-@router.get("/services/approved", response_model=Dict[str, List[Service]])
-async def get_approved_services(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """Get approved services for the authenticated user."""
-    user_data = await get_user_data(user, settings)
-    return {"approved_services": user_data.approved_services}
-
-
-@router.get("/services/pending", response_model=Dict[str, List[Service]])
-async def get_pending_services(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """Get pending services for the authenticated user."""
-    user_data = await get_user_data(user, settings)
-    return {"pending_services": user_data.pending_services}
-
-
-@router.get("/resources", response_model=Dict[str, List[Resource]])
-async def get_resources(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """Get all resources for the authenticated user."""
-    user_data = await get_user_data(user, settings)
-    return {"resources": user_data.app_metadata.get_all_resources()}
-
-
-@router.get("/resources/approved", response_model=Dict[str, List[Resource]])
-async def get_approved_resources(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """Get approved resources for the authenticated user."""
-    user_data = await get_user_data(user, settings)
-    return {"approved_resources": user_data.approved_resources}
-
-
-@router.get("/resources/pending", response_model=Dict[str, List[Resource]])
-async def get_pending_resources(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """Get pending resources for the authenticated user."""
-    user_data = await get_user_data(user, settings)
-    return {"pending_resources": user_data.pending_resources}
-
-
-@router.get("/all/pending", response_model=Dict[str, List[Any]])
+@router.get("/all/pending",
+            response_model=CombinedMembershipData)
 async def get_all_pending(
     user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
+    db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    """Get all pending services and resources."""
-    user_data = await get_user_data(user, settings)
-    return {
-        "pending_services": user_data.pending_services,
-        "pending_resources": user_data.pending_resources,
-    }
-
-
-@router.post(
-    "/request/service",
-    response_model=Dict[str, Any],
-    responses={
-        400: {"description": "Bad Request - Service already exists"},
-        403: {"description": "Forbidden - User ID mismatch"},
-        500: {"description": "Internal server error"},
-    },
-)
-async def request_service(
-    service_request: ServiceRequest,
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> Dict[str, Any]:
-    """Submit a request for a service."""
-    if user.access_token.sub != service_request.user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="User ID in request does not match authenticated user",
-        )
-
-    user_data = await get_user_data(user, settings=settings)
-
-    if any(s.id == service_request.id for s in user_data.app_metadata.services):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Service request with ID {service_request.id} already exists",
-        )
-
-    new_service = Service(
-        name=service_request.name,
-        id=service_request.id,
-        initial_request_time=datetime.now(timezone.utc),
-        status="pending",
-        last_updated=datetime.now(timezone.utc),
-        updated_by=user.access_token.sub,
-        resources=[],
-    )
-
-    user_data.app_metadata.services.append(new_service)
-    await update_user_metadata(
-        user.access_token.sub,
-        get_management_token(settings=settings),
-        user_data.app_metadata.model_dump(mode="json"),
-    )
-
-    return {
-        "message": "Service request submitted successfully",
-        "service": new_service.model_dump(mode="json"),
-    }
-
-
-@router.post(
-    "/request/{service_id}/{resource_id}",
-    response_model=Dict[str, Any],
-    responses={
-        400: {"description": "Bad Request"},
-        403: {"description": "Forbidden"},
-        404: {"description": "Service not found"},
-        500: {"description": "Internal server error"},
-    },
-)
-async def request_resource(
-    service_id: str,
-    resource_id: str,
-    resource_request: ResourceRequest,
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> Dict[str, Any]:
-    """Submit a request for a resource within a service."""
-    if user.access_token.sub != resource_request.user_id:
-        raise HTTPException(
-            status_code=403,
-            detail="User ID in request does not match authenticated user",
-        )
-
-    if service_id != resource_request.service_id:
-        raise HTTPException(
-            status_code=400, detail="Service ID in path does not match request body"
-        )
-
-    user_data = await get_user_data(user, settings)
-    service = user_data.app_metadata.get_service_by_id(service_id)
-
-    if not service:
-        raise HTTPException(
-            status_code=404, detail=f"Service with ID {service_id} not found"
-        )
-
-    if service.status != "approved":
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot request resources for a service that is not approved",
-        )
-
-    if any(r.id == resource_id for r in service.resources):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Resource request with ID {resource_id} already exists",
-        )
-
-    new_resource = Resource(
-        name=resource_request.name, id=resource_id, status="pending"
-    )
-
-    service.resources.append(new_resource)
-    service.last_updated = datetime.now(timezone.utc)
-    service.updated_by = user.access_token.sub
-
-    await update_user_metadata(
-        user.access_token.sub,
-        get_management_token(settings=settings),
-        user_data.app_metadata.model_dump(mode="json"),
-    )
-
-    return {
-        "message": "Resource request submitted successfully",
-        "service": service.model_dump(mode="json"),
-        "resource": new_resource.model_dump(mode="json"),
-    }
+    """Get all pending platforms and groups."""
+    platforms_query = _get_user_platforms(user_id=user.access_token.sub,
+                                    approval_status=ApprovalStatusEnum.PENDING)
+    groups_query = _get_user_groups(user_id=user.access_token.sub,
+                              approval_status=ApprovalStatusEnum.PENDING)
+    platforms = db_session.exec(platforms_query).all()
+    groups = db_session.exec(groups_query).all()
+    return {"platforms": platforms, "groups": groups}
