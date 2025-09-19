@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Annotated
 
 import httpx
@@ -49,10 +50,15 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     return AccessTokenPayload(**payload)
 
 
-def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: ignore
-    jwks_url = f"https://{settings.auth0_domain}/.well-known/jwks.json"
+@lru_cache(maxsize=100)
+def _fetch_rsa_keys(auth0_domain: str) -> dict:
+    jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
     response = httpx.get(jwks_url)
-    jwks = response.json()
+    return response.json()
+
+
+def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: ignore
+    jwks = _fetch_rsa_keys(settings.auth0_domain)
     unverified_header = jwt.get_unverified_header(token)
 
     for key in jwks["keys"]:
