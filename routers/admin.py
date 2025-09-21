@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import datetime
 from typing import Annotated
@@ -6,10 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import func, or_
+from sqlalchemy import false, func, or_
 from sqlmodel import Session, select
 
-from auth.validator import get_current_user, user_is_admin
+from auth.validator import user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
 from db.models import (
     BiocommonsGroup,
@@ -19,10 +18,8 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import GroupEnum
-from routers.user import update_user_metadata
-from schemas.biocommons import Auth0UserData, Auth0UserDataWithMemberships
-from schemas.user import SessionUser
+from db.types import ApprovalStatusEnum, GroupEnum
+from schemas.biocommons import Auth0UserDataWithMemberships
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -51,6 +48,7 @@ class BiocommonsUserResponse(BaseModel):
     id: str = Field(description="Auth0 user ID")
     email: str = Field(description="User email address")
     username: str = Field(description="User username")
+    email_verified: bool = Field(description="User email verification status")
     created_at: datetime = Field(description="User creation timestamp")
 
 
@@ -167,47 +165,75 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
 
 
 # NOTE: This must appear before /users/{user_id} so it takes precedence
-@router.get("/users/approved")
-def get_approved_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+@router.get(
+    "/users/approved",
+    response_model=list[BiocommonsUserResponse])
+def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
                        pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    resp = client.get_approved_users(page=pagination.page, per_page=pagination.per_page)
-    return resp
+    platform_approved_query = (
+        select(BiocommonsUser)
+        .join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id)
+        .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
+        .distinct()
+    )
+    user_query = platform_approved_query.offset(pagination.start_index).limit(pagination.per_page)
+    users = db_session.exec(user_query).all()
+    return users
 
 
-@router.get("/users/pending")
-def get_pending_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+@router.get("/users/pending",
+            response_model=list[BiocommonsUserResponse])
+def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    resp = client.get_pending_users(page=pagination.page, per_page=pagination.per_page)
-    return resp
+    platform_pending_query = (
+        select(BiocommonsUser)
+        .join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id)
+        .where(PlatformMembership.approval_status == ApprovalStatusEnum.PENDING)
+        .distinct()
+    )
+    user_query = platform_pending_query.offset(pagination.start_index).limit(pagination.per_page)
+    users = db_session.exec(user_query).all()
+    return users
 
 
 @router.get("/users/revoked")
-def get_revoked_users(client: Annotated[Auth0Client, Depends(get_auth0_client)],
+def get_revoked_users(db_session: Annotated[Session, Depends(get_db_session)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    resp = client.get_revoked_users(page=pagination.page, per_page=pagination.per_page)
-    return resp
+    platform_revoked_query = (
+        select(BiocommonsUser)
+        .join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id)
+        .where(PlatformMembership.approval_status == ApprovalStatusEnum.REVOKED)
+        .distinct()
+    )
+    user_query = platform_revoked_query.offset(pagination.start_index).limit(pagination.per_page)
+    users = db_session.exec(user_query).all()
+    return users
 
 
-@router.get("/users/unverified", response_model=list[Auth0UserData])
+@router.get("/users/unverified", response_model=list[BiocommonsUserResponse])
 def get_unverified_users(
-    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    db_session: Annotated[Session, Depends(get_db_session)],
     pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
 ):
     """
     Return users whose email is not verified, using Auth0 search for efficiency.
     """
-    return client.get_users(
-        page=pagination.page,
-        per_page=pagination.per_page,
-        q="email_verified:false",
+    query = (
+        select(BiocommonsUser)
+        .where(BiocommonsUser.email_verified == false())
+        .offset(pagination.start_index)
+        .limit(pagination.per_page)
     )
+    users = db_session.exec(query).all()
+    return users
 
 
 @router.get("/users/{user_id}",
-            response_model=Auth0UserData)
+            response_model=BiocommonsUserResponse)
 def get_user(user_id: Annotated[str, UserIdParam],
-             client: Annotated[Auth0Client, Depends(get_auth0_client)]):
-    return client.get_user(user_id)
+             db_session: Annotated[Session, Depends(get_db_session)]):
+    user = db_session.get_one(BiocommonsUser, user_id)
+    return user
 
 
 @router.get("/users/{user_id}/details",
@@ -234,72 +260,3 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
                               client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     client.resend_verification_email(user_id)
     return {"message": "Verification email resent."}
-
-
-@router.post("/users/{user_id}/services/{service_id}/approve")
-def approve_service(user_id: Annotated[str, UserIdParam],
-                    service_id: Annotated[str, ServiceIdParam],
-                    client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                    approving_user: Annotated[SessionUser, Depends(get_current_user)]):
-    user = client.get_user(user_id=user_id)
-    # Need to fetch full user info currently to get email address, not in access token
-    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
-    logger.debug(f"Approving service {service_id} for user {user_id} by {approving_user_data.email}")
-    user.app_metadata.approve_service(service_id, updated_by=str(approving_user_data.email))
-    logger.info("Sending updated metadata to Auth0 API")
-    # update_user_metadata is async, so run via asyncio
-    update = update_user_metadata(
-        user_id=user_id,
-        token=client.management_token,
-        metadata=user.app_metadata.model_dump(mode="json")
-    )
-    resp = asyncio.run(update)
-    logger.info("Metadata updated successfully")
-    return resp
-
-
-@router.post("/users/{user_id}/services/{service_id}/revoke")
-def revoke_service(user_id: Annotated[str, UserIdParam],
-                   service_id: Annotated[str, ServiceIdParam],
-                   client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                   revoking_user: Annotated[SessionUser, Depends(get_current_user)]):
-    """
-    Revoke a service and all associated resources for a user.
-    """
-    user = client.get_user(user_id=user_id)
-    revoking_user_data = client.get_user(user_id=revoking_user.access_token.sub)
-    user.app_metadata.revoke_service(service_id=service_id, updated_by=str(revoking_user_data.email))
-    service = user.app_metadata.get_service_by_id(service_id)
-    for resource in service.resources:
-        resource.revoke()
-    update = update_user_metadata(
-        user_id=user_id,
-        token=client.management_token,
-        metadata=user.app_metadata.model_dump(mode="json")
-    )
-    resp = asyncio.run(update)
-    return resp
-
-
-@router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")
-def approve_resource(user_id: Annotated[str, UserIdParam],
-                     service_id: Annotated[str, ServiceIdParam],
-                     resource_id: Annotated[str, ResourceIdParam],
-                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                     approving_user: Annotated[SessionUser, Depends(get_current_user)]):
-    user = client.get_user(user_id=user_id)
-    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
-
-    user.app_metadata.approve_resource(
-        service_id=service_id,
-        resource_id=resource_id,
-        updated_by=approving_user_data.email
-    )
-
-    update = update_user_metadata(
-        user_id=user_id,
-        token=client.management_token,
-        metadata=user.app_metadata.model_dump(mode="json")
-    )
-    resp = asyncio.run(update)
-    return resp
