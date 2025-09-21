@@ -68,7 +68,7 @@ def ValidatedString(
     return Annotated[str, AfterValidator(_check)]
 
 
-AppId = Literal["biocommons", "galaxy", "bpa"]
+AppId = Literal["biocommons", "galaxy", "bpa", "sbp"]
 BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[-_a-z0-9]+$", messages={
     "min_length": "Username must be at least 3 characters.",
     "max_length": "Username must be 128 characters or less.",
@@ -85,6 +85,10 @@ class BPAMetadata(BaseModel):
     registration_reason: str
 
 
+class SBPMetadata(BaseModel):
+    registration_reason: str
+
+
 class BiocommonsUserMetadata(BaseModel):
     """
     User metadata we use for user-changeable data
@@ -92,6 +96,7 @@ class BiocommonsUserMetadata(BaseModel):
     """
 
     bpa: Optional[BPAMetadata] = None
+    sbp: Optional[SBPMetadata] = None
 
 
 class BiocommonsAppMetadata(BaseModel):
@@ -202,6 +207,23 @@ class BiocommonsRegisterData(BaseModel):
             ),
             app_metadata=BiocommonsAppMetadata(
                 services=[bpa_service], registration_from="bpa"
+            ),
+        )
+
+    @classmethod
+    def from_sbp_registration(
+        cls, registration: "schemas.sbp.SBPRegistrationRequest"
+    ) -> Self:
+        return cls(
+            email=registration.email,
+            password=registration.password,
+            username=registration.username,
+            name=f"{registration.first_name} {registration.last_name}",
+            user_metadata=BiocommonsUserMetadata(
+                sbp=SBPMetadata(registration_reason=registration.reason),
+            ),
+            app_metadata=BiocommonsAppMetadata(
+                registration_from="sbp"
             ),
         )
 
