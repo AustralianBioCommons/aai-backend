@@ -1,7 +1,7 @@
-from functools import lru_cache
 from typing import Annotated
 
 import httpx
+from cachetools import TTLCache
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwk, jwt
@@ -12,6 +12,8 @@ from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
 
 
 def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
@@ -50,20 +52,29 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     return AccessTokenPayload(**payload)
 
 
-@lru_cache(maxsize=100)
 def _fetch_rsa_keys(auth0_domain: str) -> dict:
+    cache_key = f"jwks_{auth0_domain}"
+    if cache_key in KEY_CACHE:
+        return KEY_CACHE[cache_key]
     jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
     response = httpx.get(jwks_url)
-    return response.json()
+    keys = response.json()
+    KEY_CACHE[cache_key] = keys
+    return keys
 
 
-def get_rsa_key(token: str, settings: Settings) -> jwk.RSAKey | None:  # type: ignore
+def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True) -> jwk.RSAKey | None:  # type: ignore
     jwks = _fetch_rsa_keys(settings.auth0_domain)
     unverified_header = jwt.get_unverified_header(token)
 
     for key in jwks["keys"]:
         if key["kid"] == unverified_header["kid"]:
             return jwk.construct(key)
+
+    # Retry without cache on failure
+    if retry_on_failure:
+        KEY_CACHE.clear()
+        return get_rsa_key(token, settings, retry_on_failure=False)
 
     return None
 

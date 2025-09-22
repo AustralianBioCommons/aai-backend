@@ -5,6 +5,7 @@ from typing import Optional
 from unittest.mock import patch
 
 import pytest
+import respx
 
 # Tools from hazmat should only be used for testing!
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -13,7 +14,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPublicKey,
 )
 from fastapi import HTTPException
-from jose import jwt
+from httpx import Response
+from jose import jwk, jwt
 from jose.backends.cryptography_backend import CryptographyRSAKey
 
 from auth.validator import get_rsa_key, verify_jwt
@@ -128,6 +130,95 @@ def test_get_rsa_key_returns_key(mock_settings: Settings):
         key = get_rsa_key(token, settings=mock_settings)
         assert key is not None
         assert isinstance(key, CryptographyRSAKey)
+
+
+def generate_dummy_rsa_key(key_id: str) -> dict:
+    """Generate a test RSA key in JWKS format using jose."""
+    # Generate RSA key pair
+    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    # Create JWK from the public key
+    public_jwk = jwk.construct(private_key.public_key(), algorithm="RS256")
+
+    # Convert to dict and add kid
+    jwk_dict = public_jwk.to_dict()
+    jwk_dict["kid"] = key_id
+    jwk_dict["use"] = "sig"
+    jwk_dict["alg"] = "RS256"
+
+    return jwk_dict
+
+
+@respx.mock
+def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
+    """Test that get_rsa_key retries after clearing cache when key is not found."""
+    token = jwt.encode({"some": "payload"}, "secret", algorithm="HS256")
+    unverified_header = {"kid": "missing_key"}
+
+    other_key = generate_dummy_rsa_key("other_key")
+    missing_key = generate_dummy_rsa_key("missing_key")
+
+    # Mock the cached response (first call) - key not found
+    cached_jwks = {
+        "keys": [other_key]
+    }
+
+    # Mock the fresh response (second call after cache clear) - key found
+    fresh_jwks = {
+        "keys": [other_key, missing_key]
+    }
+
+    jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
+    route = respx.get(jwks_url).mock(
+        side_effect=[
+            Response(200, json=cached_jwks),
+            Response(200, json=fresh_jwks)
+        ]
+    )
+
+    # Clear the cache before the test to ensure clean state
+    from auth.validator import KEY_CACHE
+    KEY_CACHE.clear()
+    with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header):
+        # Call get_rsa_key
+        key = get_rsa_key(token, settings=mock_settings)
+        # Verify the key was found after retry
+        assert key is not None
+        assert isinstance(key, CryptographyRSAKey)
+        # Verify that the endpoint was called twice (cached + fresh)
+        assert route.call_count == 2
+
+
+@respx.mock
+def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Settings):
+    """Test that get_rsa_key doesn't retry when key is found on first attempt."""
+    token = jwt.encode({"some": "payload"}, "secret", algorithm="HS256")
+    unverified_header = {"kid": "found_key"}
+
+    # Generate test key using jose
+    found_key = generate_dummy_rsa_key("found_key")
+
+    jwks_response = {
+        "keys": [found_key]
+    }
+
+    jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
+    route = respx.get(jwks_url).mock(return_value=Response(200, json=jwks_response))
+
+    # Clear the cache before the test to ensure clean state
+    from auth.validator import KEY_CACHE
+    KEY_CACHE.clear()
+
+    with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header):
+        # Call get_rsa_key
+        key = get_rsa_key(token, settings=mock_settings)
+
+        # Verify key was found
+        assert key is not None
+        assert isinstance(key, CryptographyRSAKey)
+
+        # Verify endpoint was called only once (no retry needed)
+        assert route.call_count == 1
 
 
 def test_verify_jwt(mock_settings: Settings, mocker):
