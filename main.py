@@ -24,10 +24,22 @@ from routers import (
 #   and load them via config.py. But we need the
 #   allowed_origins before we load the app
 env_values = dotenv_values(".env")
-ALLOWED_ORIGINS = [
-    origin.strip() for origin in env_values.get("CORS_ALLOWED_ORIGINS", "").split(",")
-]
-SECRET_KEY = env_values.get("JWT_SECRET_KEY")
+
+def read_setting(key: str, default: str | None = None) -> str | None:
+    """
+    Read a setting from environment variables or the .env file.
+    The environment variable will take precedence if present.
+    """
+    value = os.getenv(key)
+    if value is not None and value.strip():
+        return value
+    from_env_file = env_values.get(key)
+    if from_env_file is not None and str(from_env_file).strip():
+        return from_env_file
+    return default
+
+ALLOWED_ORIGINS = [origin.strip() for origin in read_setting("CORS_ALLOWED_ORIGINS", "").split(",") if origin.strip()]
+SECRET_KEY = read_setting("JWT_SECRET_KEY")
 
 
 @asynccontextmanager
