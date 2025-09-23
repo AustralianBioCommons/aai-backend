@@ -16,6 +16,7 @@ dependencies = [
     "authlib>=1.6.1",
     "sqladmin>=0.21.0",
     "itsdangerous>=2.2.0",
+    "prometheus-fastapi-instrumentator>=6.0.0",
     "apscheduler[redis,sqlalchemy]~=3.11",
     "loguru>=0.7.3",
     "cachetools~=6.2",
