@@ -26,6 +26,10 @@ from routers import (
 env_values = dotenv_values(".env")
 
 def read_setting(key: str, default: str | None = None) -> str | None:
+    """
+    Read a setting from environment variables or the .env file.
+    The environment variable will take precedence if present.
+    """
     value = os.getenv(key)
     if value is not None and value.strip():
         return value
