@@ -107,7 +107,7 @@ def request_group_access(
         admin_emails = membership.group.get_admins(auth0_client=auth0_client)
         for email in admin_emails:
             background_tasks.add_task(send_group_approval_email,
-                                      approver_email=email, request=membership, email_service=email_service)
+                                      approver_email=email, request=membership, email_service=email_service, settings=settings)
     return {"message": f"Group membership for {group_id} requested successfully."}
 
 
@@ -148,13 +148,13 @@ def approve_group_access(
     return {"message": f"Group membership for {group.name} approved successfully."}
 
 
-def send_group_approval_email(approver_email: str, request: GroupMembership, email_service: EmailService):
+def send_group_approval_email(approver_email: str, request: GroupMembership, email_service: EmailService, settings: Settings):
     subject = f"New request to join {request.group.name}"
 
     body_html = f"""
         <p>A new user has requested access to the {request.group.name} group.</p>
         <p><strong>User:</strong> {request.user.email}</p>
-        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the BioCommons account dashboard</a> to review and approve access.</p>
+        <p>Please <a href='{settings.aai_portal_url}/requests'>log into the BioCommons account dashboard</a> to review and approve access.</p>
     """
 
     email_service.send(approver_email, subject, body_html)

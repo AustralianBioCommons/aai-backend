@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     # Note we process this separately in app startup as it needs
     #   to be available before the app starts
     cors_allowed_origins: str
+    # AAI Portal URL for admin links in emails
+    aai_portal_url: str = "https://aaiportal.test.biocommons.org.au"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

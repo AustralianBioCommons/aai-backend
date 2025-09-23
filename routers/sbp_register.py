@@ -25,18 +25,18 @@ router = APIRouter(
 )
 
 
-def send_approval_email(registration: SBPRegistrationRequest):
+def send_approval_email(registration: SBPRegistrationRequest, settings: Settings):
     """Send email notification about new SBP registration."""
     email_service = EmailService()
     approver_email = "aai-dev@biocommons.org.au"
-    subject = "New SBP User Registration"
+    subject = "New Structural Biology Platform User Registration"
 
     body_html = f"""
         <p>A new user has registered for the Structural Biology Platform.</p>
         <p><strong>User:</strong> {registration.first_name} {registration.last_name} ({registration.email})</p>
         <p><strong>Username:</strong> {registration.username}</p>
         <p><strong>Registration Reason:</strong> {registration.reason}</p>
-        <p>Please review and approve this registration in the admin panel.</p>
+        <p>Please <a href='{settings.aai_portal_url}/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
     email_service.send_email(
@@ -76,7 +76,7 @@ async def register_sbp_user(
 
         # Send approval email in the background
         if settings.send_email:
-            background_tasks.add_task(send_approval_email, registration)
+            background_tasks.add_task(send_approval_email, registration, settings)
             logger.info("Approval email queued for sending")
 
         return {"message": "User registered successfully. Approval pending.", "user": auth0_user_data.model_dump(mode="json")}
