@@ -36,7 +36,7 @@ BUNDLES: dict[BundleType, dict] = {
 router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], route_class=RegistrationRoute)
 
 
-def send_approval_email(registration: BiocommonsRegistrationRequest):
+def send_approval_email(registration: BiocommonsRegistrationRequest, settings: Settings):
     """Send email notification about new biocommons registration."""
     email_service = EmailService()
     approver_email = "aai-dev@biocommons.org.au"
@@ -48,7 +48,7 @@ def send_approval_email(registration: BiocommonsRegistrationRequest):
         <p><strong>Username:</strong> {registration.username}</p>
         <p><strong>Selected Bundle:</strong> {registration.bundle}</p>
         <p><strong>Requested Access:</strong> BPA Data Portal & Galaxy Australia</p>
-        <p>Please <a href='https://aaiportal.test.biocommons.org.au/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
+        <p>Please <a href='{settings.aai_portal_url}/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
     email_service.send(approver_email, subject, body_html)
@@ -82,7 +82,7 @@ async def register_biocommons_user(
 
         # Send approval email in background
         if settings.send_email:
-            background_tasks.add_task(send_approval_email, registration)
+            background_tasks.add_task(send_approval_email, registration, settings)
 
         logger.info(
             f"Successfully registered biocommons user: {auth0_user_data.user_id}"

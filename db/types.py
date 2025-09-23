@@ -19,6 +19,7 @@ class ApprovalStatusEnum(str, Enum):
 class PlatformEnum(str, Enum):
     GALAXY = "galaxy"
     BPA_DATA_PORTAL = "bpa_data_portal"
+    SBP = "sbp"
 
 
 class PlatformMembershipData(BaseModel):

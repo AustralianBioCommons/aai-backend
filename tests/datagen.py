@@ -18,6 +18,7 @@ from schemas.biocommons import (
 from schemas.biocommons_register import BiocommonsRegistrationRequest
 from schemas.bpa import BPARegistrationRequest
 from schemas.galaxy import GalaxyRegistrationData
+from schemas.sbp import SBPRegistrationRequest
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
@@ -108,6 +109,13 @@ class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
 
 class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
     """Factory for generating BPA registration test data."""
+
+    password = BiocommonsProviders.biocommons_password
+    username = BiocommonsProviders.biocommons_username
+
+
+class SBPRegistrationDataFactory(ModelFactory[SBPRegistrationRequest]):
+    """Factory for generating SBP registration test data."""
 
     password = BiocommonsProviders.biocommons_password
     username = BiocommonsProviders.biocommons_username
