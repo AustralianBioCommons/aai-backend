@@ -17,6 +17,7 @@ from db.models import (
     BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
+    Platform,
     PlatformEnum,
     PlatformMembership,
     PlatformMembershipHistory,
@@ -96,6 +97,18 @@ def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_cl
     assert user.id == user_data.user_id
     assert user.email == user_data.email
     assert user.username == user_data.username
+
+
+@pytest.mark.parametrize("platform_id", list(PlatformEnum))
+def test_create_platform(platform_id, test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync()
+    platform = Platform(
+        id=platform_id,
+        name=f"Platform {platform_id}",
+        admin_roles=[admin_role]
+    )
+    test_db_session.commit()
+    assert platform.id == platform_id
 
 
 def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
