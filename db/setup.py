@@ -32,11 +32,6 @@ def get_db_config() -> Tuple[str, dict]:
     Get database configuration from environment variables
     or the .env file
     """
-    # Prefer an explicit DB_URL (injected via secrets or environment)
-    explicit_url = os.getenv("DB_URL")
-    if explicit_url:
-        return explicit_url, {}
-
     # Case 1: AWS: assemble the DB url from individual environment variables.
     host = os.getenv("DB_HOST")
     if host is not None:
@@ -53,13 +48,15 @@ def get_db_config() -> Tuple[str, dict]:
 
         db_url = f"postgresql+psycopg://{user}:{password}@{host_with_port}{database_path}"
         return db_url, {}
-    # Case 2: we have DB_URL set in the .env file, or we just want
-    #   an in-memory DB for dev/testing
-    # Doing this separately from pydantic-settings as we
-    # need this before loading the FastAPI app
+
+    # Case 2: explicit DB_URL provided via environment or .env file
+    explicit_url = os.getenv("DB_URL")
+    if explicit_url:
+        connect_args = {"check_same_thread": False} if explicit_url.startswith("sqlite://") else {}
+        return explicit_url, connect_args
+
+    # Case 3: DB_URL from .env file (dev/local)
     env_values = dotenv_values(".env")
-    # Prefer the explicitly set value in .env, then environment variable,
-    #   fallback to in-memory DB
     db_url = env_values.get("DB_URL") or "sqlite://"
     if db_url.startswith("sqlite://"):
         connect_args = {"check_same_thread": False}
