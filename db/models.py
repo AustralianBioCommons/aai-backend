@@ -278,8 +278,8 @@ class GroupMembership(BaseModel, table=True):
         session.flush()
 
         history = GroupMembershipHistory(
-            group=self.group,
-            user=self.user,
+            group_id=self.group_id,
+            user_id=self.user_id,
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,
