@@ -31,6 +31,9 @@ def get_db_config() -> Tuple[str, dict]:
     """
     Get database configuration from environment variables
     or the .env file
+
+    Note we don't use pydantic-settings or our Settings object for
+    this - we need to do it before loading the FastAPI app
     """
     # Case 1: AWS: assemble the DB url from individual environment variables.
     host = os.getenv("DB_HOST")
