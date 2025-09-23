@@ -47,7 +47,8 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["auth*", "routers*", "schemas*"]
+include = ["*"]
+exclude = ["tests", "tests.*"]
 
 [tool.ruff]
 line-length = 88
