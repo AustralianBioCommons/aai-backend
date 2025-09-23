@@ -8,9 +8,11 @@ from tests.datagen import (
     SessionUserFactory,
 )
 from tests.db.datagen import (
+    Auth0RoleFactory,
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformFactory,
     PlatformMembershipFactory,
 )
 
@@ -111,11 +113,11 @@ def test_check_is_admin_without_authentication(test_client):
     assert response.status_code == 401
 
 
-def _act_as_user(mocker, db_user):
+def _act_as_user(mocker, db_user, roles: list[str] = None):
     """
     Set up mocks so that the test client authenticates as the given user
     """
-    access_token = AccessTokenPayloadFactory.build(sub=db_user.id)
+    access_token = AccessTokenPayloadFactory.build(sub=db_user.id, biocommons_roles=roles or [])
     auth0_user = SessionUserFactory.build(access_token=access_token)
     mocker.patch("auth.validator.verify_jwt", return_value=access_token)
     mocker.patch("auth.validator.get_current_user", return_value=auth0_user)
@@ -239,3 +241,20 @@ def test_get_all_pending(test_client, test_db_session, mocker, persistent_factor
     assert len(data["platforms"]) == 1
     platform_ids = [platform["platform_id"] for platform in data["platforms"]]
     assert pending_platform.platform_id in platform_ids
+
+
+def test_get_admin_platforms(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of platforms the user is an admin for"""
+    admin_role = Auth0RoleFactory.create_sync(name="Admin")
+    other_platform_role = Auth0RoleFactory.create_sync(name="Other Platform Role")
+    user = BiocommonsUserFactory.create_sync()
+    valid_platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY, admin_roles=[admin_role])
+    invalid_platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL, admin_roles=[other_platform_role])
+    test_db_session.flush()
+    _act_as_user(mocker, user, roles=[admin_role.name])
+    response = test_client.get("/me/platforms/admin-roles", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data[0] == valid_platform.model_dump(mode="json")
+    returned_ids = [p["id"] for p in data]
+    assert invalid_platform.id not in returned_ids

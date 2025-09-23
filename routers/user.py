@@ -10,7 +10,7 @@ from sqlmodel.sql._expression_select_cls import SelectOfScalar
 from auth.management import get_management_token
 from auth.validator import get_current_user
 from config import Settings, get_settings
-from db.models import GroupMembership, PlatformMembership
+from db.models import Auth0Role, GroupMembership, Platform, PlatformMembership
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
 from schemas.biocommons import Auth0UserData
@@ -152,6 +152,24 @@ async def get_pending_platforms(
     """Get pending platforms for the current user."""
     query = _get_user_platforms(user_id=user.access_token.sub,
                                 approval_status=ApprovalStatusEnum.PENDING)
+    return db_session.exec(query).all()
+
+
+@router.get(
+    "/platforms/admin-roles",
+    description="Get platforms for which the current user has admin privileges.",
+)
+async def get_admin_platforms(
+    user: Annotated[SessionUser, Depends(get_current_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Get platforms for which the current user has admin privileges."""
+    user_roles = user.access_token.biocommons_roles
+    query = (
+        select(Platform)
+        .join(Platform.admin_roles)
+        .where(Auth0Role.name.in_(user_roles))
+    )
     return db_session.exec(query).all()
 
 
