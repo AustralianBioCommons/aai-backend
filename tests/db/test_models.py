@@ -324,8 +324,9 @@ def test_group_membership_grant_auth0_role_not_approved(status, test_auth0_clien
         membership_request.grant_auth0_role(test_auth0_client)
 
 
-def test_group_membership_save_with_history(test_db_session):
-    membership = GroupMembershipFactory.build()
+def test_group_membership_save_with_history(test_db_session, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.build(group_id=group.group_id)
     membership.save(test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.id is not None
@@ -339,7 +340,8 @@ def test_group_membership_save_with_history(test_db_session):
 
 
 def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
-    membership = GroupMembershipFactory.create_sync()
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.build(group_id=group.group_id)
     membership.save_history(test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.id is not None
