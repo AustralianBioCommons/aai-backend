@@ -28,6 +28,7 @@ from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformFactory,
 )
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
@@ -96,13 +97,15 @@ def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_cl
     assert user.email == user_data.email
     assert user.username == user_data.username
 
+
 def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
     """
     Test creating a platform membership model
     """
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
     membership = PlatformMembership(
-        platform_id=PlatformEnum.GALAXY,
+        platform_id=platform.id,
         user_id=user.id,
         approval_status=ApprovalStatusEnum.APPROVED,
         updated_by_id=None
@@ -111,8 +114,10 @@ def test_create_platform_membership(test_db_session, persistent_factories, froze
     test_db_session.commit()
     test_db_session.refresh(membership)
     assert membership.user_id == user.id
+    assert membership.user == user
     assert membership.approval_status == ApprovalStatusEnum.APPROVED
     assert membership.platform_id == "galaxy"
+    assert membership.platform.id == "galaxy"
     assert membership.updated_at == FROZEN_TIME
 
 
