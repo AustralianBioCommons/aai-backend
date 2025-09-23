@@ -31,25 +31,36 @@ def get_db_config() -> Tuple[str, dict]:
     """
     Get database configuration from environment variables
     or the .env file
+
+    Note we don't use pydantic-settings or our Settings object for
+    this - we need to do it before loading the FastAPI app
     """
-    # Get database URL
-    # Case 1: AWS: we need to assemble the DB url from different
-    #   environment variables (as these need to be populated from
-    #   secrets)
-    host = os.getenv("DB_HOST", None)
+    # Case 1: AWS: assemble the DB url from individual environment variables.
+    host = os.getenv("DB_HOST")
     if host is not None:
         user = os.getenv("DB_USER")
         password = os.getenv("DB_PASSWORD")
-        db_url = f"postgresql+psycopg://{user}:{password}@{host}"
+        database_name = os.getenv("DB_NAME")
+        port = os.getenv("DB_PORT")
+
+        host_with_port = host
+        if port and ':' not in host_with_port:
+            host_with_port = f"{host_with_port}:{port}"
+
+        database_path = f"/{database_name}" if database_name else ""
+
+        db_url = f"postgresql+psycopg://{user}:{password}@{host_with_port}{database_path}"
         return db_url, {}
-    # Case 2: we have DB_URL set in the .env file, or we just want
-    #   an in-memory DB for dev/testing
-    # Doing this separately from pydantic-settings as we
-    # need this before loading the FastAPI app
+
+    # Case 2: explicit DB_URL provided via environment or .env file
+    explicit_url = os.getenv("DB_URL")
+    if explicit_url:
+        connect_args = {"check_same_thread": False} if explicit_url.startswith("sqlite://") else {}
+        return explicit_url, connect_args
+
+    # Case 3: DB_URL from .env file (dev/local)
     env_values = dotenv_values(".env")
-    # Prefer the explicitly set value in .env, then environment variable,
-    #   fallback to in-memory DB
-    db_url = env_values.get("DB_URL") or os.getenv("DB_URL") or "sqlite://"
+    db_url = env_values.get("DB_URL") or "sqlite://"
     if db_url.startswith("sqlite://"):
         connect_args = {"check_same_thread": False}
     else:
