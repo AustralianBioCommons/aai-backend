@@ -5,6 +5,7 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
+    Platform,
     PlatformMembership,
 )
 from tests.datagen import random_auth0_id
@@ -31,4 +32,8 @@ class GroupMembershipFactory(SQLAlchemyFactory[GroupMembership]):
 
 
 class PlatformMembershipFactory(SQLAlchemyFactory[PlatformMembership]):
+    __set_relationships__ = False
+
+
+class PlatformFactory(SQLAlchemyFactory[Platform]):
     __set_relationships__ = False
