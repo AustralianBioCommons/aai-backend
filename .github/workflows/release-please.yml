@@ -14,7 +14,8 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
-          release-type: docker
+          release-type: simple
+          package-name: aai-backend
           token: ${{ secrets.GITHUB_TOKEN }}
           changelog-types: |
             [
