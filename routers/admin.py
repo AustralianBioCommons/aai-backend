@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime
 from typing import Annotated
@@ -22,6 +23,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum, GroupEnum
+from routers.user import update_user_metadata
 from schemas.biocommons import Auth0UserDataWithMemberships
 from schemas.user import SessionUser
 
