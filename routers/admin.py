@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path
@@ -94,6 +94,76 @@ class RevokeServiceRequest(BaseModel):
             return None
         stripped = value.strip()
         return stripped or None
+
+
+def _resolve_platform(service_id: str) -> PlatformEnum | None:
+    if service_id in PLATFORM_MAPPING:
+        return PLATFORM_MAPPING[service_id]["enum"]
+    for data in PLATFORM_MAPPING.values():
+        if data["enum"].value == service_id:
+            return data["enum"]
+    return None
+
+
+def _resolve_group(service_id: str) -> GroupEnum | None:
+    if service_id in GROUP_MAPPING:
+        return GROUP_MAPPING[service_id]["enum"]
+    for data in GROUP_MAPPING.values():
+        if data["enum"].value == service_id:
+            return data["enum"]
+    return None
+
+
+def _get_or_create_db_user(user_id: str,
+                           client: Auth0Client,
+                           db_session: Session) -> BiocommonsUser:
+    db_user = db_session.get(BiocommonsUser, user_id)
+    if db_user is None:
+        db_user = BiocommonsUser.get_or_create(
+            auth0_id=user_id,
+            db_session=db_session,
+            auth0_client=client,
+        )
+    return db_user
+
+
+def _get_platform_membership_or_404(
+    *, user_id: str, platform_id: PlatformEnum, db_session: Session
+) -> PlatformMembership:
+    membership = db_session.exec(
+        select(PlatformMembership).where(
+            PlatformMembership.user_id == user_id,
+            PlatformMembership.platform_id == platform_id,
+        )
+    ).one_or_none()
+    if membership is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Platform membership '{platform_id.value}' not found for user '{user_id}'",
+        )
+    return membership
+
+
+def _get_group_membership_or_404(
+    *, user_id: str, group_id: str, db_session: Session
+) -> GroupMembership:
+    membership = GroupMembership.get_by_user_id(
+        user_id=user_id,
+        group_id=group_id,
+        session=db_session,
+    )
+    if membership is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Group membership '{group_id}' not found for user '{user_id}'",
+        )
+    return membership
+
+
+def _membership_response(kind: str, membership_model) -> dict[str, object]:
+    data = membership_model.get_data().model_dump(mode="json")
+    data["type"] = kind
+    return data
 
 
 @router.get("/filters")
@@ -299,22 +369,50 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
 def approve_service(user_id: Annotated[str, UserIdParam],
                     service_id: Annotated[str, ServiceIdParam],
                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                    approving_user: Annotated[SessionUser, Depends(get_current_user)]):
-    user = client.get_user(user_id=user_id)
-    # Need to fetch full user info currently to get email address, not in access token
-    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
-    logger.debug(f"Approving service {service_id} for user {user_id} by {approving_user_data.email}")
-    user.app_metadata.approve_service(service_id, updated_by=str(approving_user_data.email))
-    logger.info("Sending updated metadata to Auth0 API")
-    # update_user_metadata is async, so run via asyncio
-    update = update_user_metadata(
-        user_id=user_id,
-        token=client.management_token,
-        metadata=user.app_metadata.model_dump(mode="json")
+                    approving_user: Annotated[SessionUser, Depends(get_current_user)],
+                    db_session: Annotated[Session, Depends(get_db_session)]):
+    platform = _resolve_platform(service_id)
+    group = _resolve_group(service_id)
+    if platform is None and group is None:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' is not recognised")
+
+    admin_record = _get_or_create_db_user(
+        user_id=approving_user.access_token.sub,
+        client=client,
+        db_session=db_session,
     )
-    resp = asyncio.run(update)
-    logger.info("Metadata updated successfully")
-    return resp
+
+    if platform is not None:
+        membership = _get_platform_membership_or_404(
+            user_id=user_id,
+            platform_id=platform,
+            db_session=db_session,
+        )
+        membership.approval_status = ApprovalStatusEnum.APPROVED
+        membership.revocation_reason = None
+        membership.updated_at = datetime.now(timezone.utc)
+        membership.updated_by = admin_record
+        db_session.add(membership)
+        membership.save_history(db_session)
+        db_session.commit()
+        db_session.refresh(membership)
+        logger.info("Approved platform %s for user %s", platform.value, user_id)
+        return _membership_response("platform", membership)
+
+    membership = _get_group_membership_or_404(
+        user_id=user_id,
+        group_id=group.value,
+        db_session=db_session,
+    )
+    membership.approval_status = ApprovalStatusEnum.APPROVED
+    membership.revocation_reason = None
+    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_by = admin_record
+    membership.grant_auth0_role(auth0_client=client)
+    membership.save(session=db_session, commit=True)
+    db_session.refresh(membership)
+    logger.info("Approved group %s for user %s", group.value, user_id)
+    return _membership_response("group", membership)
 
 
 @router.post("/users/{user_id}/services/{service_id}/revoke")
@@ -322,29 +420,54 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
                    service_id: Annotated[str, ServiceIdParam],
                    payload: RevokeServiceRequest,
                    client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                   revoking_user: Annotated[SessionUser, Depends(get_current_user)]):
+                   revoking_user: Annotated[SessionUser, Depends(get_current_user)],
+                   db_session: Annotated[Session, Depends(get_db_session)]):
     """
-    Revoke a service and all associated resources for a user.
+    Revoke a service by updating platform or group membership state in the database.
     """
-    user = client.get_user(user_id=user_id)
-    revoking_user_data = client.get_user(user_id=revoking_user.access_token.sub)
-    user.app_metadata.revoke_service(
-        service_id=service_id,
-        updated_by=str(revoking_user_data.email),
-        reason=payload.reason,
+    platform = _resolve_platform(service_id)
+    group = _resolve_group(service_id)
+    if platform is None and group is None:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' is not recognised")
+
+    admin_record = _get_or_create_db_user(
+        user_id=revoking_user.access_token.sub,
+        client=client,
+        db_session=db_session,
     )
-    service = user.app_metadata.get_service_by_id(service_id)
-    if service is None:
-        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found for user '{user_id}'")
-    for resource in service.resources:
-        resource.revoke()
-    update = update_user_metadata(
+
+    reason = payload.reason
+
+    if platform is not None:
+        membership = _get_platform_membership_or_404(
+            user_id=user_id,
+            platform_id=platform,
+            db_session=db_session,
+        )
+        membership.approval_status = ApprovalStatusEnum.REVOKED
+        membership.revocation_reason = reason
+        membership.updated_at = datetime.now(timezone.utc)
+        membership.updated_by = admin_record
+        db_session.add(membership)
+        membership.save_history(db_session)
+        db_session.commit()
+        db_session.refresh(membership)
+        logger.info("Revoked platform %s for user %s", platform.value, user_id)
+        return _membership_response("platform", membership)
+
+    membership = _get_group_membership_or_404(
         user_id=user_id,
-        token=client.management_token,
-        metadata=user.app_metadata.model_dump(mode="json")
+        group_id=group.value,
+        db_session=db_session,
     )
-    resp = asyncio.run(update)
-    return resp
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = reason
+    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_by = admin_record
+    membership.save(session=db_session, commit=True)
+    db_session.refresh(membership)
+    logger.info("Revoked group %s for user %s", group.value, user_id)
+    return _membership_response("group", membership)
 
 
 @router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")

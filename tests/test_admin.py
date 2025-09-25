@@ -4,12 +4,12 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
-from sqlmodel import Session
+from sqlmodel import select, Session
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client
-from db.models import BiocommonsGroup
+from db.models import BiocommonsGroup, PlatformMembershipHistory
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams
@@ -443,6 +443,104 @@ def run_in_new_loop(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def test_approve_platform_membership_updates_db(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    mock_auth0_client,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    admin_db_user = BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        platform_memberships=[],
+        group_memberships=[],
+    )
+    test_db_session.commit()
+
+    resp = test_client.post(f"/admin/users/{user.id}/services/galaxy/approve")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "platform"
+    assert data["platform_id"] == PlatformEnum.GALAXY
+    assert data["approval_status"] == ApprovalStatusEnum.APPROVED.value
+    assert data["revocation_reason"] is None
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert membership.revocation_reason is None
+    assert membership.updated_by_id == admin_db_user.id
+
+    history_entries = test_db_session.exec(
+        select(PlatformMembershipHistory)
+        .where(
+            PlatformMembershipHistory.user_id == user.id,
+            PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY,
+        )
+        .order_by(PlatformMembershipHistory.updated_at)
+    ).all()
+    assert history_entries[-1].approval_status == ApprovalStatusEnum.APPROVED
+    assert history_entries[-1].reason is None
+
+
+def test_revoke_platform_membership_records_reason(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    mock_auth0_client,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    admin_db_user = BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        platform_memberships=[],
+        group_memberships=[],
+    )
+    test_db_session.commit()
+
+    reason = "  No longer meets access requirements  "
+    resp = test_client.post(
+        f"/admin/users/{user.id}/services/galaxy/revoke",
+        json={"reason": reason},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "platform"
+    assert data["platform_id"] == PlatformEnum.GALAXY
+    assert data["approval_status"] == ApprovalStatusEnum.REVOKED.value
+    assert data["revocation_reason"] == reason.strip()
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REVOKED
+    assert membership.revocation_reason == reason.strip()
+    assert membership.updated_by_id == admin_db_user.id
+
+    history_entries = test_db_session.exec(
+        select(PlatformMembershipHistory)
+        .where(
+            PlatformMembershipHistory.user_id == user.id,
+            PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY,
+        )
+        .order_by(PlatformMembershipHistory.updated_at)
+    ).all()
+    assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
+    assert history_entries[-1].reason == reason.strip()
 
 
 def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
