@@ -5,10 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import func, or_
+from sqlalchemy import false, func, or_
 from sqlmodel import Session, select
 
-from auth.validator import user_is_admin
+from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
 from db.models import (
     BiocommonsGroup,
@@ -20,6 +20,7 @@ from db.models import (
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum, GroupEnum
 from schemas.biocommons import Auth0UserDataWithMemberships
+from schemas.user import SessionUser
 
 logger = logging.getLogger('uvicorn.error')
 
