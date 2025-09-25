@@ -4,7 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
-from pydantic import BaseModel, Field, ValidationError
+from sqlalchemy import alias, false, func, or_
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import alias, false, func, or_
 from sqlmodel import Session, select
 
@@ -79,6 +80,18 @@ def get_pagination_params(page: int = 1, per_page: int = 100):
 
 router = APIRouter(prefix="/admin", tags=["admin"],
                    dependencies=[Depends(user_is_admin)])
+
+
+class RevokeServiceRequest(BaseModel):
+    reason: Annotated[str | None, Field(default=None, max_length=1024)] = None
+
+    @field_validator("reason")
+    @classmethod
+    def strip_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 @router.get("/filters")
@@ -278,3 +291,79 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
                               client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     client.resend_verification_email(user_id)
     return {"message": "Verification email resent."}
+
+
+@router.post("/users/{user_id}/services/{service_id}/approve")
+def approve_service(user_id: Annotated[str, UserIdParam],
+                    service_id: Annotated[str, ServiceIdParam],
+                    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                    approving_user: Annotated[SessionUser, Depends(get_current_user)]):
+    user = client.get_user(user_id=user_id)
+    # Need to fetch full user info currently to get email address, not in access token
+    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
+    logger.debug(f"Approving service {service_id} for user {user_id} by {approving_user_data.email}")
+    user.app_metadata.approve_service(service_id, updated_by=str(approving_user_data.email))
+    logger.info("Sending updated metadata to Auth0 API")
+    # update_user_metadata is async, so run via asyncio
+    update = update_user_metadata(
+        user_id=user_id,
+        token=client.management_token,
+        metadata=user.app_metadata.model_dump(mode="json")
+    )
+    resp = asyncio.run(update)
+    logger.info("Metadata updated successfully")
+    return resp
+
+
+@router.post("/users/{user_id}/services/{service_id}/revoke")
+def revoke_service(user_id: Annotated[str, UserIdParam],
+                   service_id: Annotated[str, ServiceIdParam],
+                   payload: RevokeServiceRequest,
+                   client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                   revoking_user: Annotated[SessionUser, Depends(get_current_user)]):
+    """
+    Revoke a service and all associated resources for a user.
+    """
+    user = client.get_user(user_id=user_id)
+    revoking_user_data = client.get_user(user_id=revoking_user.access_token.sub)
+    user.app_metadata.revoke_service(
+        service_id=service_id,
+        updated_by=str(revoking_user_data.email),
+        reason=payload.reason,
+    )
+    service = user.app_metadata.get_service_by_id(service_id)
+    if service is None:
+        raise HTTPException(status_code=404, detail=f"Service '{service_id}' not found for user '{user_id}'")
+    for resource in service.resources:
+        resource.revoke()
+    update = update_user_metadata(
+        user_id=user_id,
+        token=client.management_token,
+        metadata=user.app_metadata.model_dump(mode="json")
+    )
+    resp = asyncio.run(update)
+    return resp
+
+
+@router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")
+def approve_resource(user_id: Annotated[str, UserIdParam],
+                     service_id: Annotated[str, ServiceIdParam],
+                     resource_id: Annotated[str, ResourceIdParam],
+                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                     approving_user: Annotated[SessionUser, Depends(get_current_user)]):
+    user = client.get_user(user_id=user_id)
+    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
+
+    user.app_metadata.approve_resource(
+        service_id=service_id,
+        resource_id=resource_id,
+        updated_by=approving_user_data.email
+    )
+
+    update = update_user_metadata(
+        user_id=user_id,
+        token=client.management_token,
+        metadata=user.app_metadata.model_dump(mode="json")
+    )
+    resp = asyncio.run(update)
+    return resp
