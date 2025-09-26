@@ -39,6 +39,7 @@ def dummy_platform(persistent_factories):
     admin_role = Auth0RoleFactory.create_sync(name="Admin")
     return PlatformFactory.create_sync(
         id=PlatformEnum.GALAXY,
+        name="Galaxy Australia",
         admin_roles=[admin_role]
     )
 
@@ -121,7 +122,7 @@ def test_get_users(test_client, as_admin_user, dummy_platform,
     that the admin user has access to.
     """
     valid_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=dummy_platform.id)
-    other_platform = PlatformFactory.create_sync(platform_id=PlatformEnum.BPA_DATA_PORTAL)
+    other_platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
     invalid_users = _users_with_platform_membership(n=2, db_session=test_db_session, platform_id=other_platform.id)
 
     resp = test_client.get("/admin/users")
