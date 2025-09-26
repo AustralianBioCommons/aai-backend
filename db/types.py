@@ -29,6 +29,7 @@ class PlatformMembershipData(BaseModel):
     user_id: str
     approval_status: ApprovalStatusEnum
     updated_by: str
+    revocation_reason: str | None = None
 
 
 class GroupMembershipData(BaseModel):
@@ -38,6 +39,7 @@ class GroupMembershipData(BaseModel):
     group_name: str
     approval_status: ApprovalStatusEnum
     updated_by: str
+    revocation_reason: str | None = None
 
 
 # Not used for Groups in the database yet

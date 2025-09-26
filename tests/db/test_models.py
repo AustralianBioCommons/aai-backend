@@ -28,6 +28,7 @@ from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformMembershipFactory,
 )
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
@@ -114,6 +115,7 @@ def test_create_platform_membership(test_db_session, persistent_factories, froze
     assert membership.approval_status == ApprovalStatusEnum.APPROVED
     assert membership.platform_id == "galaxy"
     assert membership.updated_at == FROZEN_TIME
+    assert membership.revocation_reason is None
 
 
 def test_create_platform_membership_history(test_db_session, persistent_factories, frozen_time):
@@ -156,6 +158,24 @@ def test_create_group_membership(test_db_session, persistent_factories):
     assert membership.group.group_id == "biocommons/group/tsi"
     assert membership.user_id == user.id
     assert membership.updated_by_id == updater.id
+
+
+def test_platform_membership_save_history_stores_reason(test_db_session, persistent_factories):
+    membership = PlatformMembershipFactory.create_sync(
+        approval_status=ApprovalStatusEnum.REVOKED,
+        revocation_reason="Policy violation",
+    )
+    membership.save_history(test_db_session)
+    history = test_db_session.exec(
+        select(PlatformMembershipHistory)
+        .where(
+            PlatformMembershipHistory.user_id == membership.user_id,
+            PlatformMembershipHistory.platform_id == membership.platform_id,
+        )
+        .order_by(PlatformMembershipHistory.updated_at.desc())
+    ).first()
+    assert history is not None
+    assert history.reason == "Policy violation"
 
 
 def test_create_group_membership_no_updater(test_db_session, persistent_factories):
@@ -336,6 +356,7 @@ def test_group_membership_save_with_history(test_db_session):
     ).one()
     assert history.group_id == membership.group_id
     assert history.user_id == membership.user_id
+    assert history.reason == membership.revocation_reason
 
 
 def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
@@ -350,3 +371,4 @@ def test_group_membership_save_and_commit_history(test_db_session, persistent_fa
     ).one()
     assert history.group_id == membership.group_id
     assert history.user_id == membership.user_id
+    assert history.reason == membership.revocation_reason
