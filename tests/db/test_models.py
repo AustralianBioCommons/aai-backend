@@ -140,6 +140,7 @@ def test_create_platform_membership(test_db_session, persistent_factories, froze
     assert membership.user == user
     assert membership.approval_status == ApprovalStatusEnum.APPROVED
     assert membership.platform_id == "galaxy"
+    # Check the related platform object is populated
     assert membership.platform.id == "galaxy"
     assert membership.updated_at == FROZEN_TIME
 
