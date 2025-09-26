@@ -24,19 +24,19 @@ class Settings(BaseSettings):
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW
-        "@unsw.edu.au", "@ad.unsw.edu.au", "@student.unsw.edu.au",
+        "unsw.edu.au", "ad.unsw.edu.au", "student.unsw.edu.au",
         # BioCommons
-        "@biocommons.org.au",
+        "biocommons.org.au",
         # USyd
-        "@sydney.edu.au", "@uni.sydney.edu.au",
+        "sydney.edu.au", "uni.sydney.edu.au",
         # WEHI
-        "@wehi.edu.au",
+        "wehi.edu.au",
         # Monash
-        "@monash.edu", "@student.monash.edu",
+        "monash.edu", "student.monash.edu",
         # Griffith
-        "@griffith.edu.au", "@griffithuni.edu.au",
+        "griffith.edu.au", "griffithuni.edu.au",
         # UoM
-        "@unimelb.edu.au", "@student.unimelb.edu.au"
+        "unimelb.edu.au", "student.unimelb.edu.au"
     ]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
