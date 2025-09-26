@@ -152,7 +152,6 @@ def test_registration_email_format(test_client, valid_registration_data):
     assert "email" in [error["field"] for error in errors]
 
 
-
 def test_registration_rejected_email_domains(test_client, valid_registration_data, mock_auth0_client):
     data = valid_registration_data.copy()
     data["email"] = "user@gmail.com"
