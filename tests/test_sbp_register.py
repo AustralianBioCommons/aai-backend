@@ -39,16 +39,22 @@ def test_to_biocommons_register_data():
 
 
 def test_validate_sbp_email_domain_function():
+    from config import get_settings
+    settings = get_settings()
+
     # Test approved domains
-    assert validate_sbp_email_domain("user@unsw.edu.au")
-    assert validate_sbp_email_domain("user@biocommons.org.au")
-    assert validate_sbp_email_domain("user@sydney.edu.au")
-    assert validate_sbp_email_domain("USER@UNSW.EDU.AU")
+    assert validate_sbp_email_domain("user@unsw.edu.au", settings)
+    assert validate_sbp_email_domain("user@biocommons.org.au", settings)
+    assert validate_sbp_email_domain("user@sydney.edu.au", settings)
+    assert validate_sbp_email_domain("USER@UNSW.EDU.AU", settings)
 
     # Test rejected domains
-    assert not validate_sbp_email_domain("user@gmail.com")
-    assert not validate_sbp_email_domain("user@unsw.com")
-    assert not validate_sbp_email_domain("user@biocommons.org")
+    assert not validate_sbp_email_domain("user@gmail.com", settings)
+    assert not validate_sbp_email_domain("user@unsw.com", settings)
+    assert not validate_sbp_email_domain("user@biocommons.org", settings)
+    assert not validate_sbp_email_domain("user@evilunsw.edu.au", settings)
+    assert not validate_sbp_email_domain("user@malicious.biocommons.org.au", settings)
+    assert not validate_sbp_email_domain("user@fakeunimelb.edu.au", settings)
 
 
 def test_successful_registration(

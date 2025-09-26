@@ -1,5 +1,6 @@
 import logging
 
+from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
@@ -24,15 +25,14 @@ router = APIRouter(
     route_class=RegistrationRoute
 )
 
-def _validate_email_domain_with_list(email: str, allowed_domains: list[str]) -> bool:
-    email_lower = email.lower()
-    return any(email_lower.endswith(domain) for domain in allowed_domains)
-
-
-def validate_sbp_email_domain(email: str) -> bool:
-    from config import get_settings
-    settings = get_settings()
-    return _validate_email_domain_with_list(email, settings.sbp_allowed_email_domains)
+def validate_sbp_email_domain(email: str, settings: Settings) -> bool:
+    try:
+        validated_email = validate_email(email)
+        domain = validated_email.domain.lower()
+        allowed_domains_lower = [domain.lower() for domain in settings.sbp_allowed_email_domains]
+        return domain in allowed_domains_lower
+    except EmailNotValidError:
+        return False
 
 
 def send_approval_email(registration: SBPRegistrationRequest, settings: Settings):
@@ -73,12 +73,14 @@ async def register_sbp_user(
     """Register a new SBP user."""
 
     # Validate email domain
-    if not validate_sbp_email_domain(registration.email):
+    if not validate_sbp_email_domain(registration.email, settings):
         logger.warning(f"SBP registration rejected for email domain: {registration.email}")
+        allowed_domains_str = ", ".join(settings.sbp_allowed_email_domains)
         response = RegistrationErrorResponse(
-            message="Email domain not approved for SBP registration. "
-                   "Please use an email from an approved institution: "
-                   "UNSW, BioCommons, USyd, WEHI, Monash, Griffith, or UoM."
+            message=(
+                "Email domain not approved for SBP registration. "
+                f"Please use an email from an approved domain: {allowed_domains_str}."
+            )
         )
         return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
 
