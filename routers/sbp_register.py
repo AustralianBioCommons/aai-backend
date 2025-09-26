@@ -24,6 +24,29 @@ router = APIRouter(
     route_class=RegistrationRoute
 )
 
+# Allowed email domains for SBP registration
+SBP_ALLOWED_EMAIL_DOMAINS = {
+    # UNSW
+    "@unsw.edu.au", "@ad.unsw.edu.au", "@student.unsw.edu.au",
+    # BioCommons
+    "@biocommons.org.au",
+    # USyd
+    "@sydney.edu.au", "@uni.sydney.edu.au",
+    # WEHI
+    "@wehi.edu.au",
+    # Monash
+    "@monash.edu", "@student.monash.edu",
+    # Griffith
+    "@griffith.edu.au", "@griffithuni.edu.au",
+    # UoM
+    "@unimelb.edu.au", "@student.unimelb.edu.au"
+}
+
+
+def validate_sbp_email_domain(email: str) -> bool:
+    email_lower = email.lower()
+    return any(email_lower.endswith(domain) for domain in SBP_ALLOWED_EMAIL_DOMAINS)
+
 
 def send_approval_email(registration: SBPRegistrationRequest, settings: Settings):
     """Send email notification about new SBP registration."""
@@ -61,6 +84,16 @@ async def register_sbp_user(
     settings: Settings = Depends(get_settings)
 ):
     """Register a new SBP user."""
+
+    # Validate email domain
+    if not validate_sbp_email_domain(registration.email):
+        logger.warning(f"SBP registration rejected for email domain: {registration.email}")
+        response = RegistrationErrorResponse(
+            message="Email domain not approved for SBP registration. "
+                   "Please use an email from an approved institution: "
+                   "UNSW, BioCommons, USyd, WEHI, Monash, Griffith, or UoM."
+        )
+        return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_sbp_registration(

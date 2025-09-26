@@ -9,6 +9,7 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
+from routers.sbp_register import validate_sbp_email_domain
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
     Auth0UserDataFactory,
@@ -23,7 +24,7 @@ def valid_registration_data():
         username="testuser",
         first_name="Test",
         last_name="User",
-        email="test@example.com",
+        email="test@unsw.edu.au",
         reason="Need access to SBP resources",
         password="SecurePass123!",
     ).model_dump()
@@ -35,6 +36,19 @@ def test_to_biocommons_register_data():
     assert register_data.username == sbp_data.username
     assert register_data.name == f"{sbp_data.first_name} {sbp_data.last_name}"
     assert register_data.app_metadata.registration_from == "sbp"
+
+
+def test_validate_sbp_email_domain_function():
+    # Test approved domains
+    assert validate_sbp_email_domain("user@unsw.edu.au")
+    assert validate_sbp_email_domain("user@biocommons.org.au")
+    assert validate_sbp_email_domain("user@sydney.edu.au")
+    assert validate_sbp_email_domain("USER@UNSW.EDU.AU")
+
+    # Test rejected domains
+    assert not validate_sbp_email_domain("user@gmail.com")
+    assert not validate_sbp_email_domain("user@unsw.com")
+    assert not validate_sbp_email_domain("user@biocommons.org")
 
 
 def test_successful_registration(
@@ -136,3 +150,15 @@ def test_registration_email_format(test_client, valid_registration_data):
     details = response.json()
     errors = details["field_errors"]
     assert "email" in [error["field"] for error in errors]
+
+
+
+def test_registration_rejected_email_domains(test_client, valid_registration_data, mock_auth0_client):
+    data = valid_registration_data.copy()
+    data["email"] = "user@gmail.com"
+
+    response = test_client.post("/sbp/register", json=data)
+
+    assert response.status_code == 400
+    assert "Email domain not approved for SBP registration" in response.json()["message"]
+    assert not mock_auth0_client.create_user.called
