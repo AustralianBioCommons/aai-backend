@@ -4,11 +4,13 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
+from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client
-from db.types import ApprovalStatusEnum, PlatformEnum
+from db.models import BiocommonsGroup
+from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams
 from tests.datagen import (
@@ -18,13 +20,27 @@ from tests.datagen import (
     SessionUserFactory,
 )
 from tests.db.datagen import (
+    Auth0RoleFactory,
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformFactory,
     PlatformMembershipFactory,
 )
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
+
+
+@pytest.fixture
+def dummy_platform(persistent_factories):
+    """
+    Set up a Galaxy platform with the admin role set to "Admin"
+    """
+    admin_role = Auth0RoleFactory.create_sync(name="Admin")
+    return PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        admin_roles=[admin_role]
+    )
 
 
 @pytest.fixture
@@ -71,24 +87,54 @@ def test_user_is_admin_nonadmin_user(mock_settings):
         user_is_admin(current_user=user, settings=mock_settings)
 
 
-def test_get_users(test_client, as_admin_user, mock_auth0_client, test_db_session):
-    # Create some test users in the database
-    db_users = BiocommonsUserFactory.batch(3)
+def _create_user_with_platform_membership(db_session: Session, platform_id: PlatformEnum, **kwargs):
+    user = BiocommonsUserFactory.build(**kwargs)
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=platform_id,
+        user_id=user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    user.platform_memberships.append(membership)
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
+def _users_with_platform_membership(n: int, db_session: Session, platform_id: PlatformEnum):
+    db_users = BiocommonsUserFactory.batch(n)
     for user in db_users:
-        test_db_session.add(user)
-    test_db_session.commit()
+        membership = PlatformMembershipFactory.create_sync(
+            platform_id=platform_id,
+            user_id=user.id,
+            approval_status=ApprovalStatusEnum.APPROVED
+        )
+        user.platform_memberships.append(membership)
+        db_session.add(user)
+    db_session.commit()
+    return db_users
+
+
+def test_get_users(test_client, as_admin_user, dummy_platform,
+                   mock_auth0_client, test_db_session, persistent_factories):
+    """
+    Test getting a list of users. The list should only contain users with platform memberships
+    that the admin user has access to.
+    """
+    valid_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=dummy_platform.id)
+    other_platform = PlatformFactory.create_sync(platform_id=PlatformEnum.BPA_DATA_PORTAL)
+    invalid_users = _users_with_platform_membership(n=2, db_session=test_db_session, platform_id=other_platform.id)
 
     resp = test_client.get("/admin/users")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
+    data = resp.json()
+    assert len(data) == 3
+    user_ids = [u["id"] for u in data]
+    assert all(u.id in user_ids for u in valid_users)
+    assert all(u.id not in user_ids for u in invalid_users)
 
 
-def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_client, test_db_session):
-    # Create some test users in the database
-    db_users = BiocommonsUserFactory.batch(3)
-    for user in db_users:
-        test_db_session.add(user)
-    test_db_session.commit()
+def test_get_users_pagination_params(test_client, as_admin_user, dummy_platform, mock_auth0_client, test_db_session):
+    _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=dummy_platform.id)
 
     resp = test_client.get("/admin/users?page=2&per_page=10")
     assert resp.status_code == 200
@@ -96,79 +142,62 @@ def test_get_users_pagination_params(test_client, as_admin_user, mock_auth0_clie
     assert len(resp.json()) == 0
 
 
-def test_get_users_invalid_params(test_client, as_admin_user, mock_auth0_client):
-    users = Auth0UserDataFactory.batch(3)
-    mock_auth0_client.get_users.return_value = users
+def test_get_users_invalid_params(test_client, as_admin_user, dummy_platform, test_db_session, mock_auth0_client):
+    _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=dummy_platform.id)
     resp = test_client.get("/admin/users?page=0&per_page=500")
     assert resp.status_code == 422
     error_msg = resp.json()["detail"]
     assert "Invalid page params" in error_msg
 
 
-def test_get_users_filter_by_platform(test_client, as_admin_user, test_db_session):
-    from db.models import ApprovalStatusEnum, PlatformEnum, PlatformMembership
-    from tests.db.datagen import BiocommonsUserFactory
-
-    galaxy_users = BiocommonsUserFactory.batch(2)
+def test_get_users_filter_by_platform(test_client, as_admin_user, dummy_platform, test_db_session,
+                                      persistent_factories):
+    galaxy_users = _users_with_platform_membership(n=2, db_session=test_db_session, platform_id=dummy_platform.id)
     other_users = BiocommonsUserFactory.batch(2)
-
-    for user in galaxy_users + other_users:
+    for user in other_users:
         test_db_session.add(user)
-    test_db_session.commit()
-
-    for user in galaxy_users:
-        membership = PlatformMembership(
-            user_id=user.id,
-            platform_id=PlatformEnum.GALAXY,
-            approval_status=ApprovalStatusEnum.APPROVED
-        )
-        test_db_session.add(membership)
     test_db_session.commit()
 
     resp = test_client.get("/admin/users?filter_by=galaxy")
     assert resp.status_code == 200
-    assert len(resp.json()) == 2
+    galaxy_data = resp.json()
+    assert len(galaxy_data) == 2
+    galaxy_ids = [u["id"] for u in galaxy_data]
+    assert all(u.id in galaxy_ids for u in galaxy_users)
 
     resp = test_client.get("/admin/users?filter_by=bpa_data_portal")
     assert resp.status_code == 200
     assert len(resp.json()) == 0
 
 
-def test_get_users_filter_by_group(test_client, as_admin_user, test_db_session):
-    from db.models import (
-        ApprovalStatusEnum,
-        BiocommonsGroup,
-        GroupMembership,
-    )
-    from db.types import GroupEnum
-    from tests.db.datagen import BiocommonsUserFactory
-
+def test_get_users_filter_by_group(test_client, as_admin_user, dummy_platform, test_db_session):
     tsi_group = BiocommonsGroup(
         group_id=GroupEnum.TSI,
         name="Threatened Species Initiative Bundle"
     )
     test_db_session.add(tsi_group)
     test_db_session.commit()
-
-    tsi_users = BiocommonsUserFactory.batch(2)
-    other_users = BiocommonsUserFactory.batch(2)
-
-    for user in tsi_users + other_users:
-        test_db_session.add(user)
-    test_db_session.commit()
+    # Create users who can be managed by the admin user
+    tsi_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=dummy_platform.id)
+    other_users = _users_with_platform_membership(n=2, db_session=test_db_session, platform_id=dummy_platform.id)
 
     for user in tsi_users:
-        membership = GroupMembership(
+        membership = GroupMembershipFactory.create_sync(
             user_id=user.id,
             group_id=GroupEnum.TSI,
             approval_status=ApprovalStatusEnum.APPROVED
         )
+        user.group_memberships.append(membership)
         test_db_session.add(membership)
     test_db_session.commit()
 
     resp = test_client.get("/admin/users?filter_by=tsi")
     assert resp.status_code == 200
-    assert len(resp.json()) == 2
+    tsi_data = resp.json()
+    assert len(tsi_data) == 3
+    tsi_ids = [u["id"] for u in tsi_data]
+    assert all(u.id in tsi_ids for u in tsi_users)
+    assert all(u.id not in tsi_ids for u in other_users)
 
     resp = test_client.get("/admin/users?filter_by=bpa_galaxy")
     assert resp.status_code == 404
@@ -181,34 +210,41 @@ def test_get_users_invalid_filter(test_client, as_admin_user, test_db_session):
     assert "Invalid filter_by value 'invalid_filter'" in resp.json()["detail"]
 
 
-def test_get_users_search_by_email_exact(test_client, as_admin_user, test_db_session):
-    from tests.db.datagen import BiocommonsUserFactory
-
-    user1 = BiocommonsUserFactory.build(email="john.doe@example.com", username="johndoe")
-    user2 = BiocommonsUserFactory.build(email="jane.smith@example.com", username="janesmith")
-    user3 = BiocommonsUserFactory.build(email="bob.wilson@example.com", username="bobwilson")
-
-    for user in [user1, user2, user3]:
-        test_db_session.add(user)
-    test_db_session.commit()
+def test_get_users_search_by_email_exact(test_client, as_admin_user, dummy_platform, test_db_session):
+    user1 = _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="john.doe@example.com", username="johndoe"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="jane.smith@example.com", username="janesmith"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="bob.wilson@example.com", username="bobwilson"
+    )
 
     resp = test_client.get("/admin/users?search=john.doe@example.com")
     assert resp.status_code == 200
     results = resp.json()
     assert len(results) == 1
     assert results[0]["email"] == "john.doe@example.com"
+    assert results[0]["id"] == user1.id
 
 
-def test_get_users_search_by_email_partial(test_client, as_admin_user, test_db_session):
-    from tests.db.datagen import BiocommonsUserFactory
-
-    user1 = BiocommonsUserFactory.build(email="john.doe@example.com", username="johndoe")
-    user2 = BiocommonsUserFactory.build(email="jane.smith@example.com", username="janesmith")
-    user3 = BiocommonsUserFactory.build(email="bob.wilson@different.com", username="bobwilson")
-
-    for user in [user1, user2, user3]:
-        test_db_session.add(user)
-    test_db_session.commit()
+def test_get_users_search_by_email_partial(test_client, as_admin_user, dummy_platform, test_db_session):
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="john.doe@example.com", username="johndoe"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="jane.smith@example.com", username="janesmith"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="bob.wilson@different.com", username="bobwilson"
+    )
 
     resp = test_client.get("/admin/users?search=example.com")
     assert resp.status_code == 200
@@ -220,16 +256,19 @@ def test_get_users_search_by_email_partial(test_client, as_admin_user, test_db_s
     assert "bob.wilson@different.com" not in emails
 
 
-def test_get_users_search_by_username(test_client, as_admin_user, test_db_session):
-    from tests.db.datagen import BiocommonsUserFactory
-
-    user1 = BiocommonsUserFactory.build(email="john@example.com", username="johndoe")
-    user2 = BiocommonsUserFactory.build(email="jane@example.com", username="janesmith")
-    user3 = BiocommonsUserFactory.build(email="bob@example.com", username="bobwilson")
-
-    for user in [user1, user2, user3]:
-        test_db_session.add(user)
-    test_db_session.commit()
+def test_get_users_search_by_username(test_client, as_admin_user, dummy_platform, test_db_session):
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="john.doe@example.com", username="johndoe"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="jane.smith@example.com", username="janesmith"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="bob.wilson@different.com", username="bobwilson"
+    )
 
     resp = test_client.get("/admin/users?search=john")
     assert resp.status_code == 200
@@ -238,16 +277,19 @@ def test_get_users_search_by_username(test_client, as_admin_user, test_db_sessio
     assert results[0]["username"] == "johndoe"
 
 
-def test_get_users_search_by_username_partial(test_client, as_admin_user, test_db_session):
-    from tests.db.datagen import BiocommonsUserFactory
-
-    user1 = BiocommonsUserFactory.build(email="john@example.com", username="johnsmith")
-    user2 = BiocommonsUserFactory.build(email="jane@example.com", username="johndoe")
-    user3 = BiocommonsUserFactory.build(email="bob@example.com", username="bobwilson")
-
-    for user in [user1, user2, user3]:
-        test_db_session.add(user)
-    test_db_session.commit()
+def test_get_users_search_by_username_partial(test_client, as_admin_user, dummy_platform, test_db_session):
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="john.doe@example.com", username="johndoe"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="smith@example.com", username="johnsmith"
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="bob.wilson@example.com", username="bobwilson"
+    )
 
     resp = test_client.get("/admin/users?search=john")
     assert resp.status_code == 200
@@ -259,13 +301,11 @@ def test_get_users_search_by_username_partial(test_client, as_admin_user, test_d
     assert "bobwilson" not in usernames
 
 
-def test_get_users_search_case_insensitive(test_client, as_admin_user, test_db_session):
-    from tests.db.datagen import BiocommonsUserFactory
-
-    user1 = BiocommonsUserFactory.build(email="John.Doe@Example.Com", username="JohnDoe")
-
-    test_db_session.add(user1)
-    test_db_session.commit()
+def test_get_users_search_case_insensitive(test_client, as_admin_user, dummy_platform, test_db_session):
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="John.Doe@Example.Com", username="JohnDoe"
+    )
 
     resp = test_client.get("/admin/users?search=JOHN")
     assert resp.status_code == 200
@@ -280,11 +320,11 @@ def test_get_users_search_case_insensitive(test_client, as_admin_user, test_db_s
     assert results[0]["email"] == "John.Doe@Example.Com"
 
 
-def test_get_users_search_empty_string(test_client, as_admin_user, test_db_session):
-    from tests.db.datagen import BiocommonsUserFactory
-
+def test_get_users_search_empty_string(test_client,  as_admin_user, dummy_platform, test_db_session):
     users = BiocommonsUserFactory.batch(3)
     for user in users:
+        membership = PlatformMembershipFactory.create_sync(user_id=user.id, platform_id=dummy_platform.id)
+        user.platform_memberships.append(membership)
         test_db_session.add(user)
     test_db_session.commit()
 
@@ -299,24 +339,16 @@ def test_get_users_search_empty_string(test_client, as_admin_user, test_db_sessi
     assert len(results) == 3
 
 
-def test_get_users_search_with_filter(test_client, as_admin_user, test_db_session):
-    from db.models import ApprovalStatusEnum, PlatformEnum, PlatformMembership
-    from tests.db.datagen import BiocommonsUserFactory
-
-    user1 = BiocommonsUserFactory.build(email="john@example.com", username="johndoe")
-    user2 = BiocommonsUserFactory.build(email="jane@example.com", username="janesmith")
-
-    for user in [user1, user2]:
-        test_db_session.add(user)
-    test_db_session.commit()
-
-    membership = PlatformMembership(
-        user_id=user1.id,
-        platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.APPROVED
+def test_get_users_search_with_filter(test_client, as_admin_user, dummy_platform, test_db_session):
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=dummy_platform.id,
+        email="john.doe@example.com", username="johndoe"
     )
-    test_db_session.add(membership)
-    test_db_session.commit()
+    other_platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=other_platform.id,
+        email="jane@example.com", username="janesmith"
+    )
 
     resp = test_client.get("/admin/users?filter_by=galaxy&search=john")
     assert resp.status_code == 200
@@ -390,7 +422,9 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, persiste
 def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories):
     revoked_users = BiocommonsUserFactory.create_batch_sync(3)
     for u in revoked_users:
-        PlatformMembershipFactory.create_sync(user=u, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.REVOKED)
+        PlatformMembershipFactory.create_sync(
+            user=u, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.REVOKED
+        )
     test_db_session.commit()
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
