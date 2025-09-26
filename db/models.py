@@ -115,12 +115,28 @@ class BiocommonsUser(BaseModel, table=True):
         return membership
 
 
+class PlatformRoleLink(BaseModel, table=True):
+    platform_id: PlatformEnum = Field(primary_key=True, foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    role_id: str = Field(primary_key=True, foreign_key="auth0role.id")
+
+
+class Platform(BaseModel, table=True):
+    id: PlatformEnum = Field(primary_key=True, unique=True, sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    # Human-readable name for the platform
+    name: str = Field(unique=True)
+    admin_roles: list["Auth0Role"] = Relationship(
+        back_populates="admin_platforms", link_model=PlatformRoleLink,
+    )
+    members: list["PlatformMembership"] = Relationship(back_populates="platform")
+
+
 class PlatformMembership(BaseModel, table=True):
     __table_args__ = (
         UniqueConstraint("platform_id", "user_id", name="platform_user_id_platform_id"),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    platform_id: PlatformEnum = Field(foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    platform: Platform = Relationship(back_populates="members")
     user_id: str = Field(foreign_key="biocommons_user.id")
     user: "BiocommonsUser" = Relationship(
         back_populates="platform_memberships",
@@ -262,8 +278,8 @@ class GroupMembership(BaseModel, table=True):
         session.flush()
 
         history = GroupMembershipHistory(
-            group=self.group,
-            user=self.user,
+            group_id=self.group_id,
+            user_id=self.user_id,
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,
@@ -351,6 +367,9 @@ class Auth0Role(BaseModel, table=True):
     admin_groups: list["BiocommonsGroup"] = Relationship(
         back_populates="admin_roles", link_model=GroupRoleLink
     )
+    admin_platforms: list["Platform"] = Relationship(
+        back_populates="admin_roles", link_model=PlatformRoleLink
+    )
 
     @classmethod
     def get_or_create_by_id(
@@ -423,6 +442,7 @@ class BiocommonsGroup(BaseModel, table=True):
 
 # Update all model references
 BiocommonsUser.model_rebuild()
+Platform.model_rebuild()
 PlatformMembership.model_rebuild()
 PlatformMembershipHistory.model_rebuild()
 GroupMembership.model_rebuild()

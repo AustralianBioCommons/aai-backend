@@ -16,6 +16,7 @@ from db.models import (
     BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
+    Platform,
     PlatformMembership,
     PlatformMembershipHistory,
 )
@@ -130,6 +131,17 @@ class GroupMembershipHistoryAdmin(ModelView, model=GroupMembershipHistory):
     column_default_sort = ("updated_at", True)
 
 
+class PlatformAdmin(ModelView, model=Platform):
+    can_edit = True
+    can_create = True
+    can_delete = True
+    form_include_pk = True
+    column_list = ["id", "name", "admin_roles"]
+    column_details_list = ["id", "name", "admin_roles", "members"]
+    column_default_sort = ("id", True)
+
+
+
 class PlatformMembershipAdmin(ModelView, model=PlatformMembership):
     can_edit = False
     can_create = False
@@ -171,6 +183,7 @@ class DatabaseAdmin:
         Auth0RoleAdmin,
         GroupMembershipAdmin,
         GroupMembershipHistoryAdmin,
+        PlatformAdmin,
         PlatformMembershipAdmin,
         PlatformMembershipHistoryAdmin,
     )

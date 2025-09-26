@@ -17,6 +17,7 @@ from db.models import (
     BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
+    Platform,
     PlatformEnum,
     PlatformMembership,
     PlatformMembershipHistory,
@@ -28,6 +29,7 @@ from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformFactory,
 )
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
@@ -96,13 +98,37 @@ def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_cl
     assert user.email == user_data.email
     assert user.username == user_data.username
 
+
+@pytest.mark.parametrize("platform_id", list(PlatformEnum))
+def test_create_platform(platform_id, test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync()
+    platform = Platform(
+        id=platform_id,
+        name=f"Platform {platform_id}",
+        admin_roles=[admin_role]
+    )
+    test_db_session.commit()
+    assert platform.id == platform_id
+
+
+def test_create_platform_unique_id(test_db_session):
+    platform = Platform(id=PlatformEnum.GALAXY, name="Galaxy", admin_roles=[])
+    test_db_session.add(platform)
+    test_db_session.commit()
+    with pytest.raises(IntegrityError):
+        platform = Platform(id=PlatformEnum.GALAXY, name="Galaxy Duplicate", admin_roles=[])
+        test_db_session.add(platform)
+        test_db_session.commit()
+
+
 def test_create_platform_membership(test_db_session, persistent_factories, frozen_time):
     """
     Test creating a platform membership model
     """
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
     membership = PlatformMembership(
-        platform_id=PlatformEnum.GALAXY,
+        platform_id=platform.id,
         user_id=user.id,
         approval_status=ApprovalStatusEnum.APPROVED,
         updated_by_id=None
@@ -111,8 +137,11 @@ def test_create_platform_membership(test_db_session, persistent_factories, froze
     test_db_session.commit()
     test_db_session.refresh(membership)
     assert membership.user_id == user.id
+    assert membership.user == user
     assert membership.approval_status == ApprovalStatusEnum.APPROVED
     assert membership.platform_id == "galaxy"
+    # Check the related platform object is populated
+    assert membership.platform.id == "galaxy"
     assert membership.updated_at == FROZEN_TIME
 
 
@@ -324,8 +353,9 @@ def test_group_membership_grant_auth0_role_not_approved(status, test_auth0_clien
         membership_request.grant_auth0_role(test_auth0_client)
 
 
-def test_group_membership_save_with_history(test_db_session):
-    membership = GroupMembershipFactory.build()
+def test_group_membership_save_with_history(test_db_session, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.build(group_id=group.group_id)
     membership.save(test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.id is not None
@@ -339,7 +369,8 @@ def test_group_membership_save_with_history(test_db_session):
 
 
 def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
-    membership = GroupMembershipFactory.create_sync()
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.build(group_id=group.group_id)
     membership.save_history(test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.id is not None

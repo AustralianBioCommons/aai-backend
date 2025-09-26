@@ -5,21 +5,24 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import false, func, or_
+from sqlalchemy import alias, false, func, or_
 from sqlmodel import Session, select
 
-from auth.validator import user_is_admin
+from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client, get_auth0_client
 from db.models import (
+    Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
+    Platform,
     PlatformEnum,
     PlatformMembership,
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum, GroupEnum
 from schemas.biocommons import Auth0UserDataWithMemberships
+from schemas.user import SessionUser
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -105,7 +108,8 @@ def get_filter_options():
 
 @router.get("/users",
             response_model=list[BiocommonsUserResponse])
-def get_users(db_session: Annotated[Session, Depends(get_db_session)],
+def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
+              db_session: Annotated[Session, Depends(get_db_session)],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
               filter_by: str = Query(None, description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"),
               search: str = Query(None, description="Search users by username or email")):
@@ -118,7 +122,21 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
             - Platform names: 'galaxy', 'bpa_data_portal'
         search: Optional search parameter for username or email
     """
-    base_query = select(BiocommonsUser)
+    admin_roles = admin_user.access_token.biocommons_roles
+    # Base query with platform access filtering built-in
+    allowed_platforms_subquery = (
+        select(Platform.id)
+        .join(Platform.admin_roles)
+        .where(Auth0Role.name.in_(admin_roles))
+    ).alias("allowed_platforms")
+    # Need an alias or SQLAlchemy complains about duplicate column names
+    pm = alias(PlatformMembership, name="pm")
+    base_query = (
+        select(BiocommonsUser)
+        .join(pm, BiocommonsUser.id == pm.c.user_id)
+        .where(pm.c.platform_id.in_(allowed_platforms_subquery))
+        .distinct()
+    )
 
     if filter_by:
         if filter_by in GROUP_MAPPING:
