@@ -24,28 +24,15 @@ router = APIRouter(
     route_class=RegistrationRoute
 )
 
-# Allowed email domains for SBP registration
-SBP_ALLOWED_EMAIL_DOMAINS = {
-    # UNSW
-    "@unsw.edu.au", "@ad.unsw.edu.au", "@student.unsw.edu.au",
-    # BioCommons
-    "@biocommons.org.au",
-    # USyd
-    "@sydney.edu.au", "@uni.sydney.edu.au",
-    # WEHI
-    "@wehi.edu.au",
-    # Monash
-    "@monash.edu", "@student.monash.edu",
-    # Griffith
-    "@griffith.edu.au", "@griffithuni.edu.au",
-    # UoM
-    "@unimelb.edu.au", "@student.unimelb.edu.au"
-}
+def _validate_email_domain_with_list(email: str, allowed_domains: list[str]) -> bool:
+    email_lower = email.lower()
+    return any(email_lower.endswith(domain) for domain in allowed_domains)
 
 
 def validate_sbp_email_domain(email: str) -> bool:
-    email_lower = email.lower()
-    return any(email_lower.endswith(domain) for domain in SBP_ALLOWED_EMAIL_DOMAINS)
+    from config import get_settings
+    settings = get_settings()
+    return _validate_email_domain_with_list(email, settings.sbp_allowed_email_domains)
 
 
 def send_approval_email(registration: SBPRegistrationRequest, settings: Settings):
