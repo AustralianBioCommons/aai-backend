@@ -320,7 +320,7 @@ def test_get_users_search_case_insensitive(test_client, as_admin_user, dummy_pla
     assert results[0]["email"] == "John.Doe@Example.Com"
 
 
-def test_get_users_search_empty_string(test_client,  as_admin_user, dummy_platform, test_db_session):
+def test_get_users_search_empty_string(test_client, as_admin_user, dummy_platform, test_db_session):
     users = BiocommonsUserFactory.batch(3)
     for user in users:
         membership = PlatformMembershipFactory.create_sync(user_id=user.id, platform_id=dummy_platform.id)
