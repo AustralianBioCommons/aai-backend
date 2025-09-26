@@ -39,22 +39,31 @@ def test_to_biocommons_register_data():
 
 
 def test_validate_sbp_email_domain_function():
-    from config import get_settings
-    settings = get_settings()
+    from unittest.mock import Mock
+    mock_settings = Mock()
+    mock_settings.sbp_allowed_email_domains = [
+        "unsw.edu.au", "ad.unsw.edu.au", "student.unsw.edu.au",
+        "biocommons.org.au",
+        "sydney.edu.au", "uni.sydney.edu.au",
+        "wehi.edu.au",
+        "monash.edu", "student.monash.edu",
+        "griffith.edu.au", "griffithuni.edu.au",
+        "unimelb.edu.au", "student.unimelb.edu.au"
+    ]
 
     # Test approved domains
-    assert validate_sbp_email_domain("user@unsw.edu.au", settings)
-    assert validate_sbp_email_domain("user@biocommons.org.au", settings)
-    assert validate_sbp_email_domain("user@sydney.edu.au", settings)
-    assert validate_sbp_email_domain("USER@UNSW.EDU.AU", settings)
+    assert validate_sbp_email_domain("user@unsw.edu.au", mock_settings)
+    assert validate_sbp_email_domain("user@biocommons.org.au", mock_settings)
+    assert validate_sbp_email_domain("user@sydney.edu.au", mock_settings)
+    assert validate_sbp_email_domain("USER@UNSW.EDU.AU", mock_settings)
 
     # Test rejected domains
-    assert not validate_sbp_email_domain("user@gmail.com", settings)
-    assert not validate_sbp_email_domain("user@unsw.com", settings)
-    assert not validate_sbp_email_domain("user@biocommons.org", settings)
-    assert not validate_sbp_email_domain("user@evilunsw.edu.au", settings)
-    assert not validate_sbp_email_domain("user@malicious.biocommons.org.au", settings)
-    assert not validate_sbp_email_domain("user@fakeunimelb.edu.au", settings)
+    assert not validate_sbp_email_domain("user@gmail.com", mock_settings)
+    assert not validate_sbp_email_domain("user@unsw.com", mock_settings)
+    assert not validate_sbp_email_domain("user@biocommons.org", mock_settings)
+    assert not validate_sbp_email_domain("user@evilunsw.edu.au", mock_settings)
+    assert not validate_sbp_email_domain("user@malicious.biocommons.org.au", mock_settings)
+    assert not validate_sbp_email_domain("user@fakeunimelb.edu.au", mock_settings)
 
 
 def test_successful_registration(
