@@ -160,12 +160,6 @@ def _get_group_membership_or_404(
     return membership
 
 
-def _membership_response(kind: str, membership_model) -> dict[str, object]:
-    data = membership_model.get_data().model_dump(mode="json")
-    data["type"] = kind
-    return data
-
-
 @router.get("/filters")
 def get_filter_options():
     """
@@ -397,22 +391,22 @@ def approve_service(user_id: Annotated[str, UserIdParam],
         db_session.commit()
         db_session.refresh(membership)
         logger.info("Approved platform %s for user %s", platform.value, user_id)
-        return _membership_response("platform", membership)
+    else:
+        membership = _get_group_membership_or_404(
+            user_id=user_id,
+            group_id=group.value,
+            db_session=db_session,
+        )
+        membership.approval_status = ApprovalStatusEnum.APPROVED
+        membership.revocation_reason = None
+        membership.updated_at = datetime.now(timezone.utc)
+        membership.updated_by = admin_record
+        membership.grant_auth0_role(auth0_client=client)
+        membership.save(session=db_session, commit=True)
+        db_session.refresh(membership)
+        logger.info("Approved group %s for user %s", group.value, user_id)
 
-    membership = _get_group_membership_or_404(
-        user_id=user_id,
-        group_id=group.value,
-        db_session=db_session,
-    )
-    membership.approval_status = ApprovalStatusEnum.APPROVED
-    membership.revocation_reason = None
-    membership.updated_at = datetime.now(timezone.utc)
-    membership.updated_by = admin_record
-    membership.grant_auth0_role(auth0_client=client)
-    membership.save(session=db_session, commit=True)
-    db_session.refresh(membership)
-    logger.info("Approved group %s for user %s", group.value, user_id)
-    return _membership_response("group", membership)
+    return {"status": "ok", "updated": True}
 
 
 @router.post("/users/{user_id}/services/{service_id}/revoke")
@@ -436,8 +430,6 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
     )
 
-    reason = payload.reason
-
     if platform is not None:
         membership = _get_platform_membership_or_404(
             user_id=user_id,
@@ -445,7 +437,7 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
             db_session=db_session,
         )
         membership.approval_status = ApprovalStatusEnum.REVOKED
-        membership.revocation_reason = reason
+        membership.revocation_reason = payload.reason
         membership.updated_at = datetime.now(timezone.utc)
         membership.updated_by = admin_record
         db_session.add(membership)
@@ -453,21 +445,21 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
         db_session.commit()
         db_session.refresh(membership)
         logger.info("Revoked platform %s for user %s", platform.value, user_id)
-        return _membership_response("platform", membership)
+    else:
+        membership = _get_group_membership_or_404(
+            user_id=user_id,
+            group_id=group.value,
+            db_session=db_session,
+        )
+        membership.approval_status = ApprovalStatusEnum.REVOKED
+        membership.revocation_reason = payload.reason
+        membership.updated_at = datetime.now(timezone.utc)
+        membership.updated_by = admin_record
+        membership.save(session=db_session, commit=True)
+        db_session.refresh(membership)
+        logger.info("Revoked group %s for user %s", group.value, user_id)
 
-    membership = _get_group_membership_or_404(
-        user_id=user_id,
-        group_id=group.value,
-        db_session=db_session,
-    )
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = reason
-    membership.updated_at = datetime.now(timezone.utc)
-    membership.updated_by = admin_record
-    membership.save(session=db_session, commit=True)
-    db_session.refresh(membership)
-    logger.info("Revoked group %s for user %s", group.value, user_id)
-    return _membership_response("group", membership)
+    return {"status": "ok", "updated": True}
 
 
 @router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")

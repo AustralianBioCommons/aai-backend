@@ -15,7 +15,6 @@ from main import app
 from routers.admin import PaginationParams
 from tests.datagen import (
     AccessTokenPayloadFactory,
-    Auth0UserDataFactory,
     EmailVerificationResponseFactory,
     SessionUserFactory,
 )
@@ -469,11 +468,7 @@ def test_approve_platform_membership_updates_db(
     resp = test_client.post(f"/admin/users/{user.id}/services/galaxy/approve")
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["type"] == "platform"
-    assert data["platform_id"] == PlatformEnum.GALAXY
-    assert data["approval_status"] == ApprovalStatusEnum.APPROVED.value
-    assert data["revocation_reason"] is None
+    assert resp.json() == {"status": "ok", "updated": True}
 
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.APPROVED
@@ -520,11 +515,7 @@ def test_revoke_platform_membership_records_reason(
     )
 
     assert resp.status_code == 200
-    data = resp.json()
-    assert data["type"] == "platform"
-    assert data["platform_id"] == PlatformEnum.GALAXY
-    assert data["approval_status"] == ApprovalStatusEnum.REVOKED.value
-    assert data["revocation_reason"] == reason.strip()
+    assert resp.json() == {"status": "ok", "updated": True}
 
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
