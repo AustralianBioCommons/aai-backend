@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
-from sqlmodel import select, Session
+from sqlmodel import Session, select
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
@@ -15,6 +15,7 @@ from main import app
 from routers.admin import PaginationParams
 from tests.datagen import (
     AccessTokenPayloadFactory,
+    Auth0UserDataFactory,
     EmailVerificationResponseFactory,
     SessionUserFactory,
 )

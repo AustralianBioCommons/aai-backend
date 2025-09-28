@@ -5,7 +5,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
-from sqlalchemy import alias, false, func, or_
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import alias, false, func, or_
 from sqlmodel import Session, select
