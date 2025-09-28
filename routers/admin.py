@@ -159,6 +159,116 @@ def _get_group_membership_or_404(
     return membership
 
 
+def _membership_response() -> dict[str, object]:
+    return {"status": "ok", "updated": True}
+
+
+def _approve_platform_membership(
+    *,
+    user_id: str,
+    platform: PlatformEnum,
+    admin_record: BiocommonsUser,
+    db_session: Session,
+) -> None:
+    membership = _get_platform_membership_or_404(
+        user_id=user_id,
+        platform_id=platform,
+        db_session=db_session,
+    )
+    membership.approval_status = ApprovalStatusEnum.APPROVED
+    membership.revocation_reason = None
+    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_by = admin_record
+    db_session.add(membership)
+    membership.save_history(db_session)
+    db_session.commit()
+    db_session.refresh(membership)
+    logger.info("Approved platform %s for user %s", platform.value, user_id)
+
+
+def _revoke_platform_membership(
+    *,
+    user_id: str,
+    platform: PlatformEnum,
+    reason: str | None,
+    admin_record: BiocommonsUser,
+    db_session: Session,
+) -> None:
+    membership = _get_platform_membership_or_404(
+        user_id=user_id,
+        platform_id=platform,
+        db_session=db_session,
+    )
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = reason
+    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_by = admin_record
+    db_session.add(membership)
+    membership.save_history(db_session)
+    db_session.commit()
+    db_session.refresh(membership)
+    logger.info("Revoked platform %s for user %s", platform.value, user_id)
+
+
+def _approve_group_membership(
+    *,
+    user_id: str,
+    group_id: str,
+    admin_record: BiocommonsUser,
+    client: Auth0Client,
+    db_session: Session,
+) -> None:
+    membership = _get_group_membership_or_404(
+        user_id=user_id,
+        group_id=group_id,
+        db_session=db_session,
+    )
+    membership.approval_status = ApprovalStatusEnum.APPROVED
+    membership.revocation_reason = None
+    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_by = admin_record
+    membership.grant_auth0_role(auth0_client=client)
+    membership.save(session=db_session, commit=True)
+    db_session.refresh(membership)
+    logger.info("Approved group %s for user %s", group_id, user_id)
+
+
+def _revoke_group_membership(
+    *,
+    user_id: str,
+    group_id: str,
+    reason: str | None,
+    admin_record: BiocommonsUser,
+    db_session: Session,
+) -> None:
+    membership = _get_group_membership_or_404(
+        user_id=user_id,
+        group_id=group_id,
+        db_session=db_session,
+    )
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = reason
+    membership.updated_at = datetime.now(timezone.utc)
+    membership.updated_by = admin_record
+    membership.save(session=db_session, commit=True)
+    db_session.refresh(membership)
+    logger.info("Revoked group %s for user %s", group_id, user_id)
+
+
+def _parse_platform_or_404(platform_id: str) -> PlatformEnum:
+    platform = _resolve_platform(platform_id)
+    if platform is None:
+        raise HTTPException(status_code=404, detail=f"Platform '{platform_id}' not recognised")
+    return platform
+
+
+def _parse_group_or_404(group_id: str) -> GroupEnum:
+    group = _resolve_group(group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not recognised")
+    return group
+
+
 @router.get("/filters")
 def get_filter_options():
     """
@@ -376,36 +486,22 @@ def approve_service(user_id: Annotated[str, UserIdParam],
     )
 
     if platform is not None:
-        membership = _get_platform_membership_or_404(
+        _approve_platform_membership(
             user_id=user_id,
-            platform_id=platform,
+            platform=platform,
+            admin_record=admin_record,
             db_session=db_session,
         )
-        membership.approval_status = ApprovalStatusEnum.APPROVED
-        membership.revocation_reason = None
-        membership.updated_at = datetime.now(timezone.utc)
-        membership.updated_by = admin_record
-        db_session.add(membership)
-        membership.save_history(db_session)
-        db_session.commit()
-        db_session.refresh(membership)
-        logger.info("Approved platform %s for user %s", platform.value, user_id)
     else:
-        membership = _get_group_membership_or_404(
+        _approve_group_membership(
             user_id=user_id,
             group_id=group.value,
+            admin_record=admin_record,
+            client=client,
             db_session=db_session,
         )
-        membership.approval_status = ApprovalStatusEnum.APPROVED
-        membership.revocation_reason = None
-        membership.updated_at = datetime.now(timezone.utc)
-        membership.updated_by = admin_record
-        membership.grant_auth0_role(auth0_client=client)
-        membership.save(session=db_session, commit=True)
-        db_session.refresh(membership)
-        logger.info("Approved group %s for user %s", group.value, user_id)
 
-    return {"status": "ok", "updated": True}
+    return _membership_response()
 
 
 @router.post("/users/{user_id}/services/{service_id}/revoke")
@@ -430,35 +526,112 @@ def revoke_service(user_id: Annotated[str, UserIdParam],
     )
 
     if platform is not None:
-        membership = _get_platform_membership_or_404(
+        _revoke_platform_membership(
             user_id=user_id,
-            platform_id=platform,
+            platform=platform,
+            reason=payload.reason,
+            admin_record=admin_record,
             db_session=db_session,
         )
-        membership.approval_status = ApprovalStatusEnum.REVOKED
-        membership.revocation_reason = payload.reason
-        membership.updated_at = datetime.now(timezone.utc)
-        membership.updated_by = admin_record
-        db_session.add(membership)
-        membership.save_history(db_session)
-        db_session.commit()
-        db_session.refresh(membership)
-        logger.info("Revoked platform %s for user %s", platform.value, user_id)
     else:
-        membership = _get_group_membership_or_404(
+        _revoke_group_membership(
             user_id=user_id,
             group_id=group.value,
+            reason=payload.reason,
+            admin_record=admin_record,
             db_session=db_session,
         )
-        membership.approval_status = ApprovalStatusEnum.REVOKED
-        membership.revocation_reason = payload.reason
-        membership.updated_at = datetime.now(timezone.utc)
-        membership.updated_by = admin_record
-        membership.save(session=db_session, commit=True)
-        db_session.refresh(membership)
-        logger.info("Revoked group %s for user %s", group.value, user_id)
 
-    return {"status": "ok", "updated": True}
+    return _membership_response()
+
+
+@router.post("/users/{user_id}/platforms/{platform_id}/approve")
+def approve_platform_membership(user_id: Annotated[str, UserIdParam],
+                                platform_id: Annotated[str, ServiceIdParam],
+                                client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                                approving_user: Annotated[SessionUser, Depends(get_current_user)],
+                                db_session: Annotated[Session, Depends(get_db_session)]):
+    platform = _parse_platform_or_404(platform_id)
+    admin_record = _get_or_create_db_user(
+        user_id=approving_user.access_token.sub,
+        client=client,
+        db_session=db_session,
+    )
+    _approve_platform_membership(
+        user_id=user_id,
+        platform=platform,
+        admin_record=admin_record,
+        db_session=db_session,
+    )
+    return _membership_response()
+
+
+@router.post("/users/{user_id}/platforms/{platform_id}/revoke")
+def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
+                               platform_id: Annotated[str, ServiceIdParam],
+                               payload: RevokeServiceRequest,
+                               client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                               revoking_user: Annotated[SessionUser, Depends(get_current_user)],
+                               db_session: Annotated[Session, Depends(get_db_session)]):
+    platform = _parse_platform_or_404(platform_id)
+    admin_record = _get_or_create_db_user(
+        user_id=revoking_user.access_token.sub,
+        client=client,
+        db_session=db_session,
+    )
+    _revoke_platform_membership(
+        user_id=user_id,
+        platform=platform,
+        reason=payload.reason,
+        admin_record=admin_record,
+        db_session=db_session,
+    )
+    return _membership_response()
+
+
+@router.post("/users/{user_id}/groups/{group_id}/approve")
+def approve_group_membership(user_id: Annotated[str, UserIdParam],
+                             group_id: Annotated[str, ServiceIdParam],
+                             client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                             approving_user: Annotated[SessionUser, Depends(get_current_user)],
+                             db_session: Annotated[Session, Depends(get_db_session)]):
+    group = _parse_group_or_404(group_id)
+    admin_record = _get_or_create_db_user(
+        user_id=approving_user.access_token.sub,
+        client=client,
+        db_session=db_session,
+    )
+    _approve_group_membership(
+        user_id=user_id,
+        group_id=group.value,
+        admin_record=admin_record,
+        client=client,
+        db_session=db_session,
+    )
+    return _membership_response()
+
+
+@router.post("/users/{user_id}/groups/{group_id}/revoke")
+def revoke_group_membership(user_id: Annotated[str, UserIdParam],
+                            group_id: Annotated[str, ServiceIdParam],
+                            payload: RevokeServiceRequest,
+                            client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                            revoking_user: Annotated[SessionUser, Depends(get_current_user)],
+                            db_session: Annotated[Session, Depends(get_db_session)]):
+    group = _parse_group_or_404(group_id)
+    admin_record = _get_or_create_db_user(
+        user_id=revoking_user.access_token.sub,
+        client=client,
+        db_session=db_session,
+    )
+    _revoke_group_membership(
+        user_id=user_id,
+        group_id=group.value,
+        reason=payload.reason,
+        admin_record=admin_record,
+        db_session=db_session,
+    )
+    return _membership_response()
 
 
 @router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")

@@ -450,14 +450,13 @@ def test_approve_platform_membership_updates_db(
     test_db_session,
     as_admin_user,
     admin_user,
-    mock_auth0_client,
     persistent_factories,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembershipFactory.create_sync(
         user=user,
         platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.PENDING,
+        approval_status=ApprovalStatusEnum.PENDING.value,
     )
     admin_db_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
@@ -466,7 +465,7 @@ def test_approve_platform_membership_updates_db(
     )
     test_db_session.commit()
 
-    resp = test_client.post(f"/admin/users/{user.id}/services/galaxy/approve")
+    resp = test_client.post(f"/admin/users/{user.id}/platforms/galaxy/approve")
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
@@ -493,14 +492,13 @@ def test_revoke_platform_membership_records_reason(
     test_db_session,
     as_admin_user,
     admin_user,
-    mock_auth0_client,
     persistent_factories,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembershipFactory.create_sync(
         user=user,
         platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.APPROVED,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
     )
     admin_db_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
@@ -511,7 +509,7 @@ def test_revoke_platform_membership_records_reason(
 
     reason = "  No longer meets access requirements  "
     resp = test_client.post(
-        f"/admin/users/{user.id}/services/galaxy/revoke",
+        f"/admin/users/{user.id}/platforms/galaxy/revoke",
         json={"reason": reason},
     )
 
@@ -533,6 +531,83 @@ def test_revoke_platform_membership_records_reason(
     ).all()
     assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
     assert history_entries[-1].reason == reason.strip()
+
+
+def test_approve_group_membership_updates_db(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    mock_auth0_client,
+    persistent_factories,
+    mocker,
+):
+    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    admin_db_user = BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+
+    mock_role = mocker.Mock(id="role1")
+    mock_auth0_client.get_role_by_name.return_value = mock_role
+    mock_auth0_client.add_roles_to_user.return_value = True
+
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/tsi/approve",
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "updated": True}
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert membership.revocation_reason is None
+    assert membership.updated_by_id == admin_db_user.id
+    mock_auth0_client.add_roles_to_user.assert_called_once()
+
+
+def test_revoke_group_membership_records_reason(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    persistent_factories,
+):
+    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    admin_db_user = BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+
+    reason = "Access no longer required"
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/tsi/revoke",
+        json={"reason": reason},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "updated": True}
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REVOKED
+    assert membership.revocation_reason == reason
+    assert membership.updated_by_id == admin_db_user.id
 
 
 def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
