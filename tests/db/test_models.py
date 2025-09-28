@@ -190,7 +190,9 @@ def test_create_group_membership(test_db_session, persistent_factories):
 
 
 def test_platform_membership_save_history_stores_reason(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
     membership = PlatformMembershipFactory.create_sync(
+        user=user,
         approval_status=ApprovalStatusEnum.REVOKED,
         revocation_reason="Policy violation",
     )
