@@ -134,3 +134,22 @@ The service deploys two containers (which both use the same image/Python environ
 
 * The FastAPI app
 * The `apscheduler` job scheduler
+
+# Database Schema Diagram Update
+When the database models are changed, the database schema diagram in `db_diagram.svg` should be updated to reflect the changes.
+
+## Prerequisites
+- `graphviz` (install via Homebrew on macOS: `brew install graphviz`)
+
+
+To generate an updated database schema diagram, run the following command:
+
+```shell
+generate_db_diagram.sh
+```
+
+The updated diagram will be saved as `db_diagram.svg`.
+
+## Documents to be updated
+Please update the following documents if there are changes to the database schema:
+- [AAI User Database Technical Design Document](https://docs.google.com/document/d/1xECcTqXH9ykXBCEESBSg43SOMncXT6Zayi5FwqvCT4Y/edit?tab=t.0#heading=h.sj9060dgy5fu)
