@@ -111,6 +111,11 @@ def get_filter_options():
 def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
               db_session: Annotated[Session, Depends(get_db_session)],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+              platform: PlatformEnum = Query(None, description="Platform"),
+              platform_approval_status: ApprovalStatusEnum = Query(None, description="Platform approval status"),
+              group: GroupEnum = Query(None, description="Group"),
+              group_approval_status: ApprovalStatusEnum = Query(None, description="Group approval status"),
+              email_verified: bool = Query(None, description="Filter by the given email verification status"),
               filter_by: str = Query(None, description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"),
               search: str = Query(None, description="Search users by username or email")):
     """
@@ -135,9 +140,43 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
         select(BiocommonsUser)
         .join(pm, BiocommonsUser.id == pm.c.user_id)
         .where(pm.c.platform_id.in_(allowed_platforms_subquery))
-        .distinct()
     )
 
+    query_conditions = []
+    if platform_approval_status:
+        platform_status_query = (
+            select(PlatformMembership.id)
+            .where(PlatformMembership.approval_status == platform_approval_status)
+            .alias("platform_approval_status_q")
+        )
+        query_conditions.append(pm.c.platform_id.in_(platform_status_query))
+    if platform:
+        platform_query = (
+            select(PlatformMembership.id)
+            .where(PlatformMembership.platform_id == platform)
+            .alias("platform_membership_q")
+        )
+        query_conditions.append(pm.c.platform_id.in_(platform_query))
+    if email_verified is not None:
+        query_conditions.append(BiocommonsUser.email_verified.is_(email_verified))
+    if search:
+        s = search.strip().lower()
+
+        # Assume we're searching for an email address if @ present
+        if "@" in s:
+            query_conditions.append(or_(
+                func.lower(BiocommonsUser.email) == s,
+                func.lower(BiocommonsUser.email).ilike(f"%{s}%")
+            ))
+        else:
+            query_conditions.append(
+                or_(
+                    func.lower(BiocommonsUser.username).ilike(f"%{s}%"),
+                    func.lower(BiocommonsUser.email).ilike(f"%{s}%")
+                )
+            )
+
+    # TODO: haven't updated this to the combined query format yet
     if filter_by:
         if filter_by in GROUP_MAPPING:
             full_group_id = GROUP_MAPPING[filter_by]["enum"].value
@@ -177,7 +216,12 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
                 )
             )
 
-    user_query = base_query.offset(pagination.start_index).limit(pagination.per_page)
+    user_query = (
+        base_query.where(*query_conditions)
+        .distinct()
+        .offset(pagination.start_index)
+        .limit(pagination.per_page)
+    )
     users = db_session.exec(user_query).all()
     return users
 
