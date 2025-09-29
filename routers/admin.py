@@ -93,22 +93,37 @@ class RevokeServiceRequest(BaseModel):
         return stripped or None
 
 
-def _resolve_platform(service_id: str) -> PlatformEnum | None:
-    if service_id in PLATFORM_MAPPING:
-        return PLATFORM_MAPPING[service_id]["enum"]
-    for data in PLATFORM_MAPPING.values():
-        if data["enum"].value == service_id:
-            return data["enum"]
-    return None
+def _get_platform_or_404(*, platform_id: str, db_session: Session) -> Platform:
+    try:
+        platform_enum = PlatformEnum(platform_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Platform '{platform_id}' is not recognised",
+        ) from exc
+
+    platform = db_session.get(Platform, platform_enum)
+    if platform is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Platform '{platform_id}' is not configured",
+        )
+    return platform
 
 
-def _resolve_group(service_id: str) -> GroupEnum | None:
-    if service_id in GROUP_MAPPING:
-        return GROUP_MAPPING[service_id]["enum"]
-    for data in GROUP_MAPPING.values():
-        if data["enum"].value == service_id:
-            return data["enum"]
-    return None
+def _get_group_or_404(*, group_identifier: str, db_session: Session) -> BiocommonsGroup:
+    if group_identifier in GROUP_MAPPING:
+        group_id = GROUP_MAPPING[group_identifier]["enum"].value
+    else:
+        group_id = group_identifier
+
+    group = db_session.get(BiocommonsGroup, group_id)
+    if group is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Group '{group_identifier}' is not configured",
+        )
+    return group
 
 
 def _get_admin_db_user(*, user_id: str, db_session: Session) -> BiocommonsUser:
@@ -159,19 +174,12 @@ def _membership_response() -> dict[str, object]:
 
 
 def _assert_platform_admin_permissions(
-    *, admin_user: SessionUser, platform: PlatformEnum, db_session: Session
+    *, admin_user: SessionUser, platform: Platform
 ) -> None:
-    platform_record = db_session.get(Platform, platform)
-    if platform_record is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Platform '{platform.value}' is not configured",
-        )
-
-    allowed_roles = {role.name for role in platform_record.admin_roles}
+    allowed_roles = {role.name for role in platform.admin_roles}
     if not allowed_roles:
         logger.warning(
-            "Platform %s has no admin roles configured", platform_record.id.value
+            "Platform %s has no admin roles configured", platform.id.value
         )
 
     user_roles = set(admin_user.access_token.biocommons_roles or [])
@@ -183,19 +191,12 @@ def _assert_platform_admin_permissions(
 
 
 def _assert_group_admin_permissions(
-    *, admin_user: SessionUser, group_id: str, db_session: Session
+    *, admin_user: SessionUser, group: BiocommonsGroup
 ) -> None:
-    group_record = db_session.get(BiocommonsGroup, group_id)
-    if group_record is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Group '{group_id}' is not configured",
-        )
+    if not group.admin_roles:
+        logger.warning("Group %s has no admin roles configured", group.group_id)
 
-    if not group_record.admin_roles:
-        logger.warning("Group %s has no admin roles configured", group_id)
-
-    if not group_record.user_is_admin(admin_user):
+    if not group.user_is_admin(admin_user):
         raise HTTPException(
             status_code=403,
             detail="You do not have permission to manage this group.",
@@ -252,14 +253,14 @@ def _revoke_platform_membership(
 def _approve_group_membership(
     *,
     user_id: str,
-    group_id: str,
+    group: BiocommonsGroup,
     admin_record: BiocommonsUser,
     client: Auth0Client,
     db_session: Session,
 ) -> None:
     membership = _get_group_membership_or_404(
         user_id=user_id,
-        group_id=group_id,
+        group_id=group.group_id,
         db_session=db_session,
     )
     membership.approval_status = ApprovalStatusEnum.APPROVED
@@ -269,20 +270,20 @@ def _approve_group_membership(
     membership.grant_auth0_role(auth0_client=client)
     membership.save(session=db_session, commit=True)
     db_session.refresh(membership)
-    logger.info("Approved group %s for user %s", group_id, user_id)
+    logger.info("Approved group %s for user %s", group.group_id, user_id)
 
 
 def _revoke_group_membership(
     *,
     user_id: str,
-    group_id: str,
+    group: BiocommonsGroup,
     reason: str | None,
     admin_record: BiocommonsUser,
     db_session: Session,
 ) -> None:
     membership = _get_group_membership_or_404(
         user_id=user_id,
-        group_id=group_id,
+        group_id=group.group_id,
         db_session=db_session,
     )
     membership.approval_status = ApprovalStatusEnum.REVOKED
@@ -291,21 +292,21 @@ def _revoke_group_membership(
     membership.updated_by = admin_record
     membership.save(session=db_session, commit=True)
     db_session.refresh(membership)
-    logger.info("Revoked group %s for user %s", group_id, user_id)
+    logger.info("Revoked group %s for user %s", group.group_id, user_id)
 
 
-def _parse_platform_or_404(platform_id: str) -> PlatformEnum:
-    platform = _resolve_platform(platform_id)
-    if platform is None:
-        raise HTTPException(status_code=404, detail=f"Platform '{platform_id}' not recognised")
-    return platform
+def _parse_platform_or_404(
+    platform_id: str,
+    db_session: Session,
+) -> Platform:
+    return _get_platform_or_404(platform_id=platform_id, db_session=db_session)
 
 
-def _parse_group_or_404(group_id: str) -> GroupEnum:
-    group = _resolve_group(group_id)
-    if group is None:
-        raise HTTPException(status_code=404, detail=f"Group '{group_id}' not recognised")
-    return group
+def _parse_group_or_404(
+    group_id: str,
+    db_session: Session,
+) -> BiocommonsGroup:
+    return _get_group_or_404(group_identifier=group_id, db_session=db_session)
 
 
 @router.get("/filters")
@@ -513,11 +514,10 @@ def approve_platform_membership(user_id: Annotated[str, UserIdParam],
                                 client: Annotated[Auth0Client, Depends(get_auth0_client)],
                                 approving_user: Annotated[SessionUser, Depends(get_current_user)],
                                 db_session: Annotated[Session, Depends(get_db_session)]):
-    platform = _parse_platform_or_404(platform_id)
+    platform_record = _parse_platform_or_404(platform_id, db_session=db_session)
     _assert_platform_admin_permissions(
         admin_user=approving_user,
-        platform=platform,
-        db_session=db_session,
+        platform=platform_record,
     )
     admin_record = _get_admin_db_user(
         user_id=approving_user.access_token.sub,
@@ -525,7 +525,7 @@ def approve_platform_membership(user_id: Annotated[str, UserIdParam],
     )
     _approve_platform_membership(
         user_id=user_id,
-        platform=platform,
+        platform=platform_record.id,
         admin_record=admin_record,
         db_session=db_session,
     )
@@ -539,11 +539,10 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
                                client: Annotated[Auth0Client, Depends(get_auth0_client)],
                                revoking_user: Annotated[SessionUser, Depends(get_current_user)],
                                db_session: Annotated[Session, Depends(get_db_session)]):
-    platform = _parse_platform_or_404(platform_id)
+    platform_record = _parse_platform_or_404(platform_id, db_session=db_session)
     _assert_platform_admin_permissions(
         admin_user=revoking_user,
-        platform=platform,
-        db_session=db_session,
+        platform=platform_record,
     )
     admin_record = _get_admin_db_user(
         user_id=revoking_user.access_token.sub,
@@ -551,7 +550,7 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
     )
     _revoke_platform_membership(
         user_id=user_id,
-        platform=platform,
+        platform=platform_record.id,
         reason=payload.reason,
         admin_record=admin_record,
         db_session=db_session,
@@ -565,11 +564,10 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
                              client: Annotated[Auth0Client, Depends(get_auth0_client)],
                              approving_user: Annotated[SessionUser, Depends(get_current_user)],
                              db_session: Annotated[Session, Depends(get_db_session)]):
-    group = _parse_group_or_404(group_id)
+    group_record = _parse_group_or_404(group_id, db_session=db_session)
     _assert_group_admin_permissions(
         admin_user=approving_user,
-        group_id=group.value,
-        db_session=db_session,
+        group=group_record,
     )
     admin_record = _get_admin_db_user(
         user_id=approving_user.access_token.sub,
@@ -577,7 +575,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
     )
     _approve_group_membership(
         user_id=user_id,
-        group_id=group.value,
+        group=group_record,
         admin_record=admin_record,
         client=client,
         db_session=db_session,
@@ -592,11 +590,10 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
                             client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             revoking_user: Annotated[SessionUser, Depends(get_current_user)],
                             db_session: Annotated[Session, Depends(get_db_session)]):
-    group = _parse_group_or_404(group_id)
+    group_record = _parse_group_or_404(group_id, db_session=db_session)
     _assert_group_admin_permissions(
         admin_user=revoking_user,
-        group_id=group.value,
-        db_session=db_session,
+        group=group_record,
     )
     admin_record = _get_admin_db_user(
         user_id=revoking_user.access_token.sub,
@@ -604,7 +601,7 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
     )
     _revoke_group_membership(
         user_id=user_id,
-        group_id=group.value,
+        group=group_record,
         reason=payload.reason,
         admin_record=admin_record,
         db_session=db_session,
