@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Annotated
@@ -22,7 +21,6 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum, GroupEnum
-from routers.user import update_user_metadata
 from schemas.biocommons import Auth0UserDataWithMemberships
 from schemas.user import SessionUser
 
@@ -468,83 +466,6 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
     return {"message": "Verification email resent."}
 
 
-@router.post("/users/{user_id}/services/{service_id}/approve")
-def approve_service(user_id: Annotated[str, UserIdParam],
-                    service_id: Annotated[str, ServiceIdParam],
-                    client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                    approving_user: Annotated[SessionUser, Depends(get_current_user)],
-                    db_session: Annotated[Session, Depends(get_db_session)]):
-    platform = _resolve_platform(service_id)
-    group = _resolve_group(service_id)
-    if platform is None and group is None:
-        raise HTTPException(status_code=404, detail=f"Service '{service_id}' is not recognised")
-
-    admin_record = _get_or_create_db_user(
-        user_id=approving_user.access_token.sub,
-        client=client,
-        db_session=db_session,
-    )
-
-    if platform is not None:
-        _approve_platform_membership(
-            user_id=user_id,
-            platform=platform,
-            admin_record=admin_record,
-            db_session=db_session,
-        )
-    else:
-        _approve_group_membership(
-            user_id=user_id,
-            group_id=group.value,
-            admin_record=admin_record,
-            client=client,
-            db_session=db_session,
-        )
-
-    return _membership_response()
-
-
-@router.post("/users/{user_id}/services/{service_id}/revoke")
-def revoke_service(user_id: Annotated[str, UserIdParam],
-                   service_id: Annotated[str, ServiceIdParam],
-                   payload: RevokeServiceRequest,
-                   client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                   revoking_user: Annotated[SessionUser, Depends(get_current_user)],
-                   db_session: Annotated[Session, Depends(get_db_session)]):
-    """
-    Revoke a service by updating platform or group membership state in the database.
-    """
-    platform = _resolve_platform(service_id)
-    group = _resolve_group(service_id)
-    if platform is None and group is None:
-        raise HTTPException(status_code=404, detail=f"Service '{service_id}' is not recognised")
-
-    admin_record = _get_or_create_db_user(
-        user_id=revoking_user.access_token.sub,
-        client=client,
-        db_session=db_session,
-    )
-
-    if platform is not None:
-        _revoke_platform_membership(
-            user_id=user_id,
-            platform=platform,
-            reason=payload.reason,
-            admin_record=admin_record,
-            db_session=db_session,
-        )
-    else:
-        _revoke_group_membership(
-            user_id=user_id,
-            group_id=group.value,
-            reason=payload.reason,
-            admin_record=admin_record,
-            db_session=db_session,
-        )
-
-    return _membership_response()
-
-
 @router.post("/users/{user_id}/platforms/{platform_id}/approve")
 def approve_platform_membership(user_id: Annotated[str, UserIdParam],
                                 platform_id: Annotated[str, ServiceIdParam],
@@ -632,27 +553,3 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
     )
     return _membership_response()
-
-
-@router.post("/users/{user_id}/services/{service_id}/resources/{resource_id}/approve")
-def approve_resource(user_id: Annotated[str, UserIdParam],
-                     service_id: Annotated[str, ServiceIdParam],
-                     resource_id: Annotated[str, ResourceIdParam],
-                     client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                     approving_user: Annotated[SessionUser, Depends(get_current_user)]):
-    user = client.get_user(user_id=user_id)
-    approving_user_data = client.get_user(user_id=approving_user.access_token.sub)
-
-    user.app_metadata.approve_resource(
-        service_id=service_id,
-        resource_id=resource_id,
-        updated_by=approving_user_data.email
-    )
-
-    update = update_user_metadata(
-        user_id=user_id,
-        token=client.management_token,
-        metadata=user.app_metadata.model_dump(mode="json")
-    )
-    resp = asyncio.run(update)
-    return resp
