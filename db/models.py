@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Self
 
 from pydantic import AwareDatetime
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import Column, String, UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 
@@ -157,6 +157,10 @@ class PlatformMembership(BaseModel, table=True):
             "foreign_keys": "PlatformMembership.updated_by_id",
         }
     )
+    revocation_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(1024), nullable=True)
+    )
 
     def save_history(self, session: Session) -> "PlatformMembershipHistory":
         # Make sure this object is in the session before accessing relationships
@@ -170,6 +174,7 @@ class PlatformMembership(BaseModel, table=True):
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,
+            reason=self.revocation_reason,
         )
         session.add(history)
         return history
@@ -188,6 +193,7 @@ class PlatformMembership(BaseModel, table=True):
             user_id=self.user_id,
             approval_status=self.approval_status,
             updated_by=updated_by,
+            revocation_reason=self.revocation_reason,
         )
 
 
@@ -211,6 +217,10 @@ class PlatformMembershipHistory(BaseModel, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "PlatformMembershipHistory.updated_by_id",
         }
+    )
+    reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(1024), nullable=True)
     )
 
 
@@ -246,6 +256,10 @@ class GroupMembership(BaseModel, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "GroupMembership.updated_by_id",
         }
+    )
+    revocation_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(1024), nullable=True)
     )
 
     @classmethod
@@ -283,6 +297,7 @@ class GroupMembership(BaseModel, table=True):
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,
+            reason=self.revocation_reason,
         )
         session.add(history)
         if commit:
@@ -310,6 +325,7 @@ class GroupMembership(BaseModel, table=True):
             group_name=self.group.name,
             approval_status=self.approval_status,
             updated_by=updated_by,
+            revocation_reason=self.revocation_reason,
         )
 
 
@@ -339,6 +355,10 @@ class GroupMembershipHistory(BaseModel, table=True):
         sa_relationship_kwargs={
             "foreign_keys": "GroupMembershipHistory.updated_by_id",
         }
+    )
+    reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(1024), nullable=True)
     )
 
     @classmethod

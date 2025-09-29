@@ -80,11 +80,11 @@ we use a Postgres docker container to generate migrations against.
 At runtime the task receives database connection details through environment variables
 (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) sourced from AWS Secrets Manager.
 
-After making any changes to the database models, run the
-`generate_migrations.py` script to create migrations:
+After making any changes to the database models, after ensuring that Docker is runnning on your local machine, 
+run the `generate_migrations.py` script to create migrations:
 
 ```shell
-python generate_migrations.py -m migration_name
+python generate_migrations.py -m <migration_name_of_your_choice>
 ```
 
 and commit them to git. Once your updated code has been
