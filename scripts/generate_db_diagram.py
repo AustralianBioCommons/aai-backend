@@ -11,7 +11,7 @@ from db.models import (
     GroupMembershipHistory,
     Platform,
     PlatformMembership,
-    PlatformMembershipHistory
+    PlatformMembershipHistory,
 )
 
 models = [
