@@ -148,7 +148,7 @@ When the database models are changed, the database schema diagram in [`db_diagra
    bash generate_db_diagram.sh
    ```
 
-   The updated diagram will be saved in [`db_diagram.svg`](./db_diagram.svg).
+   The updated diagram will be saved in [`db_diagram.svg`](./db_diagram.svg).  See [this pull request](https://github.com/AustralianBioCommons/aai-backend/pull/85) as an example.
 
 
 ## Documents to be updated
