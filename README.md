@@ -138,9 +138,13 @@ The service deploys two containers (which both use the same image/Python environ
 # Database Schema Diagram Update
 When the database models are changed, the database schema diagram in `db_diagram.svg` should be updated to reflect the changes.
 
-## Prerequisites
+### Prerequisites
 - `graphviz` (install via Homebrew on macOS: `brew install graphviz`)
 
+
+### Generating the Diagram
+
+The `aai-backend/scripts/generate_db_diagram.py` script generates a database schema diagram from the SQLAlchemy models defined in the codebase, when a models are added, removed, or modified, the `models` module should be updated accordingly.
 
 To generate an updated database schema diagram, run the following command:
 
