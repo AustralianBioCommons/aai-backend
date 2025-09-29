@@ -1,8 +1,8 @@
-"""enable_admin_revoke
+"""revoke_reason
 
-Revision ID: 2a0012a7fb99
-Revises: 1546c07b9d78
-Create Date: 2025-09-26 12:37:37.374881
+Revision ID: ff6e32a9c164
+Revises: 08a3d0593418
+Create Date: 2025-09-30 08:44:03.291337
 
 """
 from typing import Sequence, Union
@@ -13,8 +13,8 @@ import sqlmodel
 
 
 # revision identifiers, used by Alembic.
-revision: str = '2a0012a7fb99'
-down_revision: Union[str, None] = '1546c07b9d78'
+revision: str = 'ff6e32a9c164'
+down_revision: Union[str, None] = '08a3d0593418'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
