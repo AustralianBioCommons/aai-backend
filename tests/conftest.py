@@ -192,7 +192,13 @@ def as_normal_user(normal_user):
 
 @pytest.fixture
 def admin_user():
-    token = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
+    token = AccessTokenPayloadFactory.build(
+        biocommons_roles=[
+            "Admin",
+            "biocommons/role/galaxy/admin",
+            "biocommons/role/tsi/admin",
+        ]
+    )
     return SessionUserFactory.build(access_token=token)
 
 

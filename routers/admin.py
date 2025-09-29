@@ -111,15 +111,12 @@ def _resolve_group(service_id: str) -> GroupEnum | None:
     return None
 
 
-def _get_or_create_db_user(user_id: str,
-                           client: Auth0Client,
-                           db_session: Session) -> BiocommonsUser:
+def _get_admin_db_user(*, user_id: str, db_session: Session) -> BiocommonsUser:
     db_user = db_session.get(BiocommonsUser, user_id)
     if db_user is None:
-        db_user = BiocommonsUser.get_or_create(
-            auth0_id=user_id,
-            db_session=db_session,
-            auth0_client=client,
+        raise HTTPException(
+            status_code=404,
+            detail=f"Admin user '{user_id}' is not registered in the portal database.",
         )
     return db_user
 
@@ -159,6 +156,50 @@ def _get_group_membership_or_404(
 
 def _membership_response() -> dict[str, object]:
     return {"status": "ok", "updated": True}
+
+
+def _assert_platform_admin_permissions(
+    *, admin_user: SessionUser, platform: PlatformEnum, db_session: Session
+) -> None:
+    platform_record = db_session.get(Platform, platform)
+    if platform_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Platform '{platform.value}' is not configured",
+        )
+
+    allowed_roles = {role.name for role in platform_record.admin_roles}
+    if not allowed_roles:
+        logger.warning(
+            "Platform %s has no admin roles configured", platform_record.id.value
+        )
+
+    user_roles = set(admin_user.access_token.biocommons_roles or [])
+    if user_roles.isdisjoint(allowed_roles):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to manage this platform.",
+        )
+
+
+def _assert_group_admin_permissions(
+    *, admin_user: SessionUser, group_id: str, db_session: Session
+) -> None:
+    group_record = db_session.get(BiocommonsGroup, group_id)
+    if group_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Group '{group_id}' is not configured",
+        )
+
+    if not group_record.admin_roles:
+        logger.warning("Group %s has no admin roles configured", group_id)
+
+    if not group_record.user_is_admin(admin_user):
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to manage this group.",
+        )
 
 
 def _approve_platform_membership(
@@ -473,9 +514,13 @@ def approve_platform_membership(user_id: Annotated[str, UserIdParam],
                                 approving_user: Annotated[SessionUser, Depends(get_current_user)],
                                 db_session: Annotated[Session, Depends(get_db_session)]):
     platform = _parse_platform_or_404(platform_id)
-    admin_record = _get_or_create_db_user(
+    _assert_platform_admin_permissions(
+        admin_user=approving_user,
+        platform=platform,
+        db_session=db_session,
+    )
+    admin_record = _get_admin_db_user(
         user_id=approving_user.access_token.sub,
-        client=client,
         db_session=db_session,
     )
     _approve_platform_membership(
@@ -495,9 +540,13 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
                                revoking_user: Annotated[SessionUser, Depends(get_current_user)],
                                db_session: Annotated[Session, Depends(get_db_session)]):
     platform = _parse_platform_or_404(platform_id)
-    admin_record = _get_or_create_db_user(
+    _assert_platform_admin_permissions(
+        admin_user=revoking_user,
+        platform=platform,
+        db_session=db_session,
+    )
+    admin_record = _get_admin_db_user(
         user_id=revoking_user.access_token.sub,
-        client=client,
         db_session=db_session,
     )
     _revoke_platform_membership(
@@ -517,9 +566,13 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
                              approving_user: Annotated[SessionUser, Depends(get_current_user)],
                              db_session: Annotated[Session, Depends(get_db_session)]):
     group = _parse_group_or_404(group_id)
-    admin_record = _get_or_create_db_user(
+    _assert_group_admin_permissions(
+        admin_user=approving_user,
+        group_id=group.value,
+        db_session=db_session,
+    )
+    admin_record = _get_admin_db_user(
         user_id=approving_user.access_token.sub,
-        client=client,
         db_session=db_session,
     )
     _approve_group_membership(
@@ -540,9 +593,13 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
                             revoking_user: Annotated[SessionUser, Depends(get_current_user)],
                             db_session: Annotated[Session, Depends(get_db_session)]):
     group = _parse_group_or_404(group_id)
-    admin_record = _get_or_create_db_user(
+    _assert_group_admin_permissions(
+        admin_user=revoking_user,
+        group_id=group.value,
+        db_session=db_session,
+    )
+    admin_record = _get_admin_db_user(
         user_id=revoking_user.access_token.sub,
-        client=client,
         db_session=db_session,
     )
     _revoke_group_membership(

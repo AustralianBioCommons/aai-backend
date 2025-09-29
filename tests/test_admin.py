@@ -34,13 +34,23 @@ FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
 @pytest.fixture
 def dummy_platform(persistent_factories):
     """
-    Set up a Galaxy platform with the admin role set to "Admin"
+    Set up a Galaxy platform with the admin role set to the Galaxy admin scope.
     """
-    admin_role = Auth0RoleFactory.create_sync(name="Admin")
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
     return PlatformFactory.create_sync(
         id=PlatformEnum.GALAXY,
         name="Galaxy Australia",
-        admin_roles=[admin_role]
+        admin_roles=[admin_role],
+    )
+
+
+@pytest.fixture
+def tsi_group(persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    return BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.TSI.value,
+        name="Threatened Species Initiative Bundle",
+        admin_roles=[admin_role],
     )
 
 
@@ -450,6 +460,7 @@ def test_approve_platform_membership_updates_db(
     test_db_session,
     as_admin_user,
     admin_user,
+    dummy_platform,
     persistent_factories,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
@@ -487,11 +498,51 @@ def test_approve_platform_membership_updates_db(
     assert history_entries[-1].reason is None
 
 
+def test_approve_platform_membership_forbidden_without_platform_role(
+    test_client,
+    test_db_session,
+    dummy_platform,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    original_status = membership.approval_status
+
+    unauthorized_admin = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
+    )
+    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+
+    try:
+        resp = test_client.post(
+            f"/admin/users/{user.id}/platforms/galaxy/approve",
+            json={},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+    assert resp.json() == {
+        "detail": "You do not have permission to manage this platform."
+    }
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == original_status
+
+
 def test_revoke_platform_membership_records_reason(
     test_client,
     test_db_session,
     as_admin_user,
     admin_user,
+    dummy_platform,
     persistent_factories,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
@@ -533,19 +584,62 @@ def test_revoke_platform_membership_records_reason(
     assert history_entries[-1].reason == reason.strip()
 
 
+def test_revoke_platform_membership_forbidden_without_platform_role(
+    test_client,
+    test_db_session,
+    dummy_platform,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(platform_memberships=[])
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    test_db_session.commit()
+
+    original_status = membership.approval_status
+    original_reason = membership.revocation_reason
+
+    unauthorized_admin = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(
+            biocommons_roles=["Admin"]
+        )
+    )
+    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+
+    try:
+        resp = test_client.post(
+            f"/admin/users/{user.id}/platforms/galaxy/revoke",
+            json={"reason": "Policy"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+    assert resp.json() == {
+        "detail": "You do not have permission to manage this platform."
+    }
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == original_status
+    assert membership.revocation_reason == original_reason
+
+
 def test_approve_group_membership_updates_db(
     test_client,
     test_db_session,
     as_admin_user,
     admin_user,
+    tsi_group,
     mock_auth0_client,
     persistent_factories,
     mocker,
 ):
-    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     membership = GroupMembershipFactory.create_sync(
-        group=group,
+        group=tsi_group,
         user=user,
         approval_status=ApprovalStatusEnum.PENDING.value,
     )
@@ -560,9 +654,7 @@ def test_approve_group_membership_updates_db(
     mock_auth0_client.get_role_by_name.return_value = mock_role
     mock_auth0_client.add_roles_to_user.return_value = True
 
-    resp = test_client.post(
-        f"/admin/users/{user.id}/groups/tsi/approve",
-    )
+    resp = test_client.post(f"/admin/users/{user.id}/groups/tsi/approve")
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
@@ -574,17 +666,61 @@ def test_approve_group_membership_updates_db(
     mock_auth0_client.add_roles_to_user.assert_called_once()
 
 
+def test_approve_group_membership_forbidden_without_group_role(
+    test_client,
+    test_db_session,
+    tsi_group,
+    persistent_factories,
+    mock_auth0_client,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    original_status = membership.approval_status
+
+    unauthorized_admin = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(
+            biocommons_roles=[
+                "Admin",
+                "biocommons/role/galaxy/admin",
+            ]
+        )
+    )
+    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+
+    try:
+        resp = test_client.post(
+            f"/admin/users/{user.id}/groups/tsi/approve",
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+    assert resp.json() == {
+        "detail": "You do not have permission to manage this group."
+    }
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == original_status
+
+
 def test_revoke_group_membership_records_reason(
     test_client,
     test_db_session,
     as_admin_user,
     admin_user,
+    tsi_group,
     persistent_factories,
 ):
-    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     membership = GroupMembershipFactory.create_sync(
-        group=group,
+        group=tsi_group,
         user=user,
         approval_status=ApprovalStatusEnum.APPROVED.value,
     )
@@ -610,6 +746,52 @@ def test_revoke_group_membership_records_reason(
     assert membership.updated_by_id == admin_db_user.id
 
 
+def test_revoke_group_membership_forbidden_without_group_role(
+    test_client,
+    test_db_session,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    test_db_session.commit()
+
+    original_status = membership.approval_status
+    original_reason = membership.revocation_reason
+
+    unauthorized_admin = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(
+            biocommons_roles=[
+                "Admin",
+                "biocommons/role/galaxy/admin",
+            ]
+        )
+    )
+    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+
+    try:
+        resp = test_client.post(
+            f"/admin/users/{user.id}/groups/tsi/revoke",
+            json={"reason": "Policy"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+    assert resp.json() == {
+        "detail": "You do not have permission to manage this group."
+    }
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == original_status
+    assert membership.revocation_reason == original_reason
+
+
 def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
     user = Auth0UserDataFactory.build()
     response_data = EmailVerificationResponseFactory.build()
@@ -619,11 +801,10 @@ def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client
     assert resp.json() == {"message": "Verification email resent."}
 
 
-def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories):
+def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group):
     user = Auth0UserDataFactory.build()
-    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi")
     db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])
-    group_membership = GroupMembershipFactory.create_sync(group=group, user=db_user, approval_status="approved")
+    group_membership = GroupMembershipFactory.create_sync(group=tsi_group, user=db_user, approval_status="approved")
     platform_membership = PlatformMembershipFactory.create_sync(user=db_user, platform_id="galaxy")
     mock_auth0_client.get_user.return_value = user
     test_db_session.commit()
