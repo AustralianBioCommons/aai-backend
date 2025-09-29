@@ -158,7 +158,7 @@ The `aai-backend/scripts/generate_db_diagram.py` script generates a database sch
 To generate an updated database schema diagram, run the following command:
 
 ```shell
-uv run bash generate_db_diagram.sh
+bash generate_db_diagram.sh
 ```
 
 The updated diagram will be saved as `db_diagram.svg`.
