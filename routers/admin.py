@@ -171,7 +171,7 @@ class UserQueryParams(BaseModel):
             group_statement = select(BiocommonsGroup).where(BiocommonsGroup.group_id == group_id)
             group = db_session.exec(group_statement).one_or_none()
             if group is None:
-                raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found")
+                raise HTTPException(status_code=404, detail=f"Group '{self.group or self.filter_by}' not found")
 
         if self.platform or self.filter_by in PLATFORM_MAPPING:
             platform_id = self.platform or PLATFORM_MAPPING[self.filter_by]["enum"]
