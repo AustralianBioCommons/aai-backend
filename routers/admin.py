@@ -119,7 +119,7 @@ class UserQueryParams(BaseModel):
     )
     search: str | None = Field(None, description="Search users by username or email")
     _pm: NamedFromClause
-    _bg: NamedFromClause
+    _gm: NamedFromClause
 
     # Register a query for each field here
     _QUERY_METHODS = {
@@ -137,7 +137,7 @@ class UserQueryParams(BaseModel):
         Check that query methods are defined for each field.
         """
         self._pm = alias(PlatformMembership, name="pm")
-        self._bg = alias(BiocommonsGroup, name="bg")
+        self._gm = alias(GroupMembership, name="gm")
         model_fields = [
             name for name in self.__pydantic_fields__.keys()
             if not name.startswith('_')
@@ -182,35 +182,35 @@ class UserQueryParams(BaseModel):
 
     def platform_query(self):
         platform_query = (
-            select(PlatformMembership.id)
+            select(PlatformMembership.user_id)
             .where(PlatformMembership.platform_id == self.platform)
             .alias("platform_membership_q")
         )
-        return self._pm.c.platform_id.in_(platform_query)
+        return self._pm.c.user_id.in_(platform_query)
 
     def platform_approval_status_query(self):
         platform_status_query = (
-            select(PlatformMembership.id)
+            select(PlatformMembership.user_id)
             .where(PlatformMembership.approval_status == self.platform_approval_status)
             .alias("platform_approval_status_q")
         )
-        return self._pm.c.platform_id.in_(platform_status_query)
+        return self._pm.c.user_id.in_(platform_status_query)
 
     def group_query(self):
         group_query = (
-            select(GroupMembership.id)
+            select(GroupMembership.user_id)
             .where(GroupMembership.group_id == self.group)
             .alias("group_membership_q")
         )
-        return self._bg.c.group_id.in_(group_query)
+        return self._gm.c.user_id.in_(group_query)
 
     def group_approval_status_query(self):
         group_status_query = (
-            select(GroupMembership.id)
+            select(GroupMembership.user_id)
             .where(GroupMembership.approval_status == self.group_approval_status)
             .alias("group_approval_status_q")
         )
-        return self._bg.c.group_id.in_(group_status_query)
+        return self._bg.c.user_id.in_(group_status_query)
 
     def email_verified_query(self):
         return BiocommonsUser.email_verified.is_(self.email_verified)
