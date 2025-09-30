@@ -260,11 +260,12 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
     # Need an alias or SQLAlchemy complains about duplicate column names
     pm_table = alias(PlatformMembership, name="pm_table")
     g_table = alias(GroupMembership, name="g_table")
-    # Default query for users
+    # Default query for users: join against platform and group membership
+    #   in case needed for filtering
     base_query = (
         select(BiocommonsUser)
-        .join(pm_table, BiocommonsUser.id == pm_table.c.user_id)
-        .join(g_table, BiocommonsUser.id == g_table.c.user_id)
+        .outerjoin(pm_table, BiocommonsUser.id == pm_table.c.user_id)
+        .outerjoin(g_table, BiocommonsUser.id == g_table.c.user_id)
     )
 
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
