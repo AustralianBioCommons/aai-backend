@@ -32,7 +32,7 @@ FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
 
 
 @pytest.fixture
-def dummy_platform(persistent_factories):
+def galaxy_platform(persistent_factories):
     """
     Set up a Galaxy platform with the admin role set to "Admin"
     """
@@ -41,6 +41,18 @@ def dummy_platform(persistent_factories):
         id=PlatformEnum.GALAXY,
         name="Galaxy Australia",
         admin_roles=[admin_role]
+    )
+
+
+@pytest.fixture
+def bpa_platform(persistent_factories):
+    """
+    Set up a BPA platform in the DB (no admin roles configured)
+    """
+    return PlatformFactory.create_sync(
+        id=PlatformEnum.BPA_DATA_PORTAL,
+        name="BPA Data Portal",
+        admin_roles=[]
     )
 
 
