@@ -1,11 +1,12 @@
 import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import alias, false, func, or_
+from sqlalchemy import alias, and_, false, func, or_
+from sqlalchemy.sql.selectable import NamedFromClause
 from sqlmodel import Session, select
 
 from auth.validator import get_current_user, user_is_admin
@@ -106,115 +107,179 @@ def get_filter_options():
     return options
 
 
+class UserQueryParams(BaseModel):
+    platform: PlatformEnum | None = Field(None, description="Filter by platform")
+    platform_approval_status: ApprovalStatusEnum | None = Field(None, description="Filter by platform approval status")
+    group: GroupEnum | None = Field(None, description="Filter by group")
+    group_approval_status: ApprovalStatusEnum | None = Field(None, description="Filter by group approval status")
+    email_verified: bool | None = Field(None, description="Filter by email verification status")
+    filter_by: str | None = Field(
+        None,
+        description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"
+    )
+    search: str | None = Field(None, description="Search users by username or email")
+    _pm: NamedFromClause
+    _bg: NamedFromClause
+
+    # Register a query for each field here
+    _QUERY_METHODS = {
+        'platform': 'platform_query',
+        'platform_approval_status': 'platform_approval_status_query',
+        'group': 'group_query',
+        'group_approval_status': 'group_approval_status_query',
+        'email_verified': 'email_verified_query',
+        'filter_by': 'filter_by_query',
+        'search': 'search_query',
+    }
+
+    def model_post_init(self, context: Any) -> None:
+        """
+        Check that query methods are defined for each field.
+        """
+        self._pm = alias(PlatformMembership, name="pm")
+        self._bg = alias(BiocommonsGroup, name="bg")
+        model_fields = [
+            name for name in self.__pydantic_fields__.keys()
+            if not name.startswith('_')
+        ]
+        for field_name in model_fields:
+            if field_name not in self._QUERY_METHODS or not hasattr(self, self._QUERY_METHODS[field_name]):
+                raise NotImplementedError(f"Missing query method for field '{field_name}'")
+
+    def get_db_queries(self):
+        """
+        Returns a list of SQLAlchemy queries that can be passed to where().
+        Checks that the value of each field is not None, and if not calls the query method
+        """
+        queries = []
+
+        for field_name, method_name in self._QUERY_METHODS.items():
+            field_value = getattr(self, field_name)
+            if field_value is not None:
+                query_method = getattr(self, method_name)
+                queries.append(query_method())
+
+        return queries
+
+    def check_missing_ids(self, db_session: Session):
+        """
+        Check for any missing IDs in the database that should be present based on the queries,
+        e.g. missing group IDs for a group query.
+        """
+        if self.group or self.filter_by in GROUP_MAPPING:
+            group_id = self.group or GROUP_MAPPING[self.filter_by]["enum"].value
+            group_statement = select(BiocommonsGroup).where(BiocommonsGroup.group_id == group_id)
+            group = db_session.exec(group_statement).one_or_none()
+            if group is None:
+                raise HTTPException(status_code=404, detail=f"Group '{group_id}' not found")
+
+        if self.platform or self.filter_by in PLATFORM_MAPPING:
+            platform_id = self.platform or PLATFORM_MAPPING[self.filter_by]["enum"]
+            platform_statement = select(Platform).where(Platform.id == platform_id)
+            platform = db_session.exec(platform_statement).one_or_none()
+            if platform is None:
+                raise HTTPException(status_code=404, detail=f"Platform '{platform_id}' not found")
+
+    def platform_query(self):
+        platform_query = (
+            select(PlatformMembership.id)
+            .where(PlatformMembership.platform_id == self.platform)
+            .alias("platform_membership_q")
+        )
+        return self._pm.c.platform_id.in_(platform_query)
+
+    def platform_approval_status_query(self):
+        platform_status_query = (
+            select(PlatformMembership.id)
+            .where(PlatformMembership.approval_status == self.platform_approval_status)
+            .alias("platform_approval_status_q")
+        )
+        return self._pm.c.platform_id.in_(platform_status_query)
+
+    def group_query(self):
+        group_query = (
+            select(GroupMembership.id)
+            .where(GroupMembership.group_id == self.group)
+            .alias("group_membership_q")
+        )
+        return self._bg.c.group_id.in_(group_query)
+
+    def group_approval_status_query(self):
+        group_status_query = (
+            select(GroupMembership.id)
+            .where(GroupMembership.approval_status == self.group_approval_status)
+            .alias("group_approval_status_q")
+        )
+        return self._bg.c.group_id.in_(group_status_query)
+
+    def email_verified_query(self):
+        return BiocommonsUser.email_verified.is_(self.email_verified)
+
+    def search_query(self):
+        s = self.search.strip().lower()
+        # Assume we're searching for an email address if @ present
+        if "@" in s:
+            return or_(
+                func.lower(BiocommonsUser.email) == s,
+                func.lower(BiocommonsUser.email).ilike(f"%{s}%")
+            )
+        else:
+            return or_(
+                func.lower(BiocommonsUser.username).ilike(f"%{s}%"),
+                func.lower(BiocommonsUser.email).ilike(f"%{s}%")
+            )
+
+    def filter_by_query(self):
+        if self.filter_by in GROUP_MAPPING:
+            full_group_id = GROUP_MAPPING[self.filter_by]["enum"].value
+            return and_(BiocommonsUser.id == GroupMembership.user_id, GroupMembership.group_id == full_group_id)
+        elif self.filter_by in PLATFORM_MAPPING:
+            platform_enum_value = PLATFORM_MAPPING[self.filter_by]["enum"]
+            return and_(
+                BiocommonsUser.id == PlatformMembership.user_id,
+                PlatformMembership.platform_id == platform_enum_value
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid filter_by value '{self.filter_by}'"
+            )
+
+
 @router.get("/users",
             response_model=list[BiocommonsUserResponse])
 def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
               db_session: Annotated[Session, Depends(get_db_session)],
+              user_query: Annotated[UserQueryParams, Query()],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
-              platform: PlatformEnum = Query(None, description="Platform"),
-              platform_approval_status: ApprovalStatusEnum = Query(None, description="Platform approval status"),
-              group: GroupEnum = Query(None, description="Group"),
-              group_approval_status: ApprovalStatusEnum = Query(None, description="Group approval status"),
-              email_verified: bool = Query(None, description="Filter by the given email verification status"),
-              filter_by: str = Query(None, description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"),
-              search: str = Query(None, description="Search users by username or email")):
+              ):
     """
     Get all users from the database with pagination and optional filtering.
-
-    Args:
-        filter_by: Optional filter parameter. Can be:
-            - Group bundle names: 'tsi', 'bpa_galaxy'
-            - Platform names: 'galaxy', 'bpa_data_portal'
-        search: Optional search parameter for username or email
     """
     admin_roles = admin_user.access_token.biocommons_roles
-    # Base query with platform access filtering built-in
+    # Need an alias or SQLAlchemy complains about duplicate column names
+    pm_table = alias(PlatformMembership, name="pm_table")
+    g_table = alias(GroupMembership, name="g_table")
+    # Default query for users
+    base_query = (
+        select(BiocommonsUser)
+        .join(pm_table, BiocommonsUser.id == pm_table.c.user_id)
+        .join(g_table, BiocommonsUser.id == g_table.c.user_id)
+    )
+
+    # Check for missing IDs in the database (e.g. group ID not found) and raise 404
+    user_query.check_missing_ids(db_session)
+    # Always check allowed platforms
     allowed_platforms_subquery = (
         select(Platform.id)
         .join(Platform.admin_roles)
         .where(Auth0Role.name.in_(admin_roles))
-    ).alias("allowed_platforms")
-    # Need an alias or SQLAlchemy complains about duplicate column names
-    pm = alias(PlatformMembership, name="pm")
-    base_query = (
-        select(BiocommonsUser)
-        .join(pm, BiocommonsUser.id == pm.c.user_id)
-        .where(pm.c.platform_id.in_(allowed_platforms_subquery))
-    )
-
-    query_conditions = []
-    if platform_approval_status:
-        platform_status_query = (
-            select(PlatformMembership.id)
-            .where(PlatformMembership.approval_status == platform_approval_status)
-            .alias("platform_approval_status_q")
-        )
-        query_conditions.append(pm.c.platform_id.in_(platform_status_query))
-    if platform:
-        platform_query = (
-            select(PlatformMembership.id)
-            .where(PlatformMembership.platform_id == platform)
-            .alias("platform_membership_q")
-        )
-        query_conditions.append(pm.c.platform_id.in_(platform_query))
-    if email_verified is not None:
-        query_conditions.append(BiocommonsUser.email_verified.is_(email_verified))
-    if search:
-        s = search.strip().lower()
-
-        # Assume we're searching for an email address if @ present
-        if "@" in s:
-            query_conditions.append(or_(
-                func.lower(BiocommonsUser.email) == s,
-                func.lower(BiocommonsUser.email).ilike(f"%{s}%")
-            ))
-        else:
-            query_conditions.append(
-                or_(
-                    func.lower(BiocommonsUser.username).ilike(f"%{s}%"),
-                    func.lower(BiocommonsUser.email).ilike(f"%{s}%")
-                )
-            )
-
-    # TODO: haven't updated this to the combined query format yet
-    if filter_by:
-        if filter_by in GROUP_MAPPING:
-            full_group_id = GROUP_MAPPING[filter_by]["enum"].value
-
-            group_statement = select(BiocommonsGroup).where(BiocommonsGroup.group_id == full_group_id)
-            group = db_session.exec(group_statement).first()
-            if not group:
-                raise HTTPException(status_code=404, detail=f"Group '{filter_by}' not found")
-
-            base_query = base_query.join(GroupMembership, BiocommonsUser.id == GroupMembership.user_id).where(GroupMembership.group_id == full_group_id)
-
-        elif filter_by in PLATFORM_MAPPING:
-            platform_enum_value = PLATFORM_MAPPING[filter_by]["enum"]
-            base_query = base_query.join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id).where(PlatformMembership.platform_id == platform_enum_value)
-
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid filter_by value '{filter_by}'"
-            )
-
-    if search:
-        s = search.strip().lower()
-
-        if "@" in s:
-            base_query = base_query.where(
-                or_(
-                    func.lower(BiocommonsUser.email) == s,
-                    func.lower(BiocommonsUser.email).ilike(f"%{s}%")
-                )
-            )
-        else:
-            base_query = base_query.where(
-                or_(
-                    func.lower(BiocommonsUser.username).ilike(f"%{s}%"),
-                    func.lower(BiocommonsUser.email).ilike(f"%{s}%")
-                )
-            )
+    ).alias("allowed_platforms_q")
+    # Add other queries based on query params
+    query_conditions = [
+        pm_table.c.platform_id.in_(allowed_platforms_subquery),
+        *user_query.get_db_queries()
+    ]
 
     user_query = (
         base_query.where(*query_conditions)
