@@ -98,6 +98,7 @@ class BiocommonsUser(BaseModel, table=True):
             updated_by=None,
         )
         db_session.add(membership)
+        db_session.flush()
         membership.save_history(db_session)
         return membership
 
