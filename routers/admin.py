@@ -146,7 +146,26 @@ class UserQueryParams(BaseModel):
             if field_name not in self._QUERY_METHODS or not hasattr(self, self._QUERY_METHODS[field_name]):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
 
-    def get_db_queries(self):
+    def get_base_query(self):
+        return (
+            select(BiocommonsUser)
+            .outerjoin(self._pm, BiocommonsUser.id == self._pm.c.user_id)
+            .outerjoin(self._gm, BiocommonsUser.id == self._gm.c.user_id)
+        )
+
+    def get_complete_query(self, pagination: PaginationParams = None):
+        """
+        Return a full user query - can be used when no custom filters are required.
+        """
+        return (
+            self.get_base_query()
+            .where(*self.get_query_conditions())
+            .distinct()
+            .offset(pagination.start_index)
+            .limit(pagination.per_page)
+        )
+
+    def get_query_conditions(self):
         """
         Returns a list of SQLAlchemy queries that can be passed to where().
         Checks that the value of each field is not None, and if not calls the query method
@@ -279,7 +298,7 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
     # Add other queries based on query params
     query_conditions = [
         pm_table.c.platform_id.in_(allowed_platforms_subquery),
-        *user_query.get_db_queries()
+        *user_query.get_query_conditions()
     ]
 
     user_query = (
