@@ -134,3 +134,23 @@ The service deploys two containers (which both use the same image/Python environ
 
 * The FastAPI app
 * The `apscheduler` job scheduler
+
+# Database Schema Diagram Update
+When the database models are changed, the database schema diagram in [`db_diagram.svg`](./db_diagram.svg) should be updated to reflect the changes.
+
+### Generating the Database Schema Diagram
+
+1. The `aai-backend/scripts/generate_db_diagram.py` script generates a database schema diagram from the SQLAlchemy models defined in the codebase, when a models are added, removed, or modified, the `models` module should be updated accordingly.
+
+2. To generate an updated database schema diagram, run the following command:
+
+   ```shell
+   bash generate_db_diagram.sh
+   ```
+
+   The updated diagram will be saved in [`db_diagram.svg`](./db_diagram.svg).  See [this pull request](https://github.com/AustralianBioCommons/aai-backend/pull/85) as an example.
+
+
+## Documents to be updated
+Please update the following documents if there are changes to the database schema:
+- [AAI User Database Technical Design Document](https://docs.google.com/document/d/1xECcTqXH9ykXBCEESBSg43SOMncXT6Zayi5FwqvCT4Y/edit?tab=t.0#heading=h.sj9060dgy5fu)
