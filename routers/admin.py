@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import alias, and_, false, func, or_
+from sqlalchemy import alias, and_, func, or_
 from sqlalchemy.sql.selectable import NamedFromClause
 from sqlmodel import Session, select
 
@@ -317,44 +317,24 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
     response_model=list[BiocommonsUserResponse])
 def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
                        pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    platform_approved_query = (
-        select(BiocommonsUser)
-        .join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id)
-        .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
-        .distinct()
-    )
-    user_query = platform_approved_query.offset(pagination.start_index).limit(pagination.per_page)
-    users = db_session.exec(user_query).all()
-    return users
+    approved_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.APPROVED).get_complete_query(pagination)
+    return db_session.exec(approved_query).all()
 
 
 @router.get("/users/pending",
             response_model=list[BiocommonsUserResponse])
 def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    platform_pending_query = (
-        select(BiocommonsUser)
-        .join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id)
-        .where(PlatformMembership.approval_status == ApprovalStatusEnum.PENDING)
-        .distinct()
-    )
-    user_query = platform_pending_query.offset(pagination.start_index).limit(pagination.per_page)
-    users = db_session.exec(user_query).all()
-    return users
+    pending_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.PENDING).get_complete_query(pagination)
+    return db_session.exec(pending_query).all()
 
 
-@router.get("/users/revoked")
+@router.get("/users/revoked",
+            response_model=list[BiocommonsUserResponse])
 def get_revoked_users(db_session: Annotated[Session, Depends(get_db_session)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    platform_revoked_query = (
-        select(BiocommonsUser)
-        .join(PlatformMembership, BiocommonsUser.id == PlatformMembership.user_id)
-        .where(PlatformMembership.approval_status == ApprovalStatusEnum.REVOKED)
-        .distinct()
-    )
-    user_query = platform_revoked_query.offset(pagination.start_index).limit(pagination.per_page)
-    users = db_session.exec(user_query).all()
-    return users
+    revoked_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.REVOKED).get_complete_query(pagination)
+    return db_session.exec(revoked_query).all()
 
 
 @router.get("/users/unverified", response_model=list[BiocommonsUserResponse])
@@ -363,16 +343,10 @@ def get_unverified_users(
     pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
 ):
     """
-    Return users whose email is not verified, using Auth0 search for efficiency.
+    Return users whose email is not verified
     """
-    query = (
-        select(BiocommonsUser)
-        .where(BiocommonsUser.email_verified == false())
-        .offset(pagination.start_index)
-        .limit(pagination.per_page)
-    )
-    users = db_session.exec(query).all()
-    return users
+    query = UserQueryParams(email_verified=False).get_complete_query(pagination)
+    return db_session.exec(query).all()
 
 
 @router.get("/users/{user_id}",
