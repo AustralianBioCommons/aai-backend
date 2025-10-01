@@ -279,7 +279,7 @@ class UserQueryParams(BaseModel):
             response_model=list[BiocommonsUserResponse])
 def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
               db_session: Annotated[Session, Depends(get_db_session)],
-              user_query: Annotated[UserQueryParams, Query()],
+              user_query: Annotated[UserQueryParams, Depends()],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
               ):
     """
