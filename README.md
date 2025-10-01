@@ -80,11 +80,11 @@ we use a Postgres docker container to generate migrations against.
 At runtime the task receives database connection details through environment variables
 (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) sourced from AWS Secrets Manager.
 
-After making any changes to the database models, run the
-`generate_migrations.py` script to create migrations:
+After making any changes to the database models, after ensuring that Docker is runnning on your local machine, 
+run the `generate_migrations.py` script to create migrations:
 
 ```shell
-python generate_migrations.py -m migration_name
+python generate_migrations.py -m <migration_name_of_your_choice>
 ```
 
 and commit them to git. Once your updated code has been
@@ -134,3 +134,23 @@ The service deploys two containers (which both use the same image/Python environ
 
 * The FastAPI app
 * The `apscheduler` job scheduler
+
+# Database Schema Diagram Update
+When the database models are changed, the database schema diagram in [`db_diagram.svg`](./db_diagram.svg) should be updated to reflect the changes.
+
+### Generating the Database Schema Diagram
+
+1. The `aai-backend/scripts/generate_db_diagram.py` script generates a database schema diagram from the SQLAlchemy models defined in the codebase, when a models are added, removed, or modified, the `models` module should be updated accordingly.
+
+2. To generate an updated database schema diagram, run the following command:
+
+   ```shell
+   bash generate_db_diagram.sh
+   ```
+
+   The updated diagram will be saved in [`db_diagram.svg`](./db_diagram.svg).  See [this pull request](https://github.com/AustralianBioCommons/aai-backend/pull/85) as an example.
+
+
+## Documents to be updated
+Please update the following documents if there are changes to the database schema:
+- [AAI User Database Technical Design Document](https://docs.google.com/document/d/1xECcTqXH9ykXBCEESBSg43SOMncXT6Zayi5FwqvCT4Y/edit?tab=t.0#heading=h.sj9060dgy5fu)

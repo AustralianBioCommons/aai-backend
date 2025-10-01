@@ -9,6 +9,7 @@ from db.models import (
     BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
+    Platform,
     PlatformMembership,
     PlatformMembershipHistory,
 )
@@ -18,6 +19,7 @@ models = [
     BiocommonsGroup,
     GroupMembership,
     GroupMembershipHistory,
+    Platform,
     PlatformMembership,
     PlatformMembershipHistory,
     Auth0Role
