@@ -400,7 +400,7 @@ class UserQueryParams(BaseModel):
                 # conditions may be None for interacting queries like platform
                 #   and platform_approval_status
                 if condition is not None:
-                    queries.append(query_method())
+                    queries.append(condition)
 
         return queries
 
@@ -409,14 +409,16 @@ class UserQueryParams(BaseModel):
         Check for any missing IDs in the database that should be present based on the queries,
         e.g. missing group IDs for a group query.
         """
-        if self.group or self.filter_by in GROUP_MAPPING:
+        group_filter = self.filter_by is not None and self.filter_by in GROUP_MAPPING
+        if self.group or group_filter:
             group_id = self.group or GROUP_MAPPING[self.filter_by]["enum"].value
             group_statement = select(BiocommonsGroup).where(BiocommonsGroup.group_id == group_id)
             group = db_session.exec(group_statement).one_or_none()
             if group is None:
                 raise HTTPException(status_code=404, detail=f"Group '{self.group or self.filter_by}' not found")
 
-        if self.platform or self.filter_by in PLATFORM_MAPPING:
+        platform_filter = self.filter_by is not None and self.filter_by in PLATFORM_MAPPING
+        if self.platform or platform_filter:
             platform_id = self.platform or PLATFORM_MAPPING[self.filter_by]["enum"]
             platform_statement = select(Platform).where(Platform.id == platform_id)
             platform = db_session.exec(platform_statement).one_or_none()
