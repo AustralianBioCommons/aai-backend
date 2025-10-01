@@ -425,6 +425,8 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, persiste
     pending_users = BiocommonsUserFactory.create_batch_sync(3)
     for u in pending_users:
         u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=False)
+    test_db_session.commit()
+
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
