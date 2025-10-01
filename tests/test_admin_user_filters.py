@@ -3,9 +3,15 @@ import random
 import pytest
 
 from db.models import BiocommonsUser
-from db.types import PlatformEnum
+from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
 from routers.admin import UserQueryParams
-from tests.db.datagen import Auth0RoleFactory, BiocommonsUserFactory, PlatformFactory
+from tests.db.datagen import (
+    Auth0RoleFactory,
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    PlatformFactory,
+    _users_with_platform_membership,
+)
 
 
 def test_user_query_no_params():
@@ -57,3 +63,103 @@ def test_user_query_multiple_filters(test_client, as_admin_user, test_db_session
         assert user.email_verified
         assert platform.platform_id == PlatformEnum.GALAXY.value
         assert platform.approval_status == "approved"
+
+
+# Test combining platform and platform_approval_status filters
+def test_get_users_combined_platform_filters(
+        test_client,
+        as_admin_user,
+        test_db_session,
+        persistent_factories,
+):
+    """
+    Test that platform and platform_approval_status filters are combined correctly
+    to find users with the SAME membership record matching both conditions.
+    """
+    # Setup admin role for all platforms
+    admin_role = Auth0RoleFactory.create_sync(name="Admin")
+    for platform in PlatformEnum:
+        PlatformFactory.create_sync(id=platform.value, admin_roles=[admin_role])
+
+    # Create users with Galaxy + Approved (should match)
+    matching_users = _users_with_platform_membership(
+        n=5, db_session=test_db_session, platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED
+    )
+
+    # Create users with Galaxy + Pending (should NOT match)
+    _users_with_platform_membership(
+        n=3, db_session=test_db_session, platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.PENDING)
+
+    # Create users with BPA + Approved (should NOT match)
+    _users_with_platform_membership(
+        n=3, db_session=test_db_session,
+        platform_id=PlatformEnum.BPA_DATA_PORTAL,
+        approval_status=ApprovalStatusEnum.APPROVED
+    )
+    # Call endpoint with both filters
+    resp = test_client.get(
+        f"/admin/users?platform={PlatformEnum.GALAXY.value}&platform_approval_status={ApprovalStatusEnum.APPROVED.value}"
+    )
+    assert resp.status_code == 200
+
+    data = resp.json()
+    assert len(data) == 5, "Expected only users with Galaxy AND Approved"
+    # Verify all returned users have Galaxy platform with Approved status
+    matching_user_ids = {u.id for u in matching_users}
+    returned_ids = {u["id"] for u in data}
+    assert returned_ids == matching_user_ids
+
+
+# Test combining group and group_approval_status filters
+def test_get_users_combined_group_filters(
+        test_client,
+        as_admin_user,
+        test_db_session,
+        persistent_factories,
+):
+    """
+    Test that group and group_approval_status filters are combined correctly.
+    """
+    # Setup admin role for all platforms
+    admin_role = Auth0RoleFactory.create_sync(name="Admin")
+    for platform in PlatformEnum:
+        PlatformFactory.create_sync(id=platform.value, admin_roles=[admin_role])
+
+    # Create the group
+    group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.TSI.value,
+        name="Threatened Species Initiative Bundle"
+    )
+
+    # Create users with TSI + Approved (should match)
+    matching_users = _users_with_platform_membership(n=5, db_session=test_db_session, platform_id=PlatformEnum.GALAXY)
+    for user in matching_users:
+        user.add_group_membership(
+            group_id=group.group_id,
+            db_session=test_db_session,
+            auto_approve=True
+        )
+
+    # Create users with TSI + Pending (should NOT match)
+    tsi_pending_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=PlatformEnum.GALAXY)
+    for user in tsi_pending_users:
+        user.add_group_membership(
+            group_id=group.group_id,
+            db_session=test_db_session,
+            auto_approve=False
+        )
+
+    test_db_session.commit()
+
+    # Call endpoint with both filters
+    resp = test_client.get(
+        f"/admin/users?group={GroupEnum.TSI.value}&group_approval_status={ApprovalStatusEnum.APPROVED.value}"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 5, "Expected only users with TSI group AND Approved status"
+    matching_user_ids = {u.id for u in matching_users}
+    returned_ids = {u["id"] for u in data}
+    assert returned_ids == matching_user_ids
