@@ -5,8 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Path
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy import alias, and_, func, or_
-from sqlalchemy.sql.selectable import NamedFromClause
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from auth.validator import get_current_user, user_is_admin
@@ -124,8 +123,6 @@ class UserQueryParams(BaseModel):
         description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"
     )
     search: str | None = Field(None, description="Search users by username or email")
-    _pm: NamedFromClause
-    _gm: NamedFromClause
 
     def _fields(self):
         return (name for name in self.__pydantic_fields__.keys()
@@ -135,8 +132,6 @@ class UserQueryParams(BaseModel):
         """
         Check that query methods are defined for each field.
         """
-        self._pm = alias(PlatformMembership, name="pm")
-        self._gm = alias(GroupMembership, name="gm")
         for field_name in self._fields():
             if not hasattr(self, f"{field_name}_query"):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
@@ -147,8 +142,6 @@ class UserQueryParams(BaseModel):
         """
         return (
             select(BiocommonsUser)
-            .outerjoin(self._pm, BiocommonsUser.id == self._pm.c.user_id)
-            .outerjoin(self._gm, BiocommonsUser.id == self._gm.c.user_id)
         )
 
     def get_complete_query(self, pagination: PaginationParams = None):
@@ -175,7 +168,11 @@ class UserQueryParams(BaseModel):
             if field_value is not None:
                 method_name = f"{field_name}_query"
                 query_method = getattr(self, method_name)
-                queries.append(query_method())
+                condition = query_method()
+                # conditions may be None for interacting queries like platform
+                #   and platform_approval_status
+                if condition is not None:
+                    queries.append(query_method())
 
         return queries
 
@@ -199,20 +196,31 @@ class UserQueryParams(BaseModel):
                 raise HTTPException(status_code=404, detail=f"Platform '{platform_id}' not found")
 
     def platform_query(self):
+        """
+        Filter by platform. Note that this interacts with the platform_approval_status query,
+        so we need special logic for combining them.
+        :return:
+        """
+        conditions = [PlatformMembership.platform_id == self.platform]
+        if self.platform_approval_status is not None:
+            conditions.append(PlatformMembership.approval_status == self.platform_approval_status)
         platform_query = (
             select(PlatformMembership.user_id)
-            .where(PlatformMembership.platform_id == self.platform)
+            .where(*conditions)
             .alias("platform_membership_q")
         )
-        return self._pm.c.user_id.in_(platform_query)
+        return BiocommonsUser.id.in_(platform_query)
 
     def platform_approval_status_query(self):
+        # If platform is set, let platform_query handle the combined query
+        if self.platform is not None:
+            return None
         platform_status_query = (
             select(PlatformMembership.user_id)
             .where(PlatformMembership.approval_status == self.platform_approval_status)
             .alias("platform_approval_status_q")
         )
-        return self._pm.c.user_id.in_(platform_status_query)
+        return BiocommonsUser.id.in_(platform_status_query)
 
     def group_query(self):
         group_query = (
@@ -220,7 +228,7 @@ class UserQueryParams(BaseModel):
             .where(GroupMembership.group_id == self.group)
             .alias("group_membership_q")
         )
-        return self._gm.c.user_id.in_(group_query)
+        return BiocommonsUser.id.in_(group_query)
 
     def group_approval_status_query(self):
         group_status_query = (
@@ -228,7 +236,7 @@ class UserQueryParams(BaseModel):
             .where(GroupMembership.approval_status == self.group_approval_status)
             .alias("group_approval_status_q")
         )
-        return self._bg.c.user_id.in_(group_status_query)
+        return BiocommonsUser.id.in_(group_status_query)
 
     def email_verified_query(self):
         return BiocommonsUser.email_verified.is_(self.email_verified)
@@ -250,13 +258,16 @@ class UserQueryParams(BaseModel):
     def filter_by_query(self):
         if self.filter_by in GROUP_MAPPING:
             full_group_id = GROUP_MAPPING[self.filter_by]["enum"].value
-            return and_(BiocommonsUser.id == GroupMembership.user_id, GroupMembership.group_id == full_group_id)
+            group_subquery = select(GroupMembership.user_id).where(
+                GroupMembership.group_id == full_group_id
+            )
+            return BiocommonsUser.id.in_(group_subquery)
         elif self.filter_by in PLATFORM_MAPPING:
             platform_enum_value = PLATFORM_MAPPING[self.filter_by]["enum"]
-            return and_(
-                BiocommonsUser.id == PlatformMembership.user_id,
+            platform_subquery = select(PlatformMembership.user_id).where(
                 PlatformMembership.platform_id == platform_enum_value
             )
+            return BiocommonsUser.id.in_(platform_subquery)
         else:
             raise HTTPException(
                 status_code=400,
@@ -275,16 +286,9 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
     Get all users from the database with pagination and optional filtering.
     """
     admin_roles = admin_user.access_token.biocommons_roles
-    # Need an alias or SQLAlchemy complains about duplicate column names
-    pm_table = alias(PlatformMembership, name="pm_table")
-    g_table = alias(GroupMembership, name="g_table")
     # Default query for users: join against platform and group membership
     #   in case needed for filtering
-    base_query = (
-        select(BiocommonsUser)
-        .outerjoin(pm_table, BiocommonsUser.id == pm_table.c.user_id)
-        .outerjoin(g_table, BiocommonsUser.id == g_table.c.user_id)
-    )
+    base_query = select(BiocommonsUser)
 
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
     user_query.check_missing_ids(db_session)
@@ -294,19 +298,25 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
         .join(Platform.admin_roles)
         .where(Auth0Role.name.in_(admin_roles))
     ).alias("allowed_platforms_q")
+
+    platform_access_condition = BiocommonsUser.id.in_(
+        select(PlatformMembership.user_id).where(
+            PlatformMembership.platform_id.in_(allowed_platforms_subquery)
+        )
+    )
     # Add other queries based on query params
     query_conditions = [
-        pm_table.c.platform_id.in_(allowed_platforms_subquery),
+        platform_access_condition,
         *user_query.get_query_conditions()
     ]
 
-    user_query = (
+    final_query = (
         base_query.where(*query_conditions)
         .distinct()
         .offset(pagination.start_index)
         .limit(pagination.per_page)
     )
-    users = db_session.exec(user_query).all()
+    users = db_session.exec(final_query).all()
     return users
 
 
