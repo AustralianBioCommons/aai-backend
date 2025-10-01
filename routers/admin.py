@@ -127,16 +127,9 @@ class UserQueryParams(BaseModel):
     _pm: NamedFromClause
     _gm: NamedFromClause
 
-    # Register a query for each field here
-    _QUERY_METHODS = {
-        'platform': 'platform_query',
-        'platform_approval_status': 'platform_approval_status_query',
-        'group': 'group_query',
-        'group_approval_status': 'group_approval_status_query',
-        'email_verified': 'email_verified_query',
-        'filter_by': 'filter_by_query',
-        'search': 'search_query',
-    }
+    def _fields(self):
+        return (name for name in self.__pydantic_fields__.keys()
+                if not name.startswith("_"))
 
     def model_post_init(self, context: Any) -> None:
         """
@@ -144,12 +137,8 @@ class UserQueryParams(BaseModel):
         """
         self._pm = alias(PlatformMembership, name="pm")
         self._gm = alias(GroupMembership, name="gm")
-        model_fields = [
-            name for name in self.__pydantic_fields__.keys()
-            if not name.startswith('_')
-        ]
-        for field_name in model_fields:
-            if field_name not in self._QUERY_METHODS or not hasattr(self, self._QUERY_METHODS[field_name]):
+        for field_name in self._fields():
+            if not hasattr(self, f"{field_name}_query"):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
 
     def get_base_query(self):
@@ -181,9 +170,10 @@ class UserQueryParams(BaseModel):
         """
         queries = []
 
-        for field_name, method_name in self._QUERY_METHODS.items():
+        for field_name in self._fields():
             field_value = getattr(self, field_name)
             if field_value is not None:
+                method_name = f"{field_name}_query"
                 query_method = getattr(self, method_name)
                 queries.append(query_method())
 
