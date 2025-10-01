@@ -4,7 +4,6 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
-from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
@@ -26,6 +25,8 @@ from tests.db.datagen import (
     GroupMembershipFactory,
     PlatformFactory,
     PlatformMembershipFactory,
+    _create_user_with_platform_membership,
+    _users_with_platform_membership,
 )
 
 FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
@@ -98,33 +99,6 @@ def test_user_is_admin_nonadmin_user(mock_settings):
     user = SessionUserFactory.build(access_token=payload)
     with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
         user_is_admin(current_user=user, settings=mock_settings)
-
-
-def _create_user_with_platform_membership(db_session: Session, platform_id: PlatformEnum, **kwargs):
-    user = BiocommonsUserFactory.build(**kwargs)
-    membership = PlatformMembershipFactory.create_sync(
-        platform_id=platform_id,
-        user_id=user.id,
-        approval_status=ApprovalStatusEnum.APPROVED,
-    )
-    user.platform_memberships.append(membership)
-    db_session.add(user)
-    db_session.commit()
-    return user
-
-
-def _users_with_platform_membership(n: int, db_session: Session, platform_id: PlatformEnum):
-    db_users = BiocommonsUserFactory.batch(n)
-    for user in db_users:
-        membership = PlatformMembershipFactory.create_sync(
-            platform_id=platform_id,
-            user_id=user.id,
-            approval_status=ApprovalStatusEnum.APPROVED
-        )
-        user.platform_memberships.append(membership)
-        db_session.add(user)
-    db_session.commit()
-    return db_users
 
 
 def test_get_users(test_client, as_admin_user, galaxy_platform,
