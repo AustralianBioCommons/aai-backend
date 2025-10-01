@@ -108,6 +108,12 @@ def get_filter_options():
 
 
 class UserQueryParams(BaseModel):
+    """
+    Defines query parameters for the /users endpoint, and
+    constructs SQLAlchemy queries to filter users based on them.
+
+    Each field listed here must have a {field}_query method defined.
+    """
     platform: PlatformEnum | None = Field(None, description="Filter by platform")
     platform_approval_status: ApprovalStatusEnum | None = Field(None, description="Filter by platform approval status")
     group: GroupEnum | None = Field(None, description="Filter by group")
@@ -147,6 +153,9 @@ class UserQueryParams(BaseModel):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
 
     def get_base_query(self):
+        """
+        Default user query that conditions can be added to - join against platform and group membership
+        """
         return (
             select(BiocommonsUser)
             .outerjoin(self._pm, BiocommonsUser.id == self._pm.c.user_id)
