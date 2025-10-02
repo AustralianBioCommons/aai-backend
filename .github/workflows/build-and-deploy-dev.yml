@@ -104,28 +104,59 @@ jobs:
 
           printf '%s' "${NETWORK_CONFIGURATION}" > network-config.json
 
-          jq -n '{
-            containerOverrides: [
-              {
-                name: "BackendApplication",
-                command: ["uv", "run", "python", "scripts/bootstrap.py", "migrate"]
-              },
-              {
-                name: "SchedulerContainer",
-                command: ["sh", "-c", "echo Skipping scheduler during migration"]
-              }
-            ]
-          }' > overrides.json
+          write_overrides() {
+            local include_scheduler="$1"
+            if [ "${include_scheduler}" = "true" ]; then
+              jq -n '{
+                containerOverrides: [
+                  {
+                    name: "BackendApplication",
+                    command: ["uv", "run", "python", "scripts/bootstrap.py", "migrate"]
+                  },
+                  {
+                    name: "SchedulerContainer",
+                    command: ["sh", "-c", "echo Skipping scheduler during migration"]
+                  }
+                ]
+              }'
+            else
+              jq -n '{
+                containerOverrides: [
+                  {
+                    name: "BackendApplication",
+                    command: ["uv", "run", "python", "scripts/bootstrap.py", "migrate"]
+                  }
+                ]
+              }'
+            fi
+          }
 
-          TASK_ARN=$(aws ecs run-task \
-            --cluster "${CLUSTER}" \
-            --task-definition "${TASK_DEFINITION}" \
-            --launch-type FARGATE \
-            --network-configuration file://network-config.json \
-            --overrides file://overrides.json \
-            --started-by "github-actions-dev-migration" \
-            --query 'tasks[0].taskArn' \
-            --output text)
+          write_overrides true > overrides.json
+
+          run_migration_task() {
+            aws ecs run-task \
+              --cluster "${CLUSTER}" \
+              --task-definition "${TASK_DEFINITION}" \
+              --launch-type FARGATE \
+              --network-configuration file://network-config.json \
+              --overrides file://overrides.json \
+              --started-by "github-actions-dev-migration" \
+              --query 'tasks[0].taskArn' \
+              --output text
+          }
+
+          TASK_ARN=""
+          if ! TASK_ARN=$(run_migration_task 2>migration-error.log); then
+            if grep -q 'is not a container in the TaskDefinition' migration-error.log; then
+              echo "Retrying migration without SchedulerContainer override" >&2
+              write_overrides false > overrides.json
+              TASK_ARN=$(run_migration_task 2>migration-error.log)
+            else
+              cat migration-error.log >&2
+              exit 1
+            fi
+          fi
+          rm -f migration-error.log
 
           if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
             echo "Failed to start migration task" >&2
