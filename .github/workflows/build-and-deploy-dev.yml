@@ -1,0 +1,162 @@
+name: build-and-deploy-dev
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ap-southeast-2
+  IMAGE_REPO: 498096047392.dkr.ecr.ap-southeast-2.amazonaws.com/aai-backend
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Authenticate to AWS
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ECR_PUSH }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push (dev only)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_REPO }}:dev
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Fetch dev backend deployment parameters
+        id: backend_params
+        env:
+          DEV_BACKEND_SSM_PREFIX: ${{ secrets.AWS_DEV_BACKEND_SSM_PREFIX || '/dev/backend' }}
+        run: |
+          set -euo pipefail
+          PREFIX="${DEV_BACKEND_SSM_PREFIX%/}"
+          get_param() {
+            aws ssm get-parameter \
+              --name "${PREFIX}/$1" \
+              --query 'Parameter.Value' \
+              --output text
+          }
+
+          CLUSTER_NAME=$(get_param "cluster-name")
+          SERVICE_NAME=$(get_param "service-name")
+
+          if [ -z "${CLUSTER_NAME}" ] || [ "${CLUSTER_NAME}" = "None" ]; then
+            echo "Failed to resolve cluster name from SSM" >&2
+            exit 1
+          fi
+
+          if [ -z "${SERVICE_NAME}" ] || [ "${SERVICE_NAME}" = "None" ]; then
+            echo "Failed to resolve service name from SSM" >&2
+            exit 1
+          fi
+
+          SERVICE_INFO=$(aws ecs describe-services \
+            --cluster "${CLUSTER_NAME}" \
+            --services "${SERVICE_NAME}")
+
+          SERVICE_COUNT=$(echo "${SERVICE_INFO}" | jq -r '.services | length')
+          if [ "${SERVICE_COUNT}" -eq 0 ]; then
+            echo "ECS service ${SERVICE_NAME} not found in cluster ${CLUSTER_NAME}" >&2
+            exit 1
+          fi
+
+          TASK_DEFINITION=$(echo "${SERVICE_INFO}" | jq -r '.services[0].taskDefinition')
+          NETWORK_CONFIGURATION=$(echo "${SERVICE_INFO}" | jq -c '.services[0].networkConfiguration')
+
+          if [ -z "${TASK_DEFINITION}" ] || [ "${TASK_DEFINITION}" = "None" ]; then
+            echo "Unable to determine task definition for ${SERVICE_NAME}" >&2
+            exit 1
+          fi
+
+          TASK_DEF_INFO=$(aws ecs describe-task-definition --task-definition "${TASK_DEFINITION}")
+          TASK_ROLE=$(echo "${TASK_DEF_INFO}" | jq -r '.taskDefinition.taskRoleArn // ""')
+          EXEC_ROLE=$(echo "${TASK_DEF_INFO}" | jq -r '.taskDefinition.executionRoleArn // ""')
+
+          echo "cluster=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "service=${SERVICE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "task_definition=${TASK_DEFINITION}" >> "${GITHUB_OUTPUT}"
+          echo "network_configuration=${NETWORK_CONFIGURATION}" >> "${GITHUB_OUTPUT}"
+          echo "task_role=${TASK_ROLE}" >> "${GITHUB_OUTPUT}"
+          echo "execution_role=${EXEC_ROLE}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run database migrations (dev)
+        env:
+          CLUSTER: ${{ steps.backend_params.outputs.cluster }}
+          TASK_DEFINITION: ${{ steps.backend_params.outputs.task_definition }}
+          NETWORK_CONFIGURATION: ${{ steps.backend_params.outputs.network_configuration }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLUSTER}" ] || [ -z "${TASK_DEFINITION}" ]; then
+            echo "Missing ECS configuration; cannot run migrations" >&2
+            exit 1
+          fi
+
+          printf '%s' "${NETWORK_CONFIGURATION}" > network-config.json
+
+          jq -n '{
+            containerOverrides: [
+              {
+                name: "BackendApplication",
+                command: ["uv", "run", "python", "scripts/bootstrap.py", "migrate"]
+              },
+              {
+                name: "SchedulerContainer",
+                command: ["sh", "-c", "echo Skipping scheduler during migration"]
+              }
+            ]
+          }' > overrides.json
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${CLUSTER}" \
+            --task-definition "${TASK_DEFINITION}" \
+            --launch-type FARGATE \
+            --network-configuration file://network-config.json \
+            --overrides file://overrides.json \
+            --started-by "github-actions-dev-migration" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
+            echo "Failed to start migration task" >&2
+            exit 1
+          fi
+
+          aws ecs wait tasks-stopped --cluster "${CLUSTER}" --tasks "${TASK_ARN}"
+          aws ecs describe-tasks --cluster "${CLUSTER}" --tasks "${TASK_ARN}" > migration-status.json
+
+          FAILURES=$(jq '[.tasks[0].containers[] | select((.name == "BackendApplication" or .name == "SchedulerContainer") and ((.exitCode? // 0) != 0 or (.reason? != null and .reason? != "")))] | length' migration-status.json)
+
+          if [ "${FAILURES}" -gt 0 ]; then
+            jq '.tasks[0].containers[] | {name, exitCode, reason, lastStatus, stoppedReason}' migration-status.json >&2
+            exit 1
+          fi
+
+      - name: Deploy dev backend service
+        env:
+          CLUSTER: ${{ steps.backend_params.outputs.cluster }}
+          SERVICE: ${{ steps.backend_params.outputs.service }}
+        run: |
+          set -euo pipefail
+          aws ecs update-service \
+            --cluster "${CLUSTER}" \
+            --service "${SERVICE}" \
+            --force-new-deployment \
+            --output json
+          aws ecs wait services-stable --cluster "${CLUSTER}" --services "${SERVICE}"
