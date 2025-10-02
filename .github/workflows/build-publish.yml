@@ -1,7 +1,8 @@
 name: build-and-push-release
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
@@ -34,7 +35,7 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ env.IMAGE_REPO }}:${{ github.event.release.tag_name }}
+          tags: ${{ env.IMAGE_REPO }}:${{ github.ref_name }}
           provenance: false
           sbom: false
           cache-from: type=gha
