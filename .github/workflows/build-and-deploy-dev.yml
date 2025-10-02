@@ -131,6 +131,7 @@ jobs:
             fi
           }
 
+          INCLUDE_SCHEDULER=true
           write_overrides true > overrides.json
 
           run_migration_task() {
@@ -147,8 +148,9 @@ jobs:
 
           TASK_ARN=""
           if ! TASK_ARN=$(run_migration_task 2>migration-error.log); then
-            if grep -q 'is not a container in the TaskDefinition' migration-error.log; then
+            if [ "${INCLUDE_SCHEDULER}" = "true" ] && grep -q 'is not a container in the TaskDefinition' migration-error.log; then
               echo "Retrying migration without SchedulerContainer override" >&2
+              INCLUDE_SCHEDULER=false
               write_overrides false > overrides.json
               TASK_ARN=$(run_migration_task 2>migration-error.log)
             else
