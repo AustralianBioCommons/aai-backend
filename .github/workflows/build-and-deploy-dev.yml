@@ -85,16 +85,10 @@ jobs:
             exit 1
           fi
 
-          TASK_DEF_INFO=$(aws ecs describe-task-definition --task-definition "${TASK_DEFINITION}")
-          TASK_ROLE=$(echo "${TASK_DEF_INFO}" | jq -r '.taskDefinition.taskRoleArn // ""')
-          EXEC_ROLE=$(echo "${TASK_DEF_INFO}" | jq -r '.taskDefinition.executionRoleArn // ""')
-
           echo "cluster=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
           echo "service=${SERVICE_NAME}" >> "${GITHUB_OUTPUT}"
           echo "task_definition=${TASK_DEFINITION}" >> "${GITHUB_OUTPUT}"
           echo "network_configuration=${NETWORK_CONFIGURATION}" >> "${GITHUB_OUTPUT}"
-          echo "task_role=${TASK_ROLE}" >> "${GITHUB_OUTPUT}"
-          echo "execution_role=${EXEC_ROLE}" >> "${GITHUB_OUTPUT}"
 
       - name: Run database migrations (dev)
         env:
