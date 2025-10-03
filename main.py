@@ -1,5 +1,6 @@
 import os
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 
 from dotenv import dotenv_values
 from fastapi import FastAPI
@@ -74,7 +75,7 @@ if metrics_enabled:
 
 @app.get("/")
 def public_route():
-    return {"message": "AAI Backend API"}
+    return {"message": "AAI Backend API", "version": SERVICE_VERSION}
 
 
 app.include_router(admin.router)
@@ -85,3 +86,12 @@ app.include_router(galaxy_register.router)
 app.include_router(sbp_register.router)
 app.include_router(utils.router)
 app.include_router(biocommons_groups.router)
+try:
+    SERVICE_VERSION = version("aai-backend")
+except PackageNotFoundError:
+    VERSION_FILE = os.path.join(os.path.dirname(__file__), "VERSION")
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8") as version_fp:
+            SERVICE_VERSION = version_fp.read().strip()
+    except FileNotFoundError:
+        SERVICE_VERSION = "unknown"
