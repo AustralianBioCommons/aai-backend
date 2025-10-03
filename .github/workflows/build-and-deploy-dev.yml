@@ -85,80 +85,47 @@ jobs:
             exit 1
           fi
 
+          MIGRATION_TASK_DEFINITION=$(get_param "migration-task-definition-arn")
+
+          if [ -z "${MIGRATION_TASK_DEFINITION}" ] || [ "${MIGRATION_TASK_DEFINITION}" = "None" ]; then
+            echo "Unable to determine migration task definition for ${SERVICE_NAME}" >&2
+            exit 1
+          fi
+
           echo "cluster=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
           echo "service=${SERVICE_NAME}" >> "${GITHUB_OUTPUT}"
           echo "task_definition=${TASK_DEFINITION}" >> "${GITHUB_OUTPUT}"
           echo "network_configuration=${NETWORK_CONFIGURATION}" >> "${GITHUB_OUTPUT}"
+          echo "migration_task_definition=${MIGRATION_TASK_DEFINITION}" >> "${GITHUB_OUTPUT}"
 
       - name: Run database migrations (dev)
         env:
           CLUSTER: ${{ steps.backend_params.outputs.cluster }}
           TASK_DEFINITION: ${{ steps.backend_params.outputs.task_definition }}
           NETWORK_CONFIGURATION: ${{ steps.backend_params.outputs.network_configuration }}
+          MIGRATION_TASK_DEFINITION: ${{ steps.backend_params.outputs.migration_task_definition }}
         run: |
           set -euo pipefail
-          if [ -z "${CLUSTER}" ] || [ -z "${TASK_DEFINITION}" ]; then
+          if [ -z "${CLUSTER}" ]; then
             echo "Missing ECS configuration; cannot run migrations" >&2
+            exit 1
+          fi
+
+          if [ -z "${MIGRATION_TASK_DEFINITION}" ]; then
+            echo "Missing migration task definition; cannot run migrations" >&2
             exit 1
           fi
 
           printf '%s' "${NETWORK_CONFIGURATION}" > network-config.json
 
-          write_overrides() {
-            local include_scheduler="$1"
-            if [ "${include_scheduler}" = "true" ]; then
-              jq -n '{
-                containerOverrides: [
-                  {
-                    name: "BackendApplication",
-                    command: ["uv", "run", "python", "scripts/bootstrap.py", "migrate"]
-                  },
-                  {
-                    name: "SchedulerContainer",
-                    command: ["sh", "-c", "echo Skipping scheduler during migration"]
-                  }
-                ]
-              }'
-            else
-              jq -n '{
-                containerOverrides: [
-                  {
-                    name: "BackendApplication",
-                    command: ["uv", "run", "python", "scripts/bootstrap.py", "migrate"]
-                  }
-                ]
-              }'
-            fi
-          }
-
-          INCLUDE_SCHEDULER=true
-          write_overrides true > overrides.json
-
-          run_migration_task() {
-            aws ecs run-task \
-              --cluster "${CLUSTER}" \
-              --task-definition "${TASK_DEFINITION}" \
-              --launch-type FARGATE \
-              --network-configuration file://network-config.json \
-              --overrides file://overrides.json \
-              --started-by "github-actions-dev-migration" \
-              --query 'tasks[0].taskArn' \
-              --output text
-          }
-
-          TASK_ARN=""
-          if ! TASK_ARN=$(run_migration_task 2>migration-error.log); then
-            if [ "${INCLUDE_SCHEDULER}" = "true" ] && grep -q 'is not a container in the TaskDefinition' migration-error.log; then
-              echo "Retrying migration without SchedulerContainer override" >&2
-              INCLUDE_SCHEDULER=false
-              write_overrides false > overrides.json
-              TASK_ARN=$(run_migration_task 2>migration-error.log)
-            else
-              cat migration-error.log >&2
-              exit 1
-            fi
-          fi
-          rm -f migration-error.log
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${CLUSTER}" \
+            --task-definition "${MIGRATION_TASK_DEFINITION}" \
+            --launch-type FARGATE \
+            --network-configuration file://network-config.json \
+            --started-by "github-actions-dev-migration" \
+            --query 'tasks[0].taskArn' \
+            --output text)
 
           if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
             echo "Failed to start migration task" >&2
@@ -168,7 +135,7 @@ jobs:
           aws ecs wait tasks-stopped --cluster "${CLUSTER}" --tasks "${TASK_ARN}"
           aws ecs describe-tasks --cluster "${CLUSTER}" --tasks "${TASK_ARN}" > migration-status.json
 
-          FAILURES=$(jq '[.tasks[0].containers[] | select((.name == "BackendApplication" or .name == "SchedulerContainer") and ((.exitCode? // 0) != 0 or (.reason? != null and .reason? != "")))] | length' migration-status.json)
+          FAILURES=$(jq '[.tasks[0].containers[] | select(.name == "DatabaseMigration" and ((.exitCode? // 0) != 0 or (.reason? != null and .reason? != "")))] | length' migration-status.json)
 
           if [ "${FAILURES}" -gt 0 ]; then
             jq '.tasks[0].containers[] | {name, exitCode, reason, lastStatus, stoppedReason}' migration-status.json >&2
