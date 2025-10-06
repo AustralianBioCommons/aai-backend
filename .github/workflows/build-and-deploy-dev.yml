@@ -22,14 +22,30 @@ jobs:
       - name: Stamp dev version
         run: |
           set -euo pipefail
-          BASE_VERSION=$(cat VERSION)
-          if [ -z "${BASE_VERSION}" ]; then
-            echo "VERSION file is empty" >&2
-            exit 1
-          fi
           SHORT_SHA=$(git rev-parse --short HEAD)
-          echo "${BASE_VERSION}-dev_${SHORT_SHA}" > VERSION
-          echo "Stamped VERSION to $(cat VERSION)"
+          node <<'JS'
+          const fs = require('fs');
+          const path = 'pyproject.toml';
+          const shortSha = process.env.SHORT_SHA;
+          const lines = fs.readFileSync(path, 'utf8').split('\n');
+          let updated = false;
+          const result = lines.map((line) => {
+            if (line.startsWith('version = ')) {
+              const base = line.match(/version = \"(.+)\"/)[1]
+                .replace(/-dev_[0-9a-f]+$/, '');
+              updated = true;
+              return `version = "${base}-dev_${shortSha}"`;
+            }
+            return line;
+          });
+          if (!updated) {
+            throw new Error('version field not found in pyproject.toml');
+          }
+          fs.writeFileSync(path, result.join('\n'));
+          console.log('Stamped pyproject.toml version to', result.find(l => l.startsWith('version = ')));
+          JS
+        env:
+          SHORT_SHA: ${{ github.sha }}
 
       # Authenticate to AWS
       - uses: aws-actions/configure-aws-credentials@v4
