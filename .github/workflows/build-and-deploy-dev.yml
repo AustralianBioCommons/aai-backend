@@ -29,6 +29,7 @@ jobs:
           const shortSha = (process.env.SHORT_SHA || '').toLowerCase().slice(0, 7);
           const lines = fs.readFileSync(path, 'utf8').split('\n');
           let updated = false;
+          let newVersion = null;
           const result = lines.map((line) => {
             if (line.startsWith('version = ')) {
               const match = line.match(/version = \"(.+)\"/);
@@ -40,20 +41,21 @@ jobs:
                 .replace(/\.dev\d+(?:\+.+)?$/i, '')
                 .replace(/\+.+$/i, '')
                 .replace(/-dev_[0-9a-f]+$/i, '');
-              const newVersion = `${cleanBase}.dev0+g${shortSha}`;
+              newVersion = `${cleanBase}.dev0+g${shortSha}`;
               updated = true;
               return `version = "${newVersion}"`;
             }
             return line;
           });
-          if (!updated) {
-            throw new Error('version field not found in pyproject.toml');
+          if (!updated || !newVersion) {
+            throw new Error('Failed to compute new version');
           }
           fs.writeFileSync(path, result.join('\n'));
-          console.log('Stamped pyproject.toml version to', result.find((l) => l.startsWith('version = ')));
+          console.log('Stamped version to', newVersion);
           JS
         env:
           SHORT_SHA: ${{ github.sha }}
+
 
       # Authenticate to AWS
       - uses: aws-actions/configure-aws-credentials@v4
