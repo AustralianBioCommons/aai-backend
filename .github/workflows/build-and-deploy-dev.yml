@@ -19,6 +19,18 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      - name: Stamp dev version
+        run: |
+          set -euo pipefail
+          BASE_VERSION=$(cat VERSION)
+          if [ -z "${BASE_VERSION}" ]; then
+            echo "VERSION file is empty" >&2
+            exit 1
+          fi
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          echo "${BASE_VERSION}-dev_${SHORT_SHA}" > VERSION
+          echo "Stamped VERSION to $(cat VERSION)"
+
       # Authenticate to AWS
       - uses: aws-actions/configure-aws-credentials@v4
         with:
