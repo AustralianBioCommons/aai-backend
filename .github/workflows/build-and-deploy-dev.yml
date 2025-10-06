@@ -60,7 +60,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install uv==0.4.20
-          uv lock --frozen --update-package aai-backend
+          uv lock
 
 
       # Authenticate to AWS
