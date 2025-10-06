@@ -26,15 +26,23 @@ jobs:
           node <<'JS'
           const fs = require('fs');
           const path = 'pyproject.toml';
-          const shortSha = process.env.SHORT_SHA;
+          const shortSha = (process.env.SHORT_SHA || '').toLowerCase().slice(0, 7);
           const lines = fs.readFileSync(path, 'utf8').split('\n');
           let updated = false;
           const result = lines.map((line) => {
             if (line.startsWith('version = ')) {
-              const base = line.match(/version = \"(.+)\"/)[1]
-                .replace(/-dev_[0-9a-f]+$/, '');
+              const match = line.match(/version = \"(.+)\"/);
+              if (!match) {
+                return line;
+              }
+              const baseRaw = match[1];
+              const cleanBase = baseRaw
+                .replace(/\.dev\d+(?:\+.+)?$/i, '')
+                .replace(/\+.+$/i, '')
+                .replace(/-dev_[0-9a-f]+$/i, '');
+              const newVersion = `${cleanBase}.dev0+g${shortSha}`;
               updated = true;
-              return `version = "${base}-dev_${shortSha}"`;
+              return `version = "${newVersion}"`;
             }
             return line;
           });
@@ -42,7 +50,7 @@ jobs:
             throw new Error('version field not found in pyproject.toml');
           }
           fs.writeFileSync(path, result.join('\n'));
-          console.log('Stamped pyproject.toml version to', result.find(l => l.startsWith('version = ')));
+          console.log('Stamped pyproject.toml version to', result.find((l) => l.startsWith('version = ')));
           JS
         env:
           SHORT_SHA: ${{ github.sha }}
