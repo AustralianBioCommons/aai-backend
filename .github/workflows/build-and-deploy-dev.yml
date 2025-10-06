@@ -56,6 +56,12 @@ jobs:
         env:
           SHORT_SHA: ${{ github.sha }}
 
+      - name: Sync uv lockfile
+        run: |
+          set -euo pipefail
+          python -m pip install uv==0.4.20
+          uv lock --frozen --update-package aai-backend
+
 
       # Authenticate to AWS
       - uses: aws-actions/configure-aws-credentials@v4
