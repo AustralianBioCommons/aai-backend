@@ -84,117 +84,36 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Fetch dev backend deployment parameters
-        id: backend_params
+      - name: Deploy dev backend via Lambda
         env:
-          DEV_BACKEND_SSM_PREFIX: ${{ secrets.AWS_DEV_BACKEND_SSM_PREFIX || '/dev/backend' }}
+          DEPLOY_FUNCTION_NAME: AaiBackendDevDeploymentFunction
+          IMAGE_TAG: dev
         run: |
           set -euo pipefail
-          PREFIX="${DEV_BACKEND_SSM_PREFIX%/}"
-          get_param() {
-            aws ssm get-parameter \
-              --name "${PREFIX}/$1" \
-              --query 'Parameter.Value' \
-              --output text
-          }
 
-          CLUSTER_NAME=$(get_param "cluster-name")
-          SERVICE_NAME=$(get_param "service-name")
+          PAYLOAD=$(jq -n --arg tag "${IMAGE_TAG}" '{tag: $tag}')
+          RESPONSE_FILE=$(mktemp)
 
-          if [ -z "${CLUSTER_NAME}" ] || [ "${CLUSTER_NAME}" = "None" ]; then
-            echo "Failed to resolve cluster name from SSM" >&2
+          INVOKE_METADATA=$(aws lambda invoke \
+            --function-name "${DEPLOY_FUNCTION_NAME}" \
+            --payload "${PAYLOAD}" \
+            --cli-binary-format raw-in-base64-out \
+            --cli-read-timeout 0 \
+            "${RESPONSE_FILE}")
+
+          echo "${INVOKE_METADATA}"
+
+          FUNCTION_ERROR=$(echo "${INVOKE_METADATA}" | jq -r '.FunctionError // empty')
+          if [ -n "${FUNCTION_ERROR}" ]; then
+            echo "Deployment lambda reported an error: ${FUNCTION_ERROR}" >&2
+            cat "${RESPONSE_FILE}" >&2 || true
             exit 1
           fi
 
-          if [ -z "${SERVICE_NAME}" ] || [ "${SERVICE_NAME}" = "None" ]; then
-            echo "Failed to resolve service name from SSM" >&2
+          cat "${RESPONSE_FILE}"
+
+          STATUS=$(jq -r '.status // empty' "${RESPONSE_FILE}")
+          if [ "${STATUS}" != "SUCCESS" ]; then
+            echo "Deployment lambda returned unexpected status: ${STATUS}" >&2
             exit 1
           fi
-
-          SERVICE_INFO=$(aws ecs describe-services \
-            --cluster "${CLUSTER_NAME}" \
-            --services "${SERVICE_NAME}")
-
-          SERVICE_COUNT=$(echo "${SERVICE_INFO}" | jq -r '.services | length')
-          if [ "${SERVICE_COUNT}" -eq 0 ]; then
-            echo "ECS service ${SERVICE_NAME} not found in cluster ${CLUSTER_NAME}" >&2
-            exit 1
-          fi
-
-          TASK_DEFINITION=$(echo "${SERVICE_INFO}" | jq -r '.services[0].taskDefinition')
-          NETWORK_CONFIGURATION=$(echo "${SERVICE_INFO}" | jq -c '.services[0].networkConfiguration')
-
-          if [ -z "${TASK_DEFINITION}" ] || [ "${TASK_DEFINITION}" = "None" ]; then
-            echo "Unable to determine task definition for ${SERVICE_NAME}" >&2
-            exit 1
-          fi
-
-          MIGRATION_TASK_DEFINITION=$(get_param "migration-task-definition-arn")
-
-          if [ -z "${MIGRATION_TASK_DEFINITION}" ] || [ "${MIGRATION_TASK_DEFINITION}" = "None" ]; then
-            echo "Unable to determine migration task definition for ${SERVICE_NAME}" >&2
-            exit 1
-          fi
-
-          echo "cluster=${CLUSTER_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "service=${SERVICE_NAME}" >> "${GITHUB_OUTPUT}"
-          echo "task_definition=${TASK_DEFINITION}" >> "${GITHUB_OUTPUT}"
-          echo "network_configuration=${NETWORK_CONFIGURATION}" >> "${GITHUB_OUTPUT}"
-          echo "migration_task_definition=${MIGRATION_TASK_DEFINITION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Run database migrations (dev)
-        env:
-          CLUSTER: ${{ steps.backend_params.outputs.cluster }}
-          TASK_DEFINITION: ${{ steps.backend_params.outputs.task_definition }}
-          NETWORK_CONFIGURATION: ${{ steps.backend_params.outputs.network_configuration }}
-          MIGRATION_TASK_DEFINITION: ${{ steps.backend_params.outputs.migration_task_definition }}
-        run: |
-          set -euo pipefail
-          if [ -z "${CLUSTER}" ]; then
-            echo "Missing ECS configuration; cannot run migrations" >&2
-            exit 1
-          fi
-
-          if [ -z "${MIGRATION_TASK_DEFINITION}" ]; then
-            echo "Missing migration task definition; cannot run migrations" >&2
-            exit 1
-          fi
-
-          printf '%s' "${NETWORK_CONFIGURATION}" > network-config.json
-
-          TASK_ARN=$(aws ecs run-task \
-            --cluster "${CLUSTER}" \
-            --task-definition "${MIGRATION_TASK_DEFINITION}" \
-            --launch-type FARGATE \
-            --network-configuration file://network-config.json \
-            --started-by "github-actions-dev-migration" \
-            --query 'tasks[0].taskArn' \
-            --output text)
-
-          if [ -z "${TASK_ARN}" ] || [ "${TASK_ARN}" = "None" ]; then
-            echo "Failed to start migration task" >&2
-            exit 1
-          fi
-
-          aws ecs wait tasks-stopped --cluster "${CLUSTER}" --tasks "${TASK_ARN}"
-          aws ecs describe-tasks --cluster "${CLUSTER}" --tasks "${TASK_ARN}" > migration-status.json
-
-          FAILURES=$(jq '[.tasks[0].containers[] | select(.name == "DatabaseMigration" and ((.exitCode? // 0) != 0 or (.reason? != null and .reason? != "")))] | length' migration-status.json)
-
-          if [ "${FAILURES}" -gt 0 ]; then
-            jq '.tasks[0].containers[] | {name, exitCode, reason, lastStatus, stoppedReason}' migration-status.json >&2
-            exit 1
-          fi
-
-      - name: Deploy dev backend service
-        env:
-          CLUSTER: ${{ steps.backend_params.outputs.cluster }}
-          SERVICE: ${{ steps.backend_params.outputs.service }}
-        run: |
-          set -euo pipefail
-          aws ecs update-service \
-            --cluster "${CLUSTER}" \
-            --service "${SERVICE}" \
-            --force-new-deployment \
-            --output json
-          aws ecs wait services-stable --cluster "${CLUSTER}" --services "${SERVICE}"
