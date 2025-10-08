@@ -1,23 +1,39 @@
 import asyncio
 import signal
 import sys
+from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 
 from scheduled_tasks.scheduler import SCHEDULER
-from scheduled_tasks.tasks import sync_auth0_users
+from scheduled_tasks.tasks import populate_db_groups, sync_auth0_roles, sync_auth0_users
 
 
 def schedule_jobs(scheduler: AsyncIOScheduler):
     hourly_trigger = IntervalTrigger(minutes=60)
-    logger.info("Adding job: sync_auth0_users")
+    logger.info("Adding one-off job: populate DB groups")
+    scheduler.add_job(
+        populate_db_groups,
+        trigger=DateTrigger(run_date=datetime.now(UTC))
+    )
+    logger.info("Adding hourly job: sync_auth0_roles")
+    scheduler.add_job(
+        sync_auth0_roles,
+        trigger=hourly_trigger,
+        id="sync_auth0_roles",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC)
+    )
+    logger.info("Adding hourly job: sync_auth0_users")
     scheduler.add_job(
         sync_auth0_users,
         trigger=hourly_trigger,
         id="sync_auth0_users",
-        replace_existing=True
+        replace_existing=True,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=15)
     )
 
 
