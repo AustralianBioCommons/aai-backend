@@ -42,7 +42,14 @@ class GroupMembershipData(BaseModel):
     revocation_reason: str | None = None
 
 
-# Not used for Groups in the database yet
 class GroupEnum(str, Enum):
     TSI = "biocommons/group/tsi"
     BPA_GALAXY = "biocommons/group/bpa_galaxy"
+
+
+# Provide default group names so we can populate the DB easily
+#   - should use the DB values when looking them up though
+GROUP_NAMES: dict[GroupEnum, str] = {
+    GroupEnum.TSI: "Threatened Species Initiative",
+    GroupEnum.BPA_GALAXY: "Bioplatforms Australia Data Portal & Galaxy Australia",
+}

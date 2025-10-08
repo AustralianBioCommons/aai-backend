@@ -198,6 +198,21 @@ class Auth0Client:
         else:
             return self._convert_roles(resp)
 
+    def get_all_roles(self) -> list[RoleData]:
+        """
+        Iterate through pages to get all roles.
+        """
+        page = 0
+        per_page = 100
+        roles = []
+        while True:
+            page_roles: RolesWithTotals = self.get_roles(page=page, per_page=per_page, include_totals=True)
+            roles.extend(page_roles.roles)
+            if len(roles) >= page_roles.total:
+                break
+            page += 1
+        return roles
+
     def get_role_by_name(self, name: str) -> RoleData:
         """
         Get a role by name.
