@@ -86,10 +86,16 @@ def get_current_user(
     return SessionUser(access_token=access_token)
 
 
-def user_is_admin(
+def user_is_general_admin(
     current_user: Annotated[SessionUser, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> SessionUser:
+    """
+    Check if user has general admin privileges.
+    This can come from:
+        * A role listed in settings.admin_roles
+        * A role listed in a group/platform's admin_roles in the DB
+    """
     if not current_user.is_admin(settings=settings):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

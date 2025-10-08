@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from auth.ses import EmailService, get_email_service
-from auth.validator import get_current_user, user_is_admin
+from auth.validator import get_current_user, user_is_general_admin
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.groups import (
     BiocommonsGroupCreate,
@@ -34,7 +34,7 @@ router = APIRouter(prefix="/biocommons", tags=["biocommons"],
 
 @router.post("/groups/create",
              response_model=BiocommonsGroupResponse,
-             dependencies=[Depends(user_is_admin)])
+             dependencies=[Depends(user_is_general_admin)])
 def create_group(
         group_info: BiocommonsGroupCreate,
         db_session: Annotated[Session, Depends(get_db_session)],
@@ -166,7 +166,7 @@ class CreateRoleData(BaseModel):
 
 
 @router.post("/roles/create",
-             dependencies=[Depends(user_is_admin)],)
+             dependencies=[Depends(user_is_general_admin)], )
 def create_role(
         role_data: CreateRoleData,
         db_session: Annotated[Session, Depends(get_db_session)],

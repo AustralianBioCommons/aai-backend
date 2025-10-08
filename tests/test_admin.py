@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from sqlmodel import select
 
 from auth.management import get_management_token
-from auth.validator import get_current_user, user_is_admin
+from auth.validator import get_current_user, user_is_general_admin
 from auth0.client import Auth0Client
 from db.models import BiocommonsGroup, PlatformMembershipHistory
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
@@ -102,14 +102,14 @@ def test_get_users_requires_admin_unauthorized(test_client):
 def test_user_is_admin(mock_settings):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     admin_user = SessionUserFactory.build(access_token=payload)
-    assert user_is_admin(current_user=admin_user, settings=mock_settings)
+    assert user_is_general_admin(current_user=admin_user, settings=mock_settings)
 
 
 def test_user_is_admin_nonadmin_user(mock_settings):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
     user = SessionUserFactory.build(access_token=payload)
     with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
-        user_is_admin(current_user=user, settings=mock_settings)
+        user_is_general_admin(current_user=user, settings=mock_settings)
 
 
 def test_get_users(test_client, as_admin_user, galaxy_platform,
