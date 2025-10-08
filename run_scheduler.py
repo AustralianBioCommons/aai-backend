@@ -69,6 +69,13 @@ async def run_immediate():
         id="sync_auth0_roles",
         replace_existing=True
     )
+    logger.info("Adding one-off job: sync_auth0_users")
+    SCHEDULER.add_job(
+        sync_auth0_users,
+        trigger=now_trigger,
+        id="sync_auth0_users",
+        replace_existing=True
+    )
     SCHEDULER.start()
     logger.info("Scheduler started, waiting for jobs to complete...")
     while SCHEDULER.get_jobs():
@@ -99,7 +106,6 @@ def main(immediate: bool = False):
         asyncio.run(run_immediate())
     else:
         asyncio.run(run_with_scheduler())
-
 
 
 if __name__ == "__main__":
