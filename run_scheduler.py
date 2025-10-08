@@ -102,6 +102,9 @@ async def run_with_scheduler():
 
 
 def main(immediate: bool = False):
+    """
+    Run the job scheduler. If --immediate is given, run the jobs immediately, then exit.
+    """
     if immediate:
         asyncio.run(run_immediate())
     else:
