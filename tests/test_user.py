@@ -83,7 +83,7 @@ def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"is_admin": True}
+    assert response.json() == {"is_biocommons_admin": True}
 
 
 def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
@@ -104,7 +104,7 @@ def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"is_admin": False}
+    assert response.json() == {"is_biocommons_admin": False}
 
 
 def test_check_is_admin_without_authentication(test_client):

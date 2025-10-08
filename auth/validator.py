@@ -93,10 +93,12 @@ def user_is_general_admin(
     """
     Check if user has general admin privileges.
     This can come from:
-        * A role listed in settings.admin_roles
-        * A role listed in a group/platform's admin_roles in the DB
+        * A role listed in settings.admin_roles (for BioCommons admins)
+        * A role listed in a group/platform's admin_roles in the DB (for platform sysadmins/project managers)
     """
-    if not current_user.is_admin(settings=settings):
+    if current_user.is_biocommons_admin(settings=settings):
+        return current_user
+    if not current_user.is_biocommons_admin(settings=settings):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You must be an admin to access this endpoint.",

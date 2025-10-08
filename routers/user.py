@@ -211,7 +211,7 @@ async def check_is_admin(
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     """Check if the current user has admin privileges."""
-    return {"is_admin": user.is_admin(settings)}
+    return {"is_biocommons_admin": user.is_biocommons_admin(settings)}
 
 
 @router.get("/all/pending",
