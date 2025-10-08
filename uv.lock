@@ -15,13 +15,14 @@ dependencies = [
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
     { name = "itsdangerous" },
-    { name = "prometheus-fastapi-instrumentator" },
     { name = "loguru" },
+    { name = "prometheus-fastapi-instrumentator" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
     { name = "python-jose" },
     { name = "sqladmin" },
     { name = "sqlmodel" },
+    { name = "typer" },
 ]
 
 [package.optional-dependencies]
@@ -67,6 +68,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.4" },
     { name = "sqladmin", specifier = ">=0.21.0" },
     { name = "sqlmodel", specifier = ">=0.0.24" },
+    { name = "typer", specifier = ">=0.16.0" },
 ]
 provides-extras = ["dev"]
 
