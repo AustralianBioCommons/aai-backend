@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Self
+from typing import List, Self
 
 from pydantic import AwareDatetime
 from sqlalchemy import Column, String, UniqueConstraint
@@ -40,6 +40,20 @@ class BiocommonsUser(BaseModel, table=True):
         back_populates="user",
         sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id"},
     )
+
+    @classmethod
+    def get_by_id(cls, user_id: str, session: Session) -> Self | None:
+        return session.get(BiocommonsUser, user_id)
+
+    @classmethod
+    def hasPlatformMembership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
+        membership = session.exec(
+            select(PlatformMembership).where(
+                PlatformMembership.user_id == user_id,
+                PlatformMembership.platform_id == platform_id,
+            )
+        ).one_or_none()
+        return membership is not None
 
     @classmethod
     def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client) -> Self:
@@ -130,6 +144,27 @@ class Platform(BaseModel, table=True):
     )
     members: list["PlatformMembership"] = Relationship(back_populates="platform")
 
+    @classmethod
+    def get_by_id(cls, platform_id: PlatformEnum, session: Session) -> Self | None:
+        return session.get(Platform, platform_id)
+
+    @classmethod
+    def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+        return session.exec(
+            select(Platform)
+            .join(Platform.admin_roles)
+            .where(Auth0Role.name.in_(role_names))
+        ).all()
+
+    @classmethod
+    def get_approved_by_user_id(cls, user_id: str, session: Session) -> list[Self] | None:
+        return session.exec(
+            select(Platform)
+            .join(PlatformMembership)
+            .where(PlatformMembership.user_id == user_id)
+            .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
+        ).all()
+
 
 class PlatformMembership(BaseModel, table=True):
     __table_args__ = (
@@ -162,6 +197,29 @@ class PlatformMembership(BaseModel, table=True):
         default=None,
         sa_column=Column(String(1024), nullable=True)
     )
+
+    @classmethod
+    def get_by_user_id(
+        cls, user_id: str, session: Session, approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None
+    ) -> List[Self]:
+        query = (
+            select(PlatformMembership)
+            .where(PlatformMembership.user_id == user_id)
+        )
+        if isinstance(approval_status, set):
+            query = query.where(PlatformMembership.approval_status.in_(approval_status))
+        elif isinstance(approval_status, ApprovalStatusEnum):
+            query = query.where(PlatformMembership.approval_status == approval_status)
+        return session.exec(query).all()
+
+    @classmethod
+    def get_by_user_id_and_platform_id(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> Self | None:
+        return session.exec(
+            select(PlatformMembership).where(
+                PlatformMembership.user_id == user_id,
+                PlatformMembership.platform_id == platform_id,
+            )
+        ).one_or_none()
 
     def save_history(self, session: Session) -> "PlatformMembershipHistory":
         # Make sure this object is in the session before accessing relationships
@@ -196,6 +254,7 @@ class PlatformMembership(BaseModel, table=True):
             updated_by=updated_by,
             revocation_reason=self.revocation_reason,
         )
+
 
 
 class PlatformMembershipHistory(BaseModel, table=True):
@@ -265,13 +324,41 @@ class GroupMembership(BaseModel, table=True):
 
     @classmethod
     def get_by_user_id(
-        cls, user_id: str, group_id: str, session: Session
-    ) -> Self | None:
+        cls, user_id: str, session: Session, approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None
+    ) -> List[Self]:
+        query = (
+            select(GroupMembership)
+            .where(
+                GroupMembership.user_id == user_id,
+            )
+        )
+        if isinstance(approval_status, set):
+            query = query.where(GroupMembership.approval_status.in_(approval_status))
+        elif isinstance(approval_status, ApprovalStatusEnum):
+            query = query.where(GroupMembership.approval_status == approval_status)
+        return session.exec(query).all()
+
+    @classmethod
+    def get_by_user_id_and_group_id(cls, user_id: str, group_id: str, session: Session) -> Self | None:
         return session.exec(
             select(GroupMembership).where(
-                GroupMembership.user_id == user_id, GroupMembership.group_id == group_id
+                GroupMembership.user_id == user_id,
+                GroupMembership.group_id == group_id,
             )
         ).one_or_none()
+
+    @classmethod
+    def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
+        membership = session.exec(
+            select(GroupMembership).where(
+                GroupMembership.user_id == user_id,
+                GroupMembership.group_id == group_id,
+                GroupMembership.approval_status == ApprovalStatusEnum.APPROVED,
+            )
+        ).one_or_none()
+        return membership is not None
+
+
 
     def save(self, session: Session, commit: bool = True) -> Self:
         """
@@ -330,6 +417,7 @@ class GroupMembership(BaseModel, table=True):
         )
 
 
+
 class GroupMembershipHistory(BaseModel, table=True):
     """
     Stores the full history of approval decisions for each user
@@ -363,7 +451,7 @@ class GroupMembershipHistory(BaseModel, table=True):
     )
 
     @classmethod
-    def get_by_user_id(
+    def get_by_user_id_and_group_id(
         cls, user_id: str, group_id: str, session: Session
     ) -> list[Self] | None:
         return session.exec(
@@ -371,6 +459,16 @@ class GroupMembershipHistory(BaseModel, table=True):
             .where(
                 GroupMembershipHistory.user_id == user_id,
                 GroupMembershipHistory.group_id == group_id,
+            )
+            .order_by(GroupMembershipHistory.updated_at.desc())
+        ).all()
+
+    @classmethod
+    def get_by_user_id(cls, user_id: str, session: Session) -> list[Self] | None:
+        return session.exec(
+            select(GroupMembershipHistory)
+            .where(
+                GroupMembershipHistory.user_id == user_id,
             )
             .order_by(GroupMembershipHistory.updated_at.desc())
         ).all()
@@ -440,6 +538,10 @@ class BiocommonsGroup(BaseModel, table=True):
     approval_history: list[GroupMembershipHistory] = Relationship(
         back_populates="group"
     )
+
+    @classmethod
+    def get_by_id(cls, group_id: str, session: Session) -> Self | None:
+        return session.get(BiocommonsGroup, group_id)
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
         """

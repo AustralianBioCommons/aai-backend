@@ -120,7 +120,7 @@ def _create_biocommons_user_record(
     group_id = bundle_config["group_id"]
 
     # Verify the group exists (this will raise an error if it doesn't)
-    db_group = session.get(BiocommonsGroup, group_id)
+    db_group = BiocommonsGroup.get_by_id(group_id, session)
     if not db_group:
         raise ValueError(
             f"Group '{group_id.value}' not found. Groups must be pre-configured in the database."
