@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from auth.management import get_management_token
-from auth.validator import get_current_user
+from auth.validator import get_session_user
 from config import Settings, get_settings
 from db.models import Auth0Role, GroupMembership, Platform, PlatformMembership
 from db.setup import get_db_session
@@ -120,7 +120,7 @@ def _get_user_groups(user_id: str,
 @router.get("/platforms",
             response_model=list[PlatformMembershipData],)
 async def get_platforms(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     query = _get_user_platforms(user_id=user.access_token.sub)
@@ -132,7 +132,7 @@ async def get_platforms(
     response_model=list[PlatformMembershipData],
 )
 async def get_approved_platforms(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get approved platforms for the current user."""
@@ -146,7 +146,7 @@ async def get_approved_platforms(
     response_model=list[PlatformMembershipData],
 )
 async def get_pending_platforms(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get pending platforms for the current user."""
@@ -160,7 +160,7 @@ async def get_pending_platforms(
     description="Get platforms for which the current user has admin privileges.",
 )
 async def get_admin_platforms(
-    user: Annotated[SessionUser, Depends(get_current_user)],
+    user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get platforms for which the current user has admin privileges."""
@@ -176,7 +176,7 @@ async def get_admin_platforms(
 @router.get("/groups",
             response_model=list[GroupMembershipData],)
 async def get_groups(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     query = _get_user_groups(user_id=user.access_token.sub)
@@ -186,7 +186,7 @@ async def get_groups(
 @router.get("/groups/approved",
             response_model=list[GroupMembershipData],)
 async def get_approved_groups(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     query = _get_user_groups(user_id=user.access_token.sub,
@@ -197,7 +197,7 @@ async def get_approved_groups(
 @router.get("/groups/pending",
             response_model=list[GroupMembershipData],)
 async def get_pending_groups(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     query = _get_user_groups(user_id=user.access_token.sub,
@@ -207,7 +207,7 @@ async def get_pending_groups(
 
 @router.get("/is-admin")
 async def check_is_admin(
-    user: Annotated[SessionUser, Depends(get_current_user)],
+    user: Annotated[SessionUser, Depends(get_session_user)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     """Check if the current user has admin privileges."""
@@ -217,7 +217,7 @@ async def check_is_admin(
 @router.get("/all/pending",
             response_model=CombinedMembershipData)
 async def get_all_pending(
-    user: Annotated[SessionUser, Depends(get_current_user)],
+    user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get all pending platforms and groups."""

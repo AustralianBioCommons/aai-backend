@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from auth.ses import EmailService, get_email_service
-from auth.validator import get_current_user, user_is_general_admin
+from auth.validator import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.groups import (
     BiocommonsGroupCreate,
@@ -29,7 +29,7 @@ from schemas.user import SessionUser
 logger = logging.getLogger('uvicorn.error')
 
 router = APIRouter(prefix="/biocommons", tags=["biocommons"],
-                   dependencies=[Depends(get_current_user)])
+                   dependencies=[Depends(get_session_user)])
 
 
 @router.post("/groups/create",
@@ -67,7 +67,7 @@ class GroupAccessRequestData(BaseModel):
 @router.post("/groups/request")
 def request_group_access(
         request_data: GroupAccessRequestData,
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
         db_session: Annotated[Session, Depends(get_db_session)],
         settings: Annotated[Settings, Depends(get_settings)],
@@ -119,7 +119,7 @@ class GroupAccessApprovalData(BaseModel):
 @router.post("/groups/approve")
 def approve_group_access(
     data: GroupAccessApprovalData,
-    approving_user: Annotated[SessionUser, Depends(get_current_user)],
+    approving_user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):

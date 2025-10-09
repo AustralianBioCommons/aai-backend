@@ -8,7 +8,7 @@ from moto.core import DEFAULT_ACCOUNT_ID
 from moto.ses import ses_backends
 from sqlmodel import select
 
-from auth.validator import get_current_user
+from auth.validator import get_session_user
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
@@ -154,8 +154,8 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     group_admin_db = BiocommonsUserFactory.create_sync(id=group_admin.access_token.sub, email=group_admin.access_token.email)
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     membership_request = GroupMembershipFactory.create_sync(group=group, user=user, approval_status="pending")
-    # Override get_current_user to return the group admin
-    app.dependency_overrides[get_current_user] = lambda: group_admin
+    # Override get_session_user to return the group admin
+    app.dependency_overrides[get_session_user] = lambda: group_admin
     # Mock auth0 route for adding roles
     respx.get(
         f"https://{test_auth0_client.domain}/api/v2/roles",
@@ -190,8 +190,8 @@ def test_approve_group_membership_invalid_role(test_client, test_db_session, per
     unauthorized_admin = SessionUserFactory.build(access_token=access_token)
     user = Auth0UserDataFactory.build()
     GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status="pending")
-    # Override get_current_user to return the group admin
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    # Override get_session_user to return the group admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     resp = test_client.post(
         "/biocommons/groups/approve",
         json={

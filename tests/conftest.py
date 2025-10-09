@@ -11,7 +11,7 @@ from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
 from auth.ses import EmailService, get_email_service
-from auth.validator import get_current_user
+from auth.validator import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from galaxy.client import GalaxyClient, get_galaxy_client
@@ -181,12 +181,12 @@ def normal_user():
 @pytest.fixture
 def as_normal_user(normal_user):
     """
-    Override the get_current_user dependency to return a normal user
+    Override the get_session_user dependency to return a normal user
     """
     def override_user():
         return normal_user
 
-    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_session_user] = override_user
     yield
     app.dependency_overrides.clear()
 
@@ -205,13 +205,13 @@ def admin_user():
 @pytest.fixture
 def as_admin_user(admin_user):
     """
-    Override the get_current_user dependency to return a User object with admin role,
+    Override the get_session_user dependency to return a User object with admin role,
     so admin check will pass.
     """
     def override_user():
         return admin_user
 
-    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_session_user] = override_user
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
     yield
     app.dependency_overrides.clear()

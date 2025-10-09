@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from sqlmodel import select
 
 from auth.management import get_management_token
-from auth.validator import get_current_user, user_is_general_admin
+from auth.validator import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client
 from db.models import BiocommonsGroup, PlatformMembershipHistory
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
@@ -91,7 +91,7 @@ def test_get_users_requires_admin_unauthorized(test_client):
         payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
         return SessionUserFactory.build(access_token=payload)
 
-    app.dependency_overrides[get_current_user] = get_nonadmin_user
+    app.dependency_overrides[get_session_user] = get_nonadmin_user
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
     resp = test_client.get("/admin/users")
     assert resp.status_code == 403
@@ -507,7 +507,7 @@ def test_approve_platform_membership_forbidden_without_platform_role(
     unauthorized_admin = SessionUserFactory.build(
         access_token=AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
@@ -596,7 +596,7 @@ def test_revoke_platform_membership_forbidden_without_platform_role(
             biocommons_roles=["Admin"]
         )
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
@@ -681,7 +681,7 @@ def test_approve_group_membership_forbidden_without_group_role(
             ]
         )
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
@@ -761,7 +761,7 @@ def test_revoke_group_membership_forbidden_without_group_role(
             ]
         )
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
