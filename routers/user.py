@@ -8,9 +8,15 @@ from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from auth.management import get_management_token
-from auth.validator import get_session_user
+from auth.validator import get_db_user, get_session_user, user_is_general_admin
 from config import Settings, get_settings
-from db.models import Auth0Role, GroupMembership, Platform, PlatformMembership
+from db.models import (
+    Auth0Role,
+    BiocommonsUser,
+    GroupMembership,
+    Platform,
+    PlatformMembership,
+)
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
 from schemas.biocommons import Auth0UserData
@@ -205,13 +211,20 @@ async def get_pending_groups(
     return db_session.exec(query).all()
 
 
-@router.get("/is-admin")
-async def check_is_admin(
+@router.get("/is-general-admin")
+async def check_is_general_admin(
     user: Annotated[SessionUser, Depends(get_session_user)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    """Check if the current user has admin privileges."""
-    return {"is_biocommons_admin": user.is_biocommons_admin(settings)}
+    """Check if the current user has general admin privileges."""
+    try:
+        validated = user_is_general_admin(user, settings, db_user=db_user, db_session=db_session)
+        if validated:
+            return True
+    except HTTPException:
+        return False
 
 
 @router.get("/all/pending",
