@@ -1,6 +1,8 @@
 import pytest
+from fastapi import HTTPException
 
 from db.types import ApprovalStatusEnum, PlatformEnum
+from routers.user import get_user_data, update_user_metadata
 from schemas.biocommons import BiocommonsAppMetadata
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -42,6 +44,97 @@ def mock_user_data():
     return Auth0UserDataFactory.build(
         app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
     )
+
+
+class MockAsyncResponse:
+    def __init__(self, status_code: int, json_data: dict | None = None, text: str = ""):
+        self.status_code = status_code
+        self._json = json_data or {}
+        self.text = text
+
+    def json(self):
+        return self._json
+
+
+class MockAsyncClient:
+    def __init__(self, response: MockAsyncResponse):
+        self._response = response
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+    async def get(self, url, headers=None):
+        self.calls.append(("get", url, headers))
+        return self._response
+
+    async def patch(self, url, headers=None, json=None):
+        self.calls.append(("patch", url, headers, json))
+        return self._response
+
+
+@pytest.mark.asyncio
+async def test_get_user_data_success(mocker, mock_settings):
+    user = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(sub="auth0|123")
+    )
+    expected = Auth0UserDataFactory.build()
+    mocker.patch("routers.user.get_management_token", return_value="token")
+    mocker.patch("routers.user.AsyncClient", return_value=MockAsyncClient(
+        MockAsyncResponse(200, expected.model_dump(mode="json"))
+    ))
+
+    result = await get_user_data(user, mock_settings)
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_get_user_data_non_200_raises(mocker, mock_settings):
+    user = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(sub="auth0|456")
+    )
+    mocker.patch("routers.user.get_management_token", return_value="token")
+    mocker.patch("routers.user.AsyncClient", return_value=MockAsyncClient(
+        MockAsyncResponse(500, {}, text="boom")
+    ))
+
+    with pytest.raises(HTTPException) as exc:
+        await get_user_data(user, mock_settings)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Failed to fetch user data"
+
+
+@pytest.mark.asyncio
+async def test_update_user_metadata_success(mocker, mock_settings):
+    metadata = {"foo": "bar"}
+    mocker.patch("routers.user.get_settings", return_value=mock_settings)
+    mocker.patch("routers.user.AsyncClient", return_value=MockAsyncClient(
+        MockAsyncResponse(200, {"ok": True})
+    ))
+
+    result = await update_user_metadata("auth0|123", "token", metadata)
+
+    assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_update_user_metadata_failure(mocker, mock_settings):
+    metadata = {"foo": "bar"}
+    mocker.patch("routers.user.get_settings", return_value=mock_settings)
+    mocker.patch("routers.user.AsyncClient", return_value=MockAsyncClient(
+        MockAsyncResponse(500, {}, text="fail")
+    ))
+
+    with pytest.raises(HTTPException) as exc:
+        await update_user_metadata("auth0|123", "token", metadata)
+
+    assert exc.value.status_code == 403
+    assert exc.value.detail == "Failed to update user metadata"
 
 
 # --- Authentication Tests (GET) ---

@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from fastapi import HTTPException
 from itsdangerous import URLSafeSerializer
 from starlette.requests import Request
 
@@ -99,3 +100,54 @@ def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings,
 
         resp = test_client.get('/db_admin/')
         assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_login_auth0_missing_access_token_raises(mocker, mock_settings, mock_request):
+    db_admin = object.__new__(DatabaseAdmin)
+    auth0_client = AsyncMock()
+    auth0_client.authorize_access_token.return_value = {}
+    db_admin.auth0_client = auth0_client
+    mocker.patch("db.admin.get_settings", return_value=mock_settings)
+
+    with pytest.raises(HTTPException) as exc:
+        await db_admin.login_auth0(mock_request)
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Could not get access token."
+
+
+@pytest.mark.asyncio
+async def test_login_auth0_invalid_jwt_raises(mocker, mock_settings, mock_request):
+    db_admin = object.__new__(DatabaseAdmin)
+    auth0_client = AsyncMock()
+    auth0_client.authorize_access_token.return_value = {"access_token": "token"}
+    db_admin.auth0_client = auth0_client
+    mocker.patch("db.admin.get_settings", return_value=mock_settings)
+    mocker.patch("db.admin.verify_jwt", return_value=None)
+
+    with pytest.raises(HTTPException) as exc:
+        await db_admin.login_auth0(mock_request)
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Could not verify JWT."
+
+
+@pytest.mark.asyncio
+async def test_login_auth0_missing_admin_role_raises(mocker, mock_settings, mock_request):
+    db_admin = object.__new__(DatabaseAdmin)
+    auth0_client = AsyncMock()
+    auth0_client.authorize_access_token.return_value = {"access_token": "token"}
+    db_admin.auth0_client = auth0_client
+    payload = Mock()
+    payload.has_admin_role.return_value = False
+    payload.biocommons_roles = []
+    mocker.patch("db.admin.get_settings", return_value=mock_settings)
+    mocker.patch("db.admin.verify_jwt", return_value=payload)
+
+    with pytest.raises(HTTPException) as exc:
+        await db_admin.login_auth0(mock_request)
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "User does not have admin role."
+    assert "biocommons_roles" not in mock_request.session
