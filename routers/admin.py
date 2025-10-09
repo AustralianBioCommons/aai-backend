@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
-from auth.validator import get_session_user, user_is_general_admin
+from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client, get_auth0_client
 from db.models import (
     Auth0Role,

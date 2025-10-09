@@ -11,7 +11,7 @@ from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
 from auth.ses import EmailService, get_email_service
-from auth.validator import get_session_user
+from auth.user_permissions import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from galaxy.client import GalaxyClient, get_galaxy_client

@@ -8,7 +8,7 @@ from moto.core import DEFAULT_ACCOUNT_ID
 from moto.ses import ses_backends
 from sqlmodel import select
 
-from auth.validator import get_session_user
+from auth.user_permissions import get_session_user
 from db.models import (
     Auth0Role,
     BiocommonsGroup,

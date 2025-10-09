@@ -7,7 +7,7 @@ from freezegun import freeze_time
 from sqlmodel import select
 
 from auth.management import get_management_token
-from auth.validator import get_session_user, user_is_general_admin
+from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client
 from db.models import BiocommonsGroup, PlatformMembershipHistory
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum

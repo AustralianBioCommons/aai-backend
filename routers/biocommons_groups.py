@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from auth.ses import EmailService, get_email_service
-from auth.validator import get_session_user, user_is_general_admin
+from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.groups import (
     BiocommonsGroupCreate,

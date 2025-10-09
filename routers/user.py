@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from auth.management import get_management_token
-from auth.validator import get_db_user, get_session_user, user_is_general_admin
+from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
 from config import Settings, get_settings
 from db.models import (
     Auth0Role,

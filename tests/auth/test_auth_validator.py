@@ -18,7 +18,8 @@ from httpx import Response
 from jose import jwk, jwt
 from jose.backends.cryptography_backend import CryptographyRSAKey
 
-from auth.validator import get_rsa_key, user_is_general_admin, verify_jwt
+from auth.user_permissions import user_is_general_admin
+from auth.validator import get_rsa_key, verify_jwt
 from config import Settings
 from db.models import BiocommonsUser
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
