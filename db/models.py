@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import List, Self
+from typing import Self, list
 
 from pydantic import AwareDatetime
 from sqlalchemy import Column, String, UniqueConstraint
@@ -46,14 +46,17 @@ class BiocommonsUser(BaseModel, table=True):
         return session.get(BiocommonsUser, user_id)
 
     @classmethod
-    def hasPlatformMembership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
-        membership = session.exec(
+    def has_platform_membership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
+        """
+        Check if a user has a membership for a specific platform.
+        """
+        return session.exec(
             select(PlatformMembership).where(
                 PlatformMembership.user_id == user_id,
                 PlatformMembership.platform_id == platform_id,
+                PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED,
             )
-        ).one_or_none()
-        return membership is not None
+        ).exists()
 
     @classmethod
     def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client) -> Self:
@@ -201,7 +204,7 @@ class PlatformMembership(BaseModel, table=True):
     @classmethod
     def get_by_user_id(
         cls, user_id: str, session: Session, approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None
-    ) -> List[Self]:
+    ) -> list[Self]:
         query = (
             select(PlatformMembership)
             .where(PlatformMembership.user_id == user_id)
@@ -325,7 +328,7 @@ class GroupMembership(BaseModel, table=True):
     @classmethod
     def get_by_user_id(
         cls, user_id: str, session: Session, approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None
-    ) -> List[Self]:
+    ) -> list[Self]:
         query = (
             select(GroupMembership)
             .where(
@@ -349,14 +352,13 @@ class GroupMembership(BaseModel, table=True):
 
     @classmethod
     def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
-        membership = session.exec(
+        return session.exec(
             select(GroupMembership).where(
                 GroupMembership.user_id == user_id,
                 GroupMembership.group_id == group_id,
                 GroupMembership.approval_status == ApprovalStatusEnum.APPROVED,
             )
-        ).one_or_none()
-        return membership is not None
+        ).exists()
 
 
 
