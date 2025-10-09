@@ -86,7 +86,7 @@ def test_pagination_params_start_index():
     assert params.start_index == 10
 
 
-def test_get_users_requires_admin_unauthorized(test_client):
+def test_get_users_requires_admin_unauthorized(test_client, test_db_session):
     def get_nonadmin_user():
         payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
         return SessionUserFactory.build(access_token=payload)
@@ -99,17 +99,21 @@ def test_get_users_requires_admin_unauthorized(test_client):
     app.dependency_overrides.clear()
 
 
-def test_user_is_admin(mock_settings):
+def test_user_is_admin(mock_settings, test_db_session, persistent_factories):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     admin_user = SessionUserFactory.build(access_token=payload)
-    assert user_is_general_admin(current_user=admin_user, settings=mock_settings)
+    db_user = BiocommonsUserFactory.create_sync(id=admin_user.access_token.sub)
+    assert user_is_general_admin(current_user=admin_user, settings=mock_settings, db_session=test_db_session,
+                                 db_user=db_user)
 
 
-def test_user_is_admin_nonadmin_user(mock_settings):
+def test_user_is_admin_nonadmin_user(mock_settings, test_db_session, persistent_factories):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
     user = SessionUserFactory.build(access_token=payload)
+    db_user = BiocommonsUserFactory.create_sync(id=user.access_token.sub)
     with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
-        user_is_general_admin(current_user=user, settings=mock_settings)
+        user_is_general_admin(current_user=user, settings=mock_settings,
+                              db_session=test_db_session, db_user=db_user)
 
 
 def test_get_users(test_client, as_admin_user, galaxy_platform,
@@ -361,7 +365,7 @@ def test_get_users_search_with_filter(test_client, as_admin_user, galaxy_platfor
     assert len(results) == 0
 
 
-def test_get_filter_options(test_client, as_admin_user):
+def test_get_filter_options(test_client, as_admin_user, test_db_session, persistent_factories):
     resp = test_client.get("/admin/filters")
     assert resp.status_code == 200
 
@@ -782,7 +786,7 @@ def test_revoke_group_membership_forbidden_without_group_role(
     assert membership.revocation_reason == original_reason
 
 
-def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
+def test_resend_verification_email(test_client, as_admin_user, test_db_session, mock_auth0_client):
     user = Auth0UserDataFactory.build()
     response_data = EmailVerificationResponseFactory.build()
     mock_auth0_client.resend_verification_email.return_value = response_data
