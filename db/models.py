@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Self, list
+from typing import Self
 
 from pydantic import AwareDatetime
 from sqlalchemy import Column, String, UniqueConstraint
