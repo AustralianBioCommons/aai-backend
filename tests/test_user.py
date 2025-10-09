@@ -48,7 +48,7 @@ def mock_user_data():
 @pytest.mark.parametrize(
     "endpoint",
     [
-        "/me/is-admin",
+        "/me/is-general-admin",
         "/me/platforms",
         "/me/platforms/approved",
         "/me/platforms/pending",
@@ -65,7 +65,7 @@ def test_endpoints_require_auth(endpoint, test_client):
     assert response.json() == {"detail": "Not authenticated"}
 
 
-def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker):
+def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker, test_db_session):
     """Test that admin check returns True for users with admin role"""
     from tests.datagen import SessionUserFactory
 
@@ -78,15 +78,16 @@ def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker):
     mocker.patch("auth.validator.get_session_user", return_value=admin_user)
 
     response = test_client.get(
-        "/me/is-admin",
+        "/me/is-general-admin",
         headers={"Authorization": "Bearer valid_token"}
     )
 
     assert response.status_code == 200
-    assert response.json() == {"is_biocommons_admin": True}
+    is_admin = response.json()
+    assert is_admin
 
 
-def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
+def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker, test_db_session):
     """Test that admin check returns False for users without admin role"""
     from tests.datagen import SessionUserFactory
 
@@ -99,17 +100,18 @@ def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
     mocker.patch("auth.validator.get_session_user", return_value=user)
 
     response = test_client.get(
-        "/me/is-admin",
+        "/me/is-general-admin",
         headers={"Authorization": "Bearer valid_token"}
     )
 
     assert response.status_code == 200
-    assert response.json() == {"is_biocommons_admin": False}
+    is_admin = response.json()
+    assert not is_admin
 
 
 def test_check_is_admin_without_authentication(test_client):
     """Test that admin check requires authentication"""
-    response = test_client.get("/me/is-admin")
+    response = test_client.get("/me/is-general-admin")
     assert response.status_code == 401
 
 
