@@ -52,37 +52,41 @@ def clear_db_jobs():
 
 
 async def run_immediate():
-    logger.info("Clearing existing jobs")
-    clear_db_jobs()
-    now_trigger = DateTrigger(run_date=datetime.now(UTC))
-    logger.info("Adding one-off job: populate DB groups")
-    SCHEDULER.add_job(
-        populate_db_groups,
-        trigger=now_trigger,
-        id="populate_db_groups",
-        replace_existing=True
-    )
-    logger.info("Adding one-off job: sync_auth0_roles")
-    SCHEDULER.add_job(
-        sync_auth0_roles,
-        trigger=now_trigger,
-        id="sync_auth0_roles",
-        replace_existing=True
-    )
-    logger.info("Adding one-off job: sync_auth0_users")
-    SCHEDULER.add_job(
-        sync_auth0_users,
-        trigger=now_trigger,
-        id="sync_auth0_users",
-        replace_existing=True
-    )
-    SCHEDULER.start()
-    logger.info("Scheduler started, waiting for jobs to complete...")
-    while SCHEDULER.get_jobs():
-        SCHEDULER.print_jobs()
-        await asyncio.sleep(0.5)
-    logger.info("Stopping scheduler")
-    SCHEDULER.shutdown(wait=True)
+    logger.info("Starting scheduler in paused mode to initialize job store")
+    SCHEDULER.start(paused=True)
+    try:
+        logger.info("Clearing existing jobs")
+        clear_db_jobs()
+        now_trigger = DateTrigger(run_date=datetime.now(UTC))
+        logger.info("Adding one-off job: populate DB groups")
+        SCHEDULER.add_job(
+            populate_db_groups,
+            trigger=now_trigger,
+            id="populate_db_groups",
+            replace_existing=True
+        )
+        logger.info("Adding one-off job: sync_auth0_roles")
+        SCHEDULER.add_job(
+            sync_auth0_roles,
+            trigger=now_trigger,
+            id="sync_auth0_roles",
+            replace_existing=True
+        )
+        logger.info("Adding one-off job: sync_auth0_users")
+        SCHEDULER.add_job(
+            sync_auth0_users,
+            trigger=now_trigger,
+            id="sync_auth0_users",
+            replace_existing=True
+        )
+        logger.info("Resuming scheduler and waiting for jobs to complete...")
+        SCHEDULER.resume()
+        while SCHEDULER.get_jobs():
+            SCHEDULER.print_jobs()
+            await asyncio.sleep(0.5)
+    finally:
+        logger.info("Stopping scheduler")
+        SCHEDULER.shutdown(wait=True)
 
 
 async def run_with_scheduler():
