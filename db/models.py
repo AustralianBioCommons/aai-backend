@@ -16,6 +16,7 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 
@@ -115,6 +116,31 @@ class BiocommonsUser(BaseModel, table=True):
         membership.save_history(db_session)
         return membership
 
+    def is_any_platform_admin(self, access_token: AccessTokenPayload, db_session: Session) -> bool:
+        """
+        Check if the user is an admin on any platform.
+        """
+        if access_token.sub != self.id:
+            raise ValueError("User ID does not match access token")
+        all_admin_roles = Platform.get_all_admin_roles(db_session)
+        for role in all_admin_roles:
+            if role.name in access_token.biocommons_roles:
+                return True
+        return False
+
+    def is_any_group_admin(self, access_token: AccessTokenPayload, db_session: Session) -> bool:
+        """
+        Check if the user is an admin on any group.
+        """
+        if access_token.sub != self.id:
+            raise ValueError("User ID does not match access token")
+        all_admin_roles = BiocommonsGroup.get_all_admin_roles(db_session)
+        for role in all_admin_roles:
+            if role.name in access_token.biocommons_roles:
+                return True
+        return False
+
+
 
 class PlatformRoleLink(BaseModel, table=True):
     platform_id: PlatformEnum = Field(primary_key=True, foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
@@ -129,6 +155,14 @@ class Platform(BaseModel, table=True):
         back_populates="admin_platforms", link_model=PlatformRoleLink,
     )
     members: list["PlatformMembership"] = Relationship(back_populates="platform")
+
+    @classmethod
+    def get_all_admin_roles(cls, session: Session) -> list["Auth0Role"]:
+        return session.exec(
+            select(Auth0Role)
+            .join(PlatformRoleLink, Auth0Role.id == PlatformRoleLink.role_id)
+            .distinct()
+        ).all()
 
 
 class PlatformMembership(BaseModel, table=True):
@@ -459,6 +493,14 @@ class BiocommonsGroup(BaseModel, table=True):
             if role in admin_role_names:
                 return True
         return False
+
+    @classmethod
+    def get_all_admin_roles(cls, session: Session) -> list[Auth0Role]:
+        return session.exec(
+            select(Auth0Role)
+            .join(GroupRoleLink, Auth0Role.id == GroupRoleLink.role_id)
+            .distinct()
+        ).all()
 
 
 # Update all model references
