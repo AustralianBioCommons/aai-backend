@@ -108,6 +108,7 @@ def test_create_platform(platform_id, test_db_session, persistent_factories):
         name=f"Platform {platform_id}",
         admin_roles=[admin_role]
     )
+    test_db_session.add(platform)
     test_db_session.commit()
     assert platform.id == platform_id
 

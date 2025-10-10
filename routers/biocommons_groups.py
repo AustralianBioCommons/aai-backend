@@ -79,7 +79,7 @@ def request_group_access(
     GroupMembership record for this group.
     """
     group_id = request_data.group_id
-    existing_membership = GroupMembership.get_by_user_id(
+    existing_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user.access_token.sub,
         group_id=group_id,
         session=db_session,
@@ -89,7 +89,7 @@ def request_group_access(
             status_code=HTTPStatus.CONFLICT,
             detail=f"User {user.access_token.sub} already has a membership for {group_id}"
         )
-    group = db_session.get_one(BiocommonsGroup, group_id)
+    group = BiocommonsGroup.get_by_id(group_id, db_session)
     user_record = BiocommonsUser.get_or_create(
         auth0_id=user.access_token.sub,
         db_session=db_session,
@@ -123,14 +123,14 @@ def approve_group_access(
     db_session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):
-    group = db_session.get_one(BiocommonsGroup, data.group_id)
+    group = BiocommonsGroup.get_by_id(data.group_id, db_session)
     is_admin = group.user_is_admin(approving_user)
     if not is_admin:
         raise HTTPException(
             status_code=HTTPStatus.UNAUTHORIZED,
             detail=f"You do not have permission to approve group memberships for {group.name}"
         )
-    membership = GroupMembership.get_by_user_id(user_id=data.user_id, group_id=data.group_id, session=db_session)
+    membership = GroupMembership.get_by_user_id_and_group_id(user_id=data.user_id, group_id=data.group_id, session=db_session)
     approving_user_record = BiocommonsUser.get_or_create(
         auth0_id=approving_user.access_token.sub,
         db_session=db_session,
