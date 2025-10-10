@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
-from auth.validator import get_current_user, user_is_admin
+from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client, get_auth0_client
 from db.models import (
     Auth0Role,
@@ -78,7 +78,7 @@ def get_pagination_params(page: int = 1, per_page: int = 100):
 
 
 router = APIRouter(prefix="/admin", tags=["admin"],
-                   dependencies=[Depends(user_is_admin)])
+                   dependencies=[Depends(user_is_general_admin)])
 
 
 class RevokeServiceRequest(BaseModel):
@@ -492,7 +492,7 @@ class UserQueryParams(BaseModel):
 
 @router.get("/users",
             response_model=list[BiocommonsUserResponse])
-def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
+def get_users(admin_user: Annotated[SessionUser, Depends(get_session_user)],
               db_session: Annotated[Session, Depends(get_db_session)],
               user_query: Annotated[UserQueryParams, Depends()],
               pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
@@ -611,7 +611,7 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
 def approve_platform_membership(user_id: Annotated[str, UserIdParam],
                                 platform_id: Annotated[str, ServiceIdParam],
                                 client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                                approving_user: Annotated[SessionUser, Depends(get_current_user)],
+                                approving_user: Annotated[SessionUser, Depends(get_session_user)],
                                 db_session: Annotated[Session, Depends(get_db_session)]):
     platform_record = _parse_platform_or_404(platform_id, db_session=db_session)
     _assert_platform_admin_permissions(
@@ -636,7 +636,7 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
                                platform_id: Annotated[str, ServiceIdParam],
                                payload: RevokeServiceRequest,
                                client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                               revoking_user: Annotated[SessionUser, Depends(get_current_user)],
+                               revoking_user: Annotated[SessionUser, Depends(get_session_user)],
                                db_session: Annotated[Session, Depends(get_db_session)]):
     platform_record = _parse_platform_or_404(platform_id, db_session=db_session)
     _assert_platform_admin_permissions(
@@ -661,7 +661,7 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
 def approve_group_membership(user_id: Annotated[str, UserIdParam],
                              group_id: Annotated[str, ServiceIdParam],
                              client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                             approving_user: Annotated[SessionUser, Depends(get_current_user)],
+                             approving_user: Annotated[SessionUser, Depends(get_session_user)],
                              db_session: Annotated[Session, Depends(get_db_session)]):
     group_record = _parse_group_or_404(group_id, db_session=db_session)
     _assert_group_admin_permissions(
@@ -687,7 +687,7 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RevokeServiceRequest,
                             client: Annotated[Auth0Client, Depends(get_auth0_client)],
-                            revoking_user: Annotated[SessionUser, Depends(get_current_user)],
+                            revoking_user: Annotated[SessionUser, Depends(get_session_user)],
                             db_session: Annotated[Session, Depends(get_db_session)]):
     group_record = _parse_group_or_404(group_id, db_session=db_session)
     _assert_group_admin_permissions(

@@ -7,18 +7,14 @@ from pydantic import BaseModel
 from sqlmodel import Session
 
 from auth.ses import EmailService, get_email_service
-from auth.validator import get_current_user, user_is_admin
+from auth.user_permissions import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.groups import (
-    BiocommonsGroupCreate,
-    BiocommonsGroupResponse,
     GroupId,
-    RoleId,
 )
 from config import Settings, get_settings
 from db.models import (
     ApprovalStatusEnum,
-    Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
@@ -29,35 +25,7 @@ from schemas.user import SessionUser
 logger = logging.getLogger('uvicorn.error')
 
 router = APIRouter(prefix="/biocommons", tags=["biocommons"],
-                   dependencies=[Depends(get_current_user)])
-
-
-@router.post("/groups/create",
-             response_model=BiocommonsGroupResponse,
-             dependencies=[Depends(user_is_admin)])
-def create_group(
-        group_info: BiocommonsGroupCreate,
-        db_session: Annotated[Session, Depends(get_db_session)],
-        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)]):
-    """
-    Create a new group in the DB. Note that the Auth0 role for this group
-    must already exist.
-    """
-    # Check group exists in Auth0
-    try:
-        # Note: our "group ids" are actually the Auth0 role names
-        auth0_client.get_role_by_name(name=group_info.group_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Group {group_info.name} doesn't exist in Auth0"
-        )
-    group = group_info.save(session=db_session, auth0_client=auth0_client)
-    return BiocommonsGroupResponse(
-        group_id=group.group_id,
-        name=group.name,
-        admin_roles=[r.name for r in group.admin_roles]
-    )
+                   dependencies=[Depends(get_session_user)])
 
 
 class GroupAccessRequestData(BaseModel):
@@ -67,7 +35,7 @@ class GroupAccessRequestData(BaseModel):
 @router.post("/groups/request")
 def request_group_access(
         request_data: GroupAccessRequestData,
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
         db_session: Annotated[Session, Depends(get_db_session)],
         settings: Annotated[Settings, Depends(get_settings)],
@@ -119,7 +87,7 @@ class GroupAccessApprovalData(BaseModel):
 @router.post("/groups/approve")
 def approve_group_access(
     data: GroupAccessApprovalData,
-    approving_user: Annotated[SessionUser, Depends(get_current_user)],
+    approving_user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):
@@ -158,29 +126,3 @@ def send_group_approval_email(approver_email: str, request: GroupMembership, ema
     """
 
     email_service.send(approver_email, subject, body_html)
-
-
-class CreateRoleData(BaseModel):
-    name: RoleId | GroupId
-    description: str
-
-
-@router.post("/roles/create",
-             dependencies=[Depends(user_is_admin)],)
-def create_role(
-        role_data: CreateRoleData,
-        db_session: Annotated[Session, Depends(get_db_session)],
-        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)]
-    ):
-    """
-    Create a new role in Auth0 (if needed) and add it to the DB.
-    Note that our "RoleId/GroupId" is actually the
-    Auth0 role name - Auth0 has its own internal IDs
-    """
-    logger.info(f"Creating role {role_data.name} in Auth0 if needed")
-    resp = auth0_client.get_or_create_role(**role_data.model_dump())
-    logger.info("Saving to database")
-    role = Auth0Role(**resp.model_dump())
-    db_session.add(role)
-    db_session.commit()
-    return role

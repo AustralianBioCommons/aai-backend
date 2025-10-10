@@ -16,6 +16,7 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 
@@ -132,6 +133,30 @@ class BiocommonsUser(BaseModel, table=True):
         membership.save_history(db_session)
         return membership
 
+    def is_any_platform_admin(self, access_token: AccessTokenPayload, db_session: Session) -> bool:
+        """
+        Check if the user is an admin on any platform.
+        """
+        if access_token.sub != self.id:
+            raise ValueError("User ID does not match access token")
+        all_admin_roles = Platform.get_all_admin_roles(db_session)
+        for role in all_admin_roles:
+            if role.name in access_token.biocommons_roles:
+                return True
+        return False
+
+    def is_any_group_admin(self, access_token: AccessTokenPayload, db_session: Session) -> bool:
+        """
+        Check if the user is an admin on any group.
+        """
+        if access_token.sub != self.id:
+            raise ValueError("User ID does not match access token")
+        all_admin_roles = BiocommonsGroup.get_all_admin_roles(db_session)
+        for role in all_admin_roles:
+            if role.name in access_token.biocommons_roles:
+                return True
+        return False
+
 
 class PlatformRoleLink(BaseModel, table=True):
     platform_id: PlatformEnum = Field(primary_key=True, foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
@@ -149,7 +174,15 @@ class Platform(BaseModel, table=True):
 
     @classmethod
     def get_by_id(cls, platform_id: PlatformEnum, session: Session) -> Self | None:
-        return session.get(Platform, platform_id)
+        return session.get(cls, platform_id)
+
+    @classmethod
+    def get_all_admin_roles(cls, session: Session) -> list["Auth0Role"]:
+        return session.exec(
+            select(Auth0Role)
+            .join(PlatformRoleLink, Auth0Role.id == PlatformRoleLink.role_id)
+            .distinct()
+        ).all()
 
     @classmethod
     def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
@@ -514,9 +547,7 @@ class Auth0Role(BaseModel, table=True):
         cls, name: str, session: Session, auth0_client: Auth0Client = None
     ) -> Self:
         # Try to get from the DB
-        role = session.exec(
-            select(Auth0Role).where(Auth0Role.name == name)
-        ).one_or_none()
+        role = cls.get_by_name(name=name, session=session)
         if role is not None:
             return role
         # Try to get from the API and save to the DB
@@ -525,6 +556,12 @@ class Auth0Role(BaseModel, table=True):
         session.add(role)
         session.commit()
         return role
+
+    @classmethod
+    def get_by_name(cls, name: str, session: Session) -> Self | None:
+        return session.exec(
+            select(Auth0Role).where(Auth0Role.name == name)
+        ).one_or_none()
 
 
 class BiocommonsGroup(BaseModel, table=True):
@@ -563,6 +600,14 @@ class BiocommonsGroup(BaseModel, table=True):
             if role in admin_role_names:
                 return True
         return False
+
+    @classmethod
+    def get_all_admin_roles(cls, session: Session) -> list[Auth0Role]:
+        return session.exec(
+            select(Auth0Role)
+            .join(GroupRoleLink, Auth0Role.id == GroupRoleLink.role_id)
+            .distinct()
+        ).all()
 
 
 # Update all model references
