@@ -141,7 +141,6 @@ class BiocommonsUser(BaseModel, table=True):
         return False
 
 
-
 class PlatformRoleLink(BaseModel, table=True):
     platform_id: PlatformEnum = Field(primary_key=True, foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     role_id: str = Field(primary_key=True, foreign_key="auth0role.id")
@@ -155,6 +154,10 @@ class Platform(BaseModel, table=True):
         back_populates="admin_platforms", link_model=PlatformRoleLink,
     )
     members: list["PlatformMembership"] = Relationship(back_populates="platform")
+
+    @classmethod
+    def get_by_id(cls, platform_id: PlatformEnum, session: Session) -> Self | None:
+        return session.get(cls, platform_id)
 
     @classmethod
     def get_all_admin_roles(cls, session: Session) -> list["Auth0Role"]:
@@ -448,9 +451,7 @@ class Auth0Role(BaseModel, table=True):
         cls, name: str, session: Session, auth0_client: Auth0Client = None
     ) -> Self:
         # Try to get from the DB
-        role = session.exec(
-            select(Auth0Role).where(Auth0Role.name == name)
-        ).one_or_none()
+        role = cls.get_by_name(name=name, session=session)
         if role is not None:
             return role
         # Try to get from the API and save to the DB
@@ -459,6 +460,12 @@ class Auth0Role(BaseModel, table=True):
         session.add(role)
         session.commit()
         return role
+
+    @classmethod
+    def get_by_name(cls, name: str, session: Session) -> Self | None:
+        return session.exec(
+            select(Auth0Role).where(Auth0Role.name == name)
+        ).one_or_none()
 
 
 class BiocommonsGroup(BaseModel, table=True):
