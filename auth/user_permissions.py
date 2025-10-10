@@ -54,3 +54,15 @@ def user_is_general_admin(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="You must be an admin to access this endpoint.",
     )
+
+
+def user_is_biocommons_admin(
+    current_user: Annotated[SessionUser, Depends(get_session_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SessionUser:
+    if current_user.is_biocommons_admin(settings=settings):
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You must be an admin to access this endpoint.",
+    )
