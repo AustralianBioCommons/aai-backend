@@ -12,6 +12,7 @@ from db import models  # noqa: F401
 from db.admin import DatabaseAdmin
 from routers import (
     admin,
+    biocommons_admin,
     biocommons_groups,
     biocommons_register,
     bpa_register,
@@ -79,6 +80,7 @@ def public_route():
 
 
 app.include_router(admin.router)
+app.include_router(biocommons_admin.router)
 app.include_router(user.router)
 app.include_router(biocommons_register.router)
 app.include_router(bpa_register.router)
