@@ -1,13 +1,9 @@
-from unittest.mock import ANY
 
 import pytest
-import respx
-from httpx import Response
 from sqlmodel import select
 
 from biocommons.groups import BiocommonsGroupCreate, is_valid_group_id, is_valid_role_id
-from db.models import Auth0Role, BiocommonsGroup
-from tests.biocommons.datagen import RoleDataFactory
+from db.models import BiocommonsGroup
 from tests.db.datagen import Auth0RoleFactory
 
 
@@ -63,35 +59,8 @@ def test_biocommons_group_create_save(test_db_session, test_auth0_client):
         name="Threatened Species Initiative",
         admin_roles=[tsi_admin, sysadmin]
     )
-    group.save(test_db_session, auth0_client=test_auth0_client)
+    group.save_group(test_db_session)
     group_from_db = test_db_session.exec(
         select(BiocommonsGroup).where(BiocommonsGroup.group_id == group.group_id)
     ).one()
     assert group_from_db.group_id == group.group_id
-
-
-@respx.mock
-def test_biocommons_group_save_get_roles(test_db_session, test_auth0_client):
-    """
-    Test saving BiocommonsGroupCreate to the DB when
-    roles have to be fetched from Auth0.
-    """
-    role = RoleDataFactory.build(name="biocommons/role/tsi/admin")
-    route = respx.get("https://auth0.example.com/api/v2/roles", params={"name_filter": ANY}).mock(
-        return_value=Response(200, json=[role.model_dump(mode="json")])
-    )
-    group = BiocommonsGroupCreate(
-        group_id="biocommons/group/tsi",
-        name="Threatened Species Initiative",
-        admin_roles=["biocommons/role/tsi/admin"]
-    )
-    group.save(test_db_session, auth0_client=test_auth0_client)
-    group_from_db = test_db_session.exec(
-        select(BiocommonsGroup).where(BiocommonsGroup.group_id == group.group_id)
-    ).one()
-    assert group_from_db.group_id == group.group_id
-    role_from_db = test_db_session.exec(
-        select(Auth0Role).where(Auth0Role.id == role.id)
-    ).first()
-    assert route.called
-    assert role_from_db is not None
