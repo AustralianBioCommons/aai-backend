@@ -1,4 +1,5 @@
 import os
+import warnings
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -28,6 +29,16 @@ from tests.db.datagen import (
 )
 
 
+@pytest.fixture(autouse=True, scope="session")
+def suppress_third_party_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=r"datetime\.datetime\.utcnow\(\) is deprecated",
+        category=DeprecationWarning,
+        module="botocore.auth",
+    )
+
+
 @pytest.fixture(scope="function")
 def test_db_engine():
     from db import models  # noqa: F401
@@ -39,7 +50,10 @@ def test_db_engine():
         poolclass=StaticPool,
     )
     BaseModel.metadata.create_all(engine)
-    return engine
+    try:
+        yield engine
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture(name="session")
@@ -47,10 +61,13 @@ def session_fixture(test_db_engine):
     connection = test_db_engine.connect()
     transaction = connection.begin()
     session = Session(bind=connection)
-    yield session
-    session.close()
-    transaction.rollback()
-    connection.close()
+    try:
+        yield session
+    finally:
+        if transaction.is_active:
+            transaction.rollback()
+        session.close()
+        connection.close()
 
 
 @pytest.fixture()
@@ -67,7 +84,6 @@ def test_db_session(session):
         yield session
     finally:
         app.dependency_overrides.clear()
-        session.close()
 
 
 @pytest.fixture(autouse=True)

@@ -4,14 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from httpx import AsyncClient
 from pydantic import AliasPath, Field
 from pydantic import BaseModel as PydanticBaseModel
-from sqlmodel import Session, select
-from sqlmodel.sql._expression_select_cls import SelectOfScalar
+from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
 from config import Settings, get_settings
 from db.models import (
-    Auth0Role,
     BiocommonsUser,
     GroupMembership,
     Platform,
@@ -103,34 +101,13 @@ async def update_user_metadata(
         )
 
 
-def _get_user_platforms(user_id: str,
-                        approval_status: ApprovalStatusEnum | None = None) -> SelectOfScalar[PlatformMembership]:
-    """Utility function to get platforms for a user."""
-    query = (select(PlatformMembership)
-             .where(PlatformMembership.user_id == user_id))
-    if approval_status is not None:
-        query = query.where(PlatformMembership.approval_status == approval_status)
-    return query
-
-
-def _get_user_groups(user_id: str,
-                     approval_status: ApprovalStatusEnum | None = None) -> SelectOfScalar[GroupMembership]:
-    """Utility function to get groups for a user."""
-    query = (select(GroupMembership)
-             .where(GroupMembership.user_id == user_id))
-    if approval_status is not None:
-        query = query.where(GroupMembership.approval_status == approval_status)
-    return query
-
-
 @router.get("/platforms",
             response_model=list[PlatformMembershipData],)
 async def get_platforms(
         user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    query = _get_user_platforms(user_id=user.access_token.sub)
-    return db_session.exec(query).all()
+    return PlatformMembership.get_by_user_id(user_id=user.access_token.sub, session=db_session)
 
 
 @router.get(
@@ -142,9 +119,9 @@ async def get_approved_platforms(
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get approved platforms for the current user."""
-    query = _get_user_platforms(user_id=user.access_token.sub,
-                                approval_status=ApprovalStatusEnum.APPROVED)
-    return db_session.exec(query).all()
+    return PlatformMembership.get_by_user_id(user_id=user.access_token.sub,
+                                              approval_status=ApprovalStatusEnum.APPROVED,
+                                              session=db_session)
 
 
 @router.get(
@@ -156,9 +133,9 @@ async def get_pending_platforms(
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get pending platforms for the current user."""
-    query = _get_user_platforms(user_id=user.access_token.sub,
-                                approval_status=ApprovalStatusEnum.PENDING)
-    return db_session.exec(query).all()
+    return PlatformMembership.get_by_user_id(user_id=user.access_token.sub,
+                                              approval_status=ApprovalStatusEnum.PENDING,
+                                              session=db_session)
 
 
 @router.get(
@@ -171,12 +148,7 @@ async def get_admin_platforms(
 ):
     """Get platforms for which the current user has admin privileges."""
     user_roles = user.access_token.biocommons_roles
-    query = (
-        select(Platform)
-        .join(Platform.admin_roles)
-        .where(Auth0Role.name.in_(user_roles))
-    )
-    return db_session.exec(query).all()
+    return Platform.get_for_admin_roles(role_names=user_roles, session=db_session)
 
 
 @router.get("/groups",
@@ -185,8 +157,8 @@ async def get_groups(
         user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    query = _get_user_groups(user_id=user.access_token.sub)
-    return db_session.exec(query).all()
+    return GroupMembership.get_by_user_id(user_id=user.access_token.sub, session=db_session)
+
 
 
 @router.get("/groups/approved",
@@ -195,9 +167,9 @@ async def get_approved_groups(
         user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    query = _get_user_groups(user_id=user.access_token.sub,
-                             approval_status=ApprovalStatusEnum.APPROVED)
-    return db_session.exec(query).all()
+    return GroupMembership.get_by_user_id(user_id=user.access_token.sub,
+                                         approval_status=ApprovalStatusEnum.APPROVED,
+                                         session=db_session)
 
 
 @router.get("/groups/pending",
@@ -206,9 +178,9 @@ async def get_pending_groups(
         user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
-    query = _get_user_groups(user_id=user.access_token.sub,
-                             approval_status=ApprovalStatusEnum.PENDING)
-    return db_session.exec(query).all()
+    return GroupMembership.get_by_user_id(user_id=user.access_token.sub,
+                                          approval_status=ApprovalStatusEnum.PENDING,
+                                          session=db_session)
 
 
 @router.get("/is-general-admin")
@@ -234,10 +206,10 @@ async def get_all_pending(
     db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get all pending platforms and groups."""
-    platforms_query = _get_user_platforms(user_id=user.access_token.sub,
-                                    approval_status=ApprovalStatusEnum.PENDING)
-    groups_query = _get_user_groups(user_id=user.access_token.sub,
-                              approval_status=ApprovalStatusEnum.PENDING)
-    platforms = db_session.exec(platforms_query).all()
-    groups = db_session.exec(groups_query).all()
+    platforms = PlatformMembership.get_by_user_id(user_id=user.access_token.sub,
+                                                  approval_status=ApprovalStatusEnum.PENDING,
+                                                  session=db_session)
+    groups = GroupMembership.get_by_user_id(user_id=user.access_token.sub,
+                                             approval_status=ApprovalStatusEnum.PENDING,
+                                             session=db_session)
     return {"platforms": platforms, "groups": groups}

@@ -1,6 +1,10 @@
 import pytest
+import respx
+from fastapi import HTTPException
+from httpx import Response
 
 from db.types import ApprovalStatusEnum, PlatformEnum
+from routers.user import get_user_data, update_user_metadata
 from schemas.biocommons import BiocommonsAppMetadata
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -41,7 +45,78 @@ def mock_user_data():
     """Fixture to provide mock user data"""
     return Auth0UserDataFactory.build(
         app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+)
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    "status_code, expect_error",
+    [
+        (200, False),
+        (500, True),
+    ],
+    ids=["success", "auth0-error"],
+)
+async def test_get_user_data_handles_responses(mocker, mock_settings, status_code, expect_error):
+    user = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(sub="auth0|123")
     )
+    expected = Auth0UserDataFactory.build()
+    mocker.patch("routers.user.get_management_token", return_value="token")
+    if status_code == 200:
+        response = Response(status_code, json=expected.model_dump(mode="json"))
+    else:
+        response = Response(status_code, text="boom")
+
+    route = respx.get(
+        f"https://mock-domain/api/v2/users/{user.access_token.sub}"
+    ).mock(return_value=response)
+
+    if expect_error:
+        with pytest.raises(HTTPException) as exc:
+            await get_user_data(user, mock_settings)
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "Failed to fetch user data"
+    else:
+        result = await get_user_data(user, mock_settings)
+        assert result == expected
+
+    assert route.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+@pytest.mark.parametrize(
+    "status_code, expect_error",
+    [
+        (200, False),
+        (500, True),
+    ],
+    ids=["success", "auth0-error"],
+)
+async def test_update_user_metadata_handles_responses(mocker, mock_settings, status_code, expect_error):
+    metadata = {"foo": "bar"}
+    mocker.patch("routers.user.get_settings", return_value=mock_settings)
+    if status_code == 200:
+        response = Response(status_code, json={"ok": True})
+    else:
+        response = Response(status_code, text="fail")
+
+    route = respx.patch(
+        "https://mock-domain/api/v2/users/auth0|123"
+    ).mock(return_value=response)
+
+    if expect_error:
+        with pytest.raises(HTTPException) as exc:
+            await update_user_metadata("auth0|123", "token", metadata)
+        assert exc.value.status_code == 403
+        assert exc.value.detail == "Failed to update user metadata"
+    else:
+        result = await update_user_metadata("auth0|123", "token", metadata)
+        assert result == {"ok": True}
+
+    assert route.called
 
 
 # --- Authentication Tests (GET) ---
