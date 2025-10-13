@@ -398,10 +398,12 @@ def test_get_user(test_client, test_db_session, as_admin_user, persistent_factor
     assert resp.json() == user.model_dump(mode='json')
 
 
-def test_get_approved_users(test_client, test_db_session, as_admin_user, persistent_factories):
-    approved_users = BiocommonsUserFactory.create_batch_sync(3)
-    for u in approved_users:
-        u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=True)
+def test_get_approved_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    approved_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY
+    )
     resp = test_client.get("/admin/users/approved")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -410,12 +412,13 @@ def test_get_approved_users(test_client, test_db_session, as_admin_user, persist
         assert returned_user["id"] in approved_ids
 
 
-def test_get_pending_users(test_client, test_db_session, as_admin_user, persistent_factories):
-    pending_users = BiocommonsUserFactory.create_batch_sync(3)
-    for u in pending_users:
-        u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=False)
-    test_db_session.commit()
-
+def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    pending_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.PENDING
+    )
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -424,13 +427,13 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, persiste
         assert returned_user["id"] in expected_ids
 
 
-def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories):
-    revoked_users = BiocommonsUserFactory.create_batch_sync(3)
-    for u in revoked_users:
-        PlatformMembershipFactory.create_sync(
-            user=u, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.REVOKED
-        )
-    test_db_session.commit()
+def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    revoked_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.REVOKED
+    )
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -814,9 +817,19 @@ def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth
     assert platforms[0] == platform_membership_data
 
 
-def test_get_unverified_users(test_client, test_db_session, as_admin_user, persistent_factories):
-    BiocommonsUserFactory.create_batch_sync(2, email_verified=True)
-    BiocommonsUserFactory.create_batch_sync(3, email_verified=False)
+def test_get_unverified_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    _users_with_platform_membership(
+        n=2,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        email_verified=True,
+    )
+    _users_with_platform_membership(
+        n=3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        email_verified=False,
+    )
     resp = test_client.get("/admin/users/unverified")
     assert resp.status_code == 200
     data = resp.json()
