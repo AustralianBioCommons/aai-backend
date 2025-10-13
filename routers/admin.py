@@ -7,6 +7,7 @@ from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
+from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client, get_auth0_client
@@ -361,19 +362,48 @@ class UserQueryParams(BaseModel):
 
     def get_base_query(self):
         """
-        Default user query that conditions can be added to - join against platform and group membership
+        Default user query that conditions can be added to
         """
         return (
             select(BiocommonsUser)
         )
 
-    def get_complete_query(self, pagination: PaginationParams = None):
+    def get_admin_permissions_query(self, admin_roles: list[str]):
         """
-        Return a full user query - can be used when no custom filters are required.
+        Get the query for only returning users the admin has permission to view/manage,
+        based on group/platform roles
+        """
+        allowed_platforms_subquery = (
+            select(Platform.id)
+            .join(Platform.admin_roles)
+            .where(Auth0Role.name.in_(admin_roles))
+        )
+        platform_access_condition = BiocommonsUser.id.in_(
+            select(PlatformMembership.user_id).where(
+                PlatformMembership.platform_id.in_(allowed_platforms_subquery)
+            )
+        )
+        allowed_groups_subquery = (
+            select(BiocommonsGroup.group_id)
+            .join(BiocommonsGroup.admin_roles)
+            .where(Auth0Role.name.in_(admin_roles))
+        )
+        group_access_condition = BiocommonsUser.id.in_(
+            select(GroupMembership.user_id).where(
+                GroupMembership.group_id.in_(allowed_groups_subquery)
+            )
+        )
+        return or_(platform_access_condition, group_access_condition)
+
+    def get_complete_query(self, admin_roles: list[str], pagination: PaginationParams = None) -> SelectOfScalar[BiocommonsUser]:
+        """
+        Return a full user query, with permissions from admin roles applied
         """
         return (
             self.get_base_query()
-            .where(*self.get_query_conditions())
+            .where(
+                self.get_admin_permissions_query(admin_roles),
+                *self.get_query_conditions())
             .distinct()
             .offset(pagination.start_index)
             .limit(pagination.per_page)
@@ -381,7 +411,8 @@ class UserQueryParams(BaseModel):
 
     def get_query_conditions(self):
         """
-        Returns a list of SQLAlchemy queries that can be passed to where().
+        Returns a list of SQLAlchemy queries for the filters that have been set.
+        The queries can be passed to where().
         Checks that the value of each field is not None, and if not calls the query method
         """
         queries = []
@@ -490,48 +521,33 @@ class UserQueryParams(BaseModel):
             )
 
 
-@router.get("/users",
-            response_model=list[BiocommonsUserResponse])
-def get_users(admin_user: Annotated[SessionUser, Depends(get_session_user)],
-              db_session: Annotated[Session, Depends(get_db_session)],
-              user_query: Annotated[UserQueryParams, Depends()],
-              pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
-              ):
+def get_filtered_user_query(
+        admin_user: Annotated[SessionUser, Depends(get_session_user)],
+        user_query: Annotated[UserQueryParams, Depends()],
+        pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+):
     """
-    Get all users from the database with pagination and optional filtering.
+    Get an SQLAlchemy query for users based on the provided filter parameters,
+    filtered to only return users the admin has permission to view/manage.
     """
     admin_roles = admin_user.access_token.biocommons_roles
-    # Default query for users: join against platform and group membership
-    #   in case needed for filtering
-    base_query = select(BiocommonsUser)
+    return user_query.get_complete_query(admin_roles, pagination)
 
+
+@router.get("/users",
+            response_model=list[BiocommonsUserResponse])
+def get_users(db_session: Annotated[Session, Depends(get_db_session)],
+              query_params: Annotated[UserQueryParams, Depends()],
+              user_query: Annotated[SelectOfScalar[BiocommonsUser], Depends(get_filtered_user_query)]):
+    """
+    Get all users from the database with pagination and optional filtering.
+
+    The admin_user must have roles that allow access to either the platform or group to
+    see the users.
+    """
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
-    user_query.check_missing_ids(db_session)
-    # Always check allowed platforms
-    allowed_platforms_subquery = (
-        select(Platform.id)
-        .join(Platform.admin_roles)
-        .where(Auth0Role.name.in_(admin_roles))
-    )
-
-    platform_access_condition = BiocommonsUser.id.in_(
-        select(PlatformMembership.user_id).where(
-            PlatformMembership.platform_id.in_(allowed_platforms_subquery)
-        )
-    )
-    # Add other queries based on query params
-    query_conditions = [
-        platform_access_condition,
-        *user_query.get_query_conditions()
-    ]
-
-    final_query = (
-        base_query.where(*query_conditions)
-        .distinct()
-        .offset(pagination.start_index)
-        .limit(pagination.per_page)
-    )
-    users = db_session.exec(final_query).all()
+    query_params.check_missing_ids(db_session)
+    users = db_session.exec(user_query).all()
     return users
 
 
@@ -540,37 +556,57 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_session_user)],
     "/users/approved",
     response_model=list[BiocommonsUserResponse])
 def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
+                       admin_user: Annotated[SessionUser, Depends(get_session_user)],
                        pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    approved_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.APPROVED).get_complete_query(pagination)
-    return db_session.exec(approved_query).all()
+    user_query = get_filtered_user_query(
+        admin_user=admin_user,
+        user_query=UserQueryParams(platform_approval_status=ApprovalStatusEnum.APPROVED),
+        pagination=pagination,
+    )
+    return db_session.exec(user_query).all()
 
 
 @router.get("/users/pending",
             response_model=list[BiocommonsUserResponse])
 def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
+                      admin_user: Annotated[SessionUser, Depends(get_session_user)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    pending_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.PENDING).get_complete_query(pagination)
-    return db_session.exec(pending_query).all()
+    user_query = get_filtered_user_query(
+        admin_user=admin_user,
+        user_query=UserQueryParams(platform_approval_status=ApprovalStatusEnum.PENDING),
+        pagination=pagination,
+    )
+    return db_session.exec(user_query).all()
 
 
 @router.get("/users/revoked",
             response_model=list[BiocommonsUserResponse])
 def get_revoked_users(db_session: Annotated[Session, Depends(get_db_session)],
+                      admin_user: Annotated[SessionUser, Depends(get_session_user)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    revoked_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.REVOKED).get_complete_query(pagination)
-    return db_session.exec(revoked_query).all()
+    user_query = get_filtered_user_query(
+        admin_user=admin_user,
+        user_query=UserQueryParams(platform_approval_status=ApprovalStatusEnum.REVOKED),
+        pagination=pagination,
+    )
+    return db_session.exec(user_query).all()
 
 
 @router.get("/users/unverified", response_model=list[BiocommonsUserResponse])
 def get_unverified_users(
     db_session: Annotated[Session, Depends(get_db_session)],
+    admin_user: Annotated[SessionUser, Depends(get_session_user)],
     pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
 ):
     """
     Return users whose email is not verified
     """
-    query = UserQueryParams(email_verified=False).get_complete_query(pagination)
-    return db_session.exec(query).all()
+    user_query = get_filtered_user_query(
+        admin_user=admin_user,
+        user_query=UserQueryParams(email_verified=False),
+        pagination=pagination,
+    )
+    return db_session.exec(user_query).all()
 
 
 @router.get("/users/{user_id}",
