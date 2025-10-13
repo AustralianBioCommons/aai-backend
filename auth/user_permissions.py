@@ -6,7 +6,7 @@ from starlette import status
 
 from auth.validator import oauth2_scheme, verify_jwt
 from config import Settings, get_settings
-from db.models import BiocommonsUser
+from db.models import BiocommonsUser, Platform, PlatformMembership
 from db.setup import get_db_session
 from schemas.user import SessionUser
 
@@ -65,4 +65,53 @@ def user_is_biocommons_admin(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="You must be an admin to access this endpoint.",
+    )
+
+
+def has_platform_admin_permission(
+    platform_id: str,
+    current_user: Annotated[SessionUser, Depends(get_session_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    platform = Platform.get_by_id(platform_id, db_session)
+    if platform is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Platform '{platform_id}' not found",
+        )
+    if platform.is_admin(current_user):
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to access this platform.",
+    )
+
+
+def has_platform_admin_permission_for_user(
+    user_id: str,
+    admin_user: Annotated[SessionUser, Depends(user_is_general_admin)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """
+    Check if the current user has the right to manage the specified user,
+    based on platform admin roles.
+    """
+    user_in_db = BiocommonsUser.get_by_id(user_id)
+    if user_in_db is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User '{user_id}' not found",
+        )
+    admin_platforms = Platform.get_for_admin_roles(
+        role_names=admin_user.access_token.biocommons_roles,
+        session=db_session,
+    )
+    memberships = PlatformMembership.get_by_user_id(user_id=user_id, session=db_session)
+    membership_ids = [pm.platform_id for pm in memberships]
+    for admin_platform in admin_platforms:
+        if admin_platform.id in membership_ids:
+            return admin_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to perform this action.",
     )

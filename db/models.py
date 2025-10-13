@@ -201,6 +201,15 @@ class Platform(BaseModel, table=True):
             .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
         ).all()
 
+    def is_admin(self, user: SessionUser) -> bool:
+        """
+        Check if the user is an admin on this platform (based on access token roles).
+        """
+        for role in user.access_token.biocommons_roles:
+            if role in self.admin_roles:
+                return True
+        return False
+
 
 class PlatformMembership(BaseModel, table=True):
     __table_args__ = (
