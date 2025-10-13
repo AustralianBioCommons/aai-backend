@@ -58,8 +58,14 @@ class BiocommonsUserResponse(BaseModel):
     username: str = Field(description="User username")
     email_verified: bool = Field(description="User email verification status")
     created_at: datetime = Field(description="User creation timestamp")
-    platform_memberships: list[PlatformMembershipData] = Field(default_factory=list)
-    group_memberships: list[GroupMembershipData] = Field(default_factory=list)
+    platform_memberships: list[PlatformMembershipData] = Field(
+        default_factory=list,
+        description="List of platform memberships with approval status and metadata"
+    )
+    group_memberships: list[GroupMembershipData] = Field(
+        default_factory=list,
+        description="List of group memberships with approval status and metadata"
+    )
 
     @classmethod
     def from_db_user(cls, user: BiocommonsUser) -> "BiocommonsUserResponse":
