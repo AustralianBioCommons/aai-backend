@@ -27,6 +27,7 @@ from tests.db.datagen import (
     PlatformFactory,
     PlatformMembershipFactory,
     _create_user_with_platform_membership,
+    _users_with_group_membership,
     _users_with_platform_membership,
 )
 
@@ -133,6 +134,36 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
     user_ids = [u["id"] for u in data]
     assert all(u.id in user_ids for u in valid_users)
     assert all(u.id not in user_ids for u in invalid_users)
+
+
+def test_get_users_platform_or_group_access(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    tsi_group,
+    test_db_session,
+    persistent_factories
+):
+    """
+    Test that admins can get users with platform *or* group memberships
+    they have access to.
+    """
+    other_platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    other_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.BPA_GALAXY)
+    test_db_session.commit()
+    galaxy_users = _users_with_platform_membership(n=5, db_session=test_db_session, platform_id=galaxy_platform.id)
+    other_platform_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=other_platform.id)
+    tsi_users = _users_with_group_membership(n=5, db_session=test_db_session, group_id=tsi_group.group_id)
+    other_group_users = _users_with_group_membership(n=3, db_session=test_db_session, group_id=other_group.group_id)
+
+    resp = test_client.get("/admin/users")
+    data = resp.json()
+    assert len(data) == 10
+    user_ids = [u["id"] for u in data]
+    assert all(u.id in user_ids for u in galaxy_users)
+    assert all(u.id in user_ids for u in tsi_users)
+    assert all(u.id not in user_ids for u in other_platform_users)
+    assert all(u.id not in user_ids for u in other_group_users)
 
 
 def test_get_users_pagination_params(test_client, as_admin_user, galaxy_platform, mock_auth0_client, test_db_session):
