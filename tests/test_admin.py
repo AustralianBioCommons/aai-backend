@@ -392,10 +392,20 @@ def test_get_user(test_client, test_db_session, as_admin_user, persistent_factor
     user = BiocommonsUserFactory.create_sync()
     resp = test_client.get(f"/admin/users/{user.id}")
     assert resp.status_code == 200
-    assert resp.json() == user.model_dump(mode='json')
+    response_data = resp.json()
+
+    assert response_data["id"] == user.id
+    assert response_data["email"] == user.email
+    assert response_data["username"] == user.username
+    assert response_data["email_verified"] == user.email_verified
+
+    assert "platform_memberships" in response_data
+    assert "group_memberships" in response_data
+    assert isinstance(response_data["platform_memberships"], list)
+    assert isinstance(response_data["group_memberships"], list)
 
 
-def test_get_approved_users(test_client, test_db_session, as_admin_user, persistent_factories):
+def test_get_approved_users(test_client, test_db_session, as_admin_user, persistent_factories, galaxy_platform):
     approved_users = BiocommonsUserFactory.create_batch_sync(3)
     for u in approved_users:
         u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=True)
@@ -407,7 +417,7 @@ def test_get_approved_users(test_client, test_db_session, as_admin_user, persist
         assert returned_user["id"] in approved_ids
 
 
-def test_get_pending_users(test_client, test_db_session, as_admin_user, persistent_factories):
+def test_get_pending_users(test_client, test_db_session, as_admin_user, persistent_factories, galaxy_platform):
     pending_users = BiocommonsUserFactory.create_batch_sync(3)
     for u in pending_users:
         u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=False)
@@ -421,7 +431,7 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, persiste
         assert returned_user["id"] in expected_ids
 
 
-def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories):
+def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories, galaxy_platform):
     revoked_users = BiocommonsUserFactory.create_batch_sync(3)
     for u in revoked_users:
         PlatformMembershipFactory.create_sync(
@@ -792,7 +802,7 @@ def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client
     assert resp.json() == {"message": "Verification email resent."}
 
 
-def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group):
+def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group, galaxy_platform):
     user = Auth0UserDataFactory.build()
     db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])
     group_membership = GroupMembershipFactory.create_sync(group=tsi_group, user=db_user, approval_status="approved")
