@@ -127,9 +127,9 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert resp.status_code == 200
     assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
     # Check membership request is created along with history entry
-    membership = GroupMembership.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
-    history = GroupMembershipHistory.get_by_user_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    history = GroupMembershipHistory.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
     assert membership.user == user

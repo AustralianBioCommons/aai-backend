@@ -33,7 +33,7 @@ async def sync_auth0_users():
 async def update_auth0_user(user_data: Auth0UserData):
     logger.info(f"Checking user {user_data.user_id}")
     session = next(get_db_session())
-    db_user = session.get(BiocommonsUser, user_data.user_id)
+    db_user = BiocommonsUser.get_by_id(user_data.user_id, session)
     if db_user is None:
         logger.info("  User not found in DB")
         return False
@@ -80,7 +80,7 @@ async def populate_db_groups():
     with db_session.begin():
         for group in GroupEnum:
             logger.info(f"  Group: {group.value}")
-            db_group = db_session.get(BiocommonsGroup, group.value)
+            db_group = BiocommonsGroup.get_by_id(group.value, db_session)
             if db_group is not None:
                 logger.info("    Group already exists in DB")
                 continue

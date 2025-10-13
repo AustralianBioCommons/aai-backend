@@ -122,7 +122,7 @@ def _get_platform_or_404(*, platform_id: str, db_session: Session) -> Platform:
             detail=f"Platform '{platform_id}' is not recognised",
         ) from exc
 
-    platform = db_session.get(Platform, platform_enum)
+    platform = Platform.get_by_id(platform_enum, db_session)
     if platform is None:
         raise HTTPException(
             status_code=404,
@@ -137,7 +137,7 @@ def _get_group_or_404(*, group_identifier: str, db_session: Session) -> Biocommo
     else:
         group_id = group_identifier
 
-    group = db_session.get(BiocommonsGroup, group_id)
+    group = BiocommonsGroup.get_by_id(group_id, db_session)
     if group is None:
         raise HTTPException(
             status_code=404,
@@ -147,7 +147,7 @@ def _get_group_or_404(*, group_identifier: str, db_session: Session) -> Biocommo
 
 
 def _get_admin_db_user(*, user_id: str, db_session: Session) -> BiocommonsUser:
-    db_user = db_session.get(BiocommonsUser, user_id)
+    db_user = BiocommonsUser.get_by_id(user_id, db_session)
     if db_user is None:
         raise HTTPException(
             status_code=404,
@@ -159,13 +159,8 @@ def _get_admin_db_user(*, user_id: str, db_session: Session) -> BiocommonsUser:
 def _get_platform_membership_or_404(
     *, user_id: str, platform_id: PlatformEnum, db_session: Session
 ) -> PlatformMembership:
-    membership = db_session.exec(
-        select(PlatformMembership).where(
-            PlatformMembership.user_id == user_id,
-            PlatformMembership.platform_id == platform_id,
-        )
-    ).one_or_none()
-    if membership is None:
+    membership = PlatformMembership.get_by_user_id_and_platform_id(user_id, platform_id, db_session)
+    if not membership:
         raise HTTPException(
             status_code=404,
             detail=f"Platform membership '{platform_id.value}' not found for user '{user_id}'",
@@ -176,7 +171,7 @@ def _get_platform_membership_or_404(
 def _get_group_membership_or_404(
     *, user_id: str, group_id: str, db_session: Session
 ) -> GroupMembership:
-    membership = GroupMembership.get_by_user_id(
+    membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user_id,
         group_id=group_id,
         session=db_session,
@@ -454,37 +449,27 @@ class UserQueryParams(BaseModel):
         conditions = [PlatformMembership.platform_id == self.platform]
         if self.platform_approval_status is not None:
             conditions.append(PlatformMembership.approval_status == self.platform_approval_status)
-        platform_query = (
-            select(PlatformMembership.user_id)
-            .where(*conditions)
-            .alias("platform_membership_q")
-        )
+        platform_query = select(PlatformMembership.user_id).where(*conditions)
         return BiocommonsUser.id.in_(platform_query)
 
     def platform_approval_status_query(self):
         # If platform is set, let platform_query handle the combined query
         if self.platform is not None:
             return None
-        platform_status_query = (
-            select(PlatformMembership.user_id)
-            .where(PlatformMembership.approval_status == self.platform_approval_status)
-            .alias("platform_approval_status_q")
+        platform_status_query = select(PlatformMembership.user_id).where(
+            PlatformMembership.approval_status == self.platform_approval_status
         )
         return BiocommonsUser.id.in_(platform_status_query)
 
     def group_query(self):
-        group_query = (
-            select(GroupMembership.user_id)
-            .where(GroupMembership.group_id == self.group)
-            .alias("group_membership_q")
+        group_query = select(GroupMembership.user_id).where(
+            GroupMembership.group_id == self.group
         )
         return BiocommonsUser.id.in_(group_query)
 
     def group_approval_status_query(self):
-        group_status_query = (
-            select(GroupMembership.user_id)
-            .where(GroupMembership.approval_status == self.group_approval_status)
-            .alias("group_approval_status_q")
+        group_status_query = select(GroupMembership.user_id).where(
+            GroupMembership.approval_status == self.group_approval_status
         )
         return BiocommonsUser.id.in_(group_status_query)
 
@@ -547,7 +532,7 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
         select(Platform.id)
         .join(Platform.admin_roles)
         .where(Auth0Role.name.in_(admin_roles))
-    ).alias("allowed_platforms_q")
+    )
 
     platform_access_condition = BiocommonsUser.id.in_(
         select(PlatformMembership.user_id).where(
