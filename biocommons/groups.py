@@ -30,6 +30,7 @@ class BiocommonsGroupCreate(BaseModel):
     """
     group_id: GroupId
     name: str
+    short_name: str
     admin_roles: list[RoleId | Auth0Role]
 
     def save(self, session: Session, auth0_client: Auth0Client) -> BiocommonsGroup:
@@ -47,6 +48,7 @@ class BiocommonsGroupCreate(BaseModel):
         group = BiocommonsGroup(
             group_id=self.group_id,
             name=self.name,
+            short_name=self.short_name,
             admin_roles=db_roles
         )
         session.add(group)

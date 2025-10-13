@@ -79,6 +79,7 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session):
     group = BiocommonsGroup(
         group_id="biocommons/group/bpa_galaxy",
         name="BPA Data Portal & Galaxy Access",
+        short_name="BPA-GA",
         admin_roles=[],
     )
     test_db_session.add(group)
@@ -128,6 +129,7 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session):
     group = BiocommonsGroup(
         group_id="biocommons/group/tsi",
         name="Threatened Species Initiative",
+        short_name="TSI",
         admin_roles=[],
     )
     test_db_session.add(group)
@@ -198,6 +200,7 @@ def test_biocommons_group_membership_with_existing_group(test_db_session):
     group = BiocommonsGroup(
         group_id="biocommons/group/bpa_galaxy",
         name="BPA Data Portal & Galaxy Access",
+        short_name="BPA-GA",
         admin_roles=[],
     )
     test_db_session.add(group)
@@ -261,6 +264,7 @@ def test_successful_biocommons_registration_endpoint(
     group = BiocommonsGroup(
         group_id="biocommons/group/bpa_galaxy",
         name="BPA Data Portal & Galaxy Access",
+        short_name="BPA-GA",
         admin_roles=[],
     )
     test_db_session.add(group)
@@ -320,6 +324,7 @@ def test_biocommons_registration_auth0_conflict_error(
     group = BiocommonsGroup(
         group_id="biocommons/group/bpa_galaxy",
         name="BPA Data Portal & Galaxy Access",
+        short_name="BPA-GA",
         admin_roles=[],
     )
     test_db_session.add(group)

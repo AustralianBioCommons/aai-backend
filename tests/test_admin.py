@@ -51,7 +51,7 @@ def tsi_group(persistent_factories):
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     return BiocommonsGroupFactory.create_sync(
         group_id=GroupEnum.TSI.value,
-        name="Threatened Species Initiative Bundle",
+        name="Threatened Species Initiative",
         admin_roles=[admin_role],
     )
 
@@ -172,7 +172,8 @@ def test_get_users_filter_by_platform(test_client, as_admin_user,
 def test_get_users_filter_by_group(test_client, as_admin_user, galaxy_platform, test_db_session):
     tsi_group = BiocommonsGroup(
         group_id=GroupEnum.TSI,
-        name="Threatened Species Initiative Bundle"
+        name="Threatened Species Initiative",
+        short_name="TSI"
     )
     test_db_session.add(tsi_group)
     test_db_session.commit()
@@ -383,8 +384,8 @@ def test_get_filter_options(test_client, as_admin_user):
     assert option_dict["galaxy"] == "Galaxy Australia"
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
     assert option_dict["sbp"] == "Structural Biology Platform"
-    assert option_dict["tsi"] == "Threatened Species Initiative Bundle"
-    assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"
+    assert option_dict["tsi"] == "Threatened Species Initiative"
+    assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia"
 
 
 def test_get_user(test_client, test_db_session, as_admin_user, persistent_factories):
