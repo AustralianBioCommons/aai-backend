@@ -26,6 +26,7 @@ class PlatformMembershipData(BaseModel):
     """Data model for platform membership, when returned from the API"""
     id: uuid.UUID
     platform_id: PlatformEnum
+    platform_name: str
     user_id: str
     approval_status: ApprovalStatusEnum
     updated_by: str
@@ -37,6 +38,7 @@ class GroupMembershipData(BaseModel):
     id: uuid.UUID
     group_id: str
     group_name: str
+    group_short_name: str
     approval_status: ApprovalStatusEnum
     updated_by: str
     revocation_reason: str | None = None
@@ -49,7 +51,7 @@ class GroupEnum(str, Enum):
 
 # Provide default group names so we can populate the DB easily
 #   - should use the DB values when looking them up though
-GROUP_NAMES: dict[GroupEnum, str] = {
-    GroupEnum.TSI: "Threatened Species Initiative",
-    GroupEnum.BPA_GALAXY: "Bioplatforms Australia Data Portal & Galaxy Australia",
+GROUP_NAMES: dict[GroupEnum, tuple[str, str]] = {
+    GroupEnum.TSI: ("Threatened Species Initiative", "TSI"),
+    GroupEnum.BPA_GALAXY: ("Bioplatforms Australia Data Portal & Galaxy Australia", "BPA-GA"),
 }

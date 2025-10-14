@@ -44,6 +44,7 @@ def test_create_group(test_client, as_admin_user, test_auth0_client, test_db_ses
         json={
             "group_id": "biocommons/group/tsi",
             "name": "Threatened Species Initiative",
+            "short_name": "TSI",
             "admin_roles": [admin_role.name]
         }
     )

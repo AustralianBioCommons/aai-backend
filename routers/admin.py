@@ -20,7 +20,12 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import ApprovalStatusEnum, GroupEnum
+from db.types import (
+    ApprovalStatusEnum,
+    GroupEnum,
+    GroupMembershipData,
+    PlatformMembershipData,
+)
 from schemas.biocommons import Auth0UserDataWithMemberships
 from schemas.user import SessionUser
 
@@ -39,8 +44,8 @@ PLATFORM_MAPPING = {
 }
 
 GROUP_MAPPING = {
-    "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative Bundle"},
-    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"},
+    "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative"},
+    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia"},
 }
 
 
@@ -53,6 +58,27 @@ class BiocommonsUserResponse(BaseModel):
     username: str = Field(description="User username")
     email_verified: bool = Field(description="User email verification status")
     created_at: datetime = Field(description="User creation timestamp")
+    platform_memberships: list[PlatformMembershipData] = Field(
+        default_factory=list,
+        description="List of platform memberships with approval status and metadata"
+    )
+    group_memberships: list[GroupMembershipData] = Field(
+        default_factory=list,
+        description="List of group memberships with approval status and metadata"
+    )
+
+    @classmethod
+    def from_db_user(cls, user: BiocommonsUser) -> "BiocommonsUserResponse":
+        """Convert a BiocommonsUser DB model to a response model with membership data."""
+        return cls(
+            id=user.id,
+            email=user.email,
+            username=user.username,
+            email_verified=user.email_verified,
+            created_at=user.created_at,
+            platform_memberships=[m.get_data() for m in user.platform_memberships],
+            group_memberships=[m.get_data() for m in user.group_memberships],
+        )
 
 
 class PaginationParams(BaseModel):
@@ -532,7 +558,7 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
         .limit(pagination.per_page)
     )
     users = db_session.exec(final_query).all()
-    return users
+    return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
 # NOTE: This must appear before /users/{user_id} so it takes precedence
@@ -542,7 +568,8 @@ def get_users(admin_user: Annotated[SessionUser, Depends(get_current_user)],
 def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
                        pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
     approved_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.APPROVED).get_complete_query(pagination)
-    return db_session.exec(approved_query).all()
+    users = db_session.exec(approved_query).all()
+    return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
 @router.get("/users/pending",
@@ -550,7 +577,8 @@ def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
 def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
     pending_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.PENDING).get_complete_query(pagination)
-    return db_session.exec(pending_query).all()
+    users = db_session.exec(pending_query).all()
+    return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
 @router.get("/users/revoked",
@@ -558,7 +586,8 @@ def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
 def get_revoked_users(db_session: Annotated[Session, Depends(get_db_session)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
     revoked_query = UserQueryParams(platform_approval_status=ApprovalStatusEnum.REVOKED).get_complete_query(pagination)
-    return db_session.exec(revoked_query).all()
+    users = db_session.exec(revoked_query).all()
+    return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
 @router.get("/users/unverified", response_model=list[BiocommonsUserResponse])
@@ -570,7 +599,8 @@ def get_unverified_users(
     Return users whose email is not verified
     """
     query = UserQueryParams(email_verified=False).get_complete_query(pagination)
-    return db_session.exec(query).all()
+    users = db_session.exec(query).all()
+    return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
 @router.get("/users/{user_id}",
@@ -578,7 +608,7 @@ def get_unverified_users(
 def get_user(user_id: Annotated[str, UserIdParam],
              db_session: Annotated[Session, Depends(get_db_session)]):
     user = db_session.get_one(BiocommonsUser, user_id)
-    return user
+    return BiocommonsUserResponse.from_db_user(user)
 
 
 @router.get("/users/{user_id}/details",
