@@ -22,7 +22,8 @@ logger = logging.getLogger("uvicorn.error")
 
 # All routes should require biocommons admin permissions
 router = APIRouter(prefix="/biocommons-admin", tags=["admin"],
-                   dependencies=[Depends(user_is_biocommons_admin)])
+                   dependencies=[Depends(user_is_biocommons_admin)],
+                   include_in_schema=False)
 
 
 @router.post("/groups/create",
