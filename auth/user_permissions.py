@@ -6,8 +6,9 @@ from starlette import status
 
 from auth.validator import oauth2_scheme, verify_jwt
 from config import Settings, get_settings
-from db.models import BiocommonsUser, Platform, PlatformMembership
+from db.models import BiocommonsGroup, BiocommonsUser, Platform
 from db.setup import get_db_session
+from schemas.biocommons import ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
 
 
@@ -79,7 +80,7 @@ def has_platform_admin_permission(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Platform '{platform_id}' not found",
         )
-    if platform.is_admin(current_user):
+    if platform.user_is_admin(current_user):
         return current_user
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -87,31 +88,123 @@ def has_platform_admin_permission(
     )
 
 
+def has_admin_permission_for_user(
+    user_id: str,
+    admin: Annotated[SessionUser, Depends(user_is_general_admin)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+) -> bool:
+    """
+    Check if the current admin has the right to manage the specified user,
+    as either a platform admin or a group admin.
+    """
+    platform_permission = has_platform_admin_permission_for_user(
+        user_id=user_id,
+        admin=admin,
+        db_session=db_session,
+    )
+    group_permission = has_group_admin_permission_for_user(
+        user_id=user_id,
+        admin=admin,
+        db_session=db_session,
+    )
+    return platform_permission or group_permission
+
+
 def has_platform_admin_permission_for_user(
     user_id: str,
-    admin_user: Annotated[SessionUser, Depends(user_is_general_admin)],
+    admin: Annotated[SessionUser, Depends(user_is_general_admin)],
     db_session: Annotated[Session, Depends(get_db_session)],
-):
+) -> bool:
     """
-    Check if the current user has the right to manage the specified user,
+    Check if the current admin has the right to manage the specified user,
     based on platform admin roles.
     """
-    user_in_db = BiocommonsUser.get_by_id(user_id)
+    user_in_db = BiocommonsUser.get_by_id(user_id, session=db_session)
     if user_in_db is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User '{user_id}' not found",
         )
-    admin_platforms = Platform.get_for_admin_roles(
-        role_names=admin_user.access_token.biocommons_roles,
+    admin_platforms = Platform.get_from_admin_roles(
+        role_names=admin.access_token.biocommons_roles,
         session=db_session,
     )
-    memberships = PlatformMembership.get_by_user_id(user_id=user_id, session=db_session)
-    membership_ids = [pm.platform_id for pm in memberships]
-    for admin_platform in admin_platforms:
-        if admin_platform.id in membership_ids:
-            return admin_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have permission to perform this action.",
+    for membership in user_in_db.platform_memberships:
+        if membership.platform in admin_platforms:
+            return True
+    return False
+
+
+def has_group_admin_permission_for_user(
+        user_id: str,
+        admin: Annotated[SessionUser, Depends(user_is_general_admin)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+) -> bool:
+    """
+    Check if the current admin has the right to manage the specified user,
+    based on platform admin roles.
+    """
+    user_in_db = BiocommonsUser.get_by_id(user_id, session=db_session)
+    admin_groups = BiocommonsGroup.get_from_admin_roles(
+        role_names=admin.access_token.biocommons_roles,
+        session=db_session,
     )
+    for membership in user_in_db.group_memberships:
+        if membership.group in admin_groups:
+            return True
+    return False
+
+
+def require_admin_permission_for_user(
+        user_id: Annotated[str, UserIdParam],
+        admin: Annotated[SessionUser, Depends(user_is_general_admin)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """
+    Dependency for checking if the current admin has the right to manage the
+    specified user (user_id should be a path parameter)..
+    Raises an HTTPException if not.
+    """
+    if not has_admin_permission_for_user(user_id, admin, db_session):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to manage this user.",
+        )
+    return True
+
+
+def require_admin_permission_for_platform(
+        platform_id: Annotated[str, ServiceIdParam],
+        admin: Annotated[SessionUser, Depends(user_is_general_admin)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """
+    Dependency for checking if the current admin has the right to manage the
+    platform (platform_id should be a path parameter)..
+
+    Raises HTTPException if the admin doesn't have permission.
+    """
+    platform = Platform.get_by_id(platform_id, db_session)
+    if not platform.user_is_admin(admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to manage this platform.",
+        )
+
+
+def require_admin_permission_for_group(
+        group_id: Annotated[str, ServiceIdParam],
+        admin: Annotated[SessionUser, Depends(user_is_general_admin)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """
+    Dependency for checking if the current admin has the right to manage the
+    group (group_id should be a path parameter).
+    """
+    group = BiocommonsGroup.get_by_id(group_id, db_session)
+    if not group.user_is_admin(admin):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to manage this group.",
+        )
+    return True
