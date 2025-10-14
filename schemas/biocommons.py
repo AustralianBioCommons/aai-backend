@@ -251,4 +251,4 @@ class Auth0UserDataWithMemberships(Auth0UserData):
 
 
 UserIdParam = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$")
-ServiceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
+ServiceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_%/]+$")

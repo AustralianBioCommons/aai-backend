@@ -568,7 +568,8 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
     return _membership_response()
 
 
-@router.post("/users/{user_id}/groups/{group_id}/approve",
+# Need :path for group_id as may contain slashes
+@router.post("/users/{user_id}/groups/{group_id:path}/approve",
              dependencies=[Depends(require_admin_permission_for_group)])
 def approve_group_membership(user_id: Annotated[str, UserIdParam],
                              group_id: Annotated[str, ServiceIdParam],
@@ -586,7 +587,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
     return _membership_response()
 
 
-@router.post("/users/{user_id}/groups/{group_id}/revoke",
+@router.post("/users/{user_id}/groups/{group_id:path}/revoke",
              dependencies=[Depends(require_admin_permission_for_group)])
 def revoke_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
