@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from urllib.parse import quote
 
 import pytest
 from fastapi import HTTPException
@@ -422,11 +423,23 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
     assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"
 
 
-def test_get_user(test_client, test_db_session, as_admin_user, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
+def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    """
+    Test getting a user by ID. The admin must have access to the user
+    via group/platform membership.
+    """
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
     resp = test_client.get(f"/admin/users/{user.id}")
     assert resp.status_code == 200
     assert resp.json() == user.model_dump(mode='json')
+
+
+def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_admin_user, persistent_factories):
+    # Create user with platform membership that admin can't access
+    platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=platform.id)
+    resp = test_client.get(f"/admin/users/{user.id}")
+    assert resp.status_code == 403
 
 
 def test_get_approved_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
@@ -499,8 +512,6 @@ def test_approve_platform_membership_updates_db(
     )
     admin_db_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
-        platform_memberships=[],
-        group_memberships=[],
     )
     test_db_session.commit()
 
@@ -682,7 +693,8 @@ def test_approve_group_membership_updates_db(
     mock_auth0_client.get_role_by_name.return_value = mock_role
     mock_auth0_client.add_roles_to_user.return_value = True
 
-    resp = test_client.post(f"/admin/users/{user.id}/groups/tsi/approve")
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
@@ -724,7 +736,7 @@ def test_approve_group_membership_forbidden_without_group_role(
 
     try:
         resp = test_client.post(
-            f"/admin/users/{user.id}/groups/tsi/approve",
+            f"/admin/users/{user.id}/groups/{tsi_group.group_id}/approve",
         )
     finally:
         app.dependency_overrides.clear()
@@ -761,7 +773,7 @@ def test_revoke_group_membership_records_reason(
 
     reason = "Access no longer required"
     resp = test_client.post(
-        f"/admin/users/{user.id}/groups/tsi/revoke",
+        f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
         json={"reason": reason},
     )
 
@@ -804,7 +816,7 @@ def test_revoke_group_membership_forbidden_without_group_role(
 
     try:
         resp = test_client.post(
-            f"/admin/users/{user.id}/groups/tsi/revoke",
+            f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
             json={"reason": "Policy"},
         )
     finally:
@@ -820,13 +832,27 @@ def test_revoke_group_membership_forbidden_without_group_role(
     assert membership.revocation_reason == original_reason
 
 
-def test_resend_verification_email(test_client, as_admin_user, test_db_session, mock_auth0_client):
-    user = Auth0UserDataFactory.build()
+def test_resend_verification_email(test_client, as_admin_user, test_db_session, galaxy_platform, mock_auth0_client):
+    """
+    Test resend verification email - requires admin permissions for the user
+    """
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
     response_data = EmailVerificationResponseFactory.build()
     mock_auth0_client.resend_verification_email.return_value = response_data
-    resp = test_client.post(f"/admin/users/{user.user_id}/verification-email/resend")
+    resp = test_client.post(f"/admin/users/{user.id}/verification-email/resend")
     assert resp.status_code == 200
     assert resp.json() == {"message": "Verification email resent."}
+
+
+def test_resend_verification_email_unauthorized(test_client, as_admin_user, test_db_session, persistent_factories):
+    """
+    Test resend verification email fails when admin doesn't have permission
+    """
+    # User has membership to a platform that admin can't access
+    platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=platform.id)
+    resp = test_client.post(f"/admin/users/{user.id}/verification-email/resend")
+    assert resp.status_code == 403
 
 
 def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group):
