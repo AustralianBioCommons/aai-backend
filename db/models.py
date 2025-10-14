@@ -218,7 +218,7 @@ class Platform(BaseModel, table=True):
         Check if the user is an admin on this platform (based on access token roles).
         """
         for role in user.access_token.biocommons_roles:
-            if role in self.admin_roles:
+            if role in {ar.name for ar in self.admin_roles}:
                 return True
         return False
 
