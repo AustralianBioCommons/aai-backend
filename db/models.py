@@ -182,6 +182,7 @@ class Platform(BaseModel, table=True):
         platform = cls.get_by_id(platform_id, session)
         if platform is None:
             raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+        return platform
 
     @classmethod
     def get_all_admin_roles(cls, session: Session) -> list["Auth0Role"]:
