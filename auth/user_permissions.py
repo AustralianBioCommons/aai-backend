@@ -201,7 +201,7 @@ def require_admin_permission_for_group(
     Dependency for checking if the current admin has the right to manage the
     group (group_id should be a path parameter).
     """
-    group = BiocommonsGroup.get_by_id(group_id, db_session)
+    group = BiocommonsGroup.get_by_id_or_404(group_id, db_session)
     if not group.user_is_admin(admin):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
