@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from typing import Annotated, List, Literal, Optional, Self
 
+from fastapi import Path
 from pydantic import (
     AfterValidator,
     BaseModel,
@@ -247,3 +248,7 @@ class Auth0UserDataWithMemberships(Auth0UserData):
         platforms = [platform.get_data() for platform in db_data.platform_memberships]
         groups = [group.get_data() for group in db_data.group_memberships]
         return cls(**auth0_data.model_dump(), platform_memberships=platforms, group_memberships=groups)
+
+
+UserIdParam = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$")
+ServiceIdParam = Path(..., pattern=r"^[-a-zA-Z0-9_]+$")
