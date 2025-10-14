@@ -467,6 +467,7 @@ def test_create_biocommons_group(test_db_session, persistent_factories):
     group = BiocommonsGroup(
         group_id="biocommons/group/tsi",
         name="Threatened Species Initiative",
+        short_name="TSI",
         admin_roles=roles
     )
     test_db_session.add(group)

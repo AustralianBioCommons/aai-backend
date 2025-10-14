@@ -313,6 +313,7 @@ class PlatformMembership(BaseModel, table=True):
         return PlatformMembershipData(
             id=self.id,
             platform_id=self.platform_id,
+            platform_name=self.platform.name,
             user_id=self.user_id,
             approval_status=self.approval_status,
             updated_by=updated_by,
@@ -481,6 +482,7 @@ class GroupMembership(BaseModel, table=True):
             id=self.id,
             group_id=self.group_id,
             group_name=self.group.name,
+            group_short_name=self.group.short_name,
             approval_status=self.approval_status,
             updated_by=updated_by,
             revocation_reason=self.revocation_reason,
@@ -604,6 +606,8 @@ class BiocommonsGroup(BaseModel, table=True):
     group_id: str = Field(primary_key=True, unique=True)
     # Human-readable name for the group
     name: str = Field(unique=True)
+    # Short name / abbreviation for the group
+    short_name: str = Field(unique=True)
     # List of roles that are allowed to approve group membership
     admin_roles: list[Auth0Role] = Relationship(
         back_populates="admin_groups", link_model=GroupRoleLink

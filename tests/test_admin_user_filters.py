@@ -130,7 +130,7 @@ def test_get_users_combined_group_filters(
     # Create the group
     group = BiocommonsGroupFactory.create_sync(
         group_id=GroupEnum.TSI.value,
-        name="Threatened Species Initiative Bundle"
+        name="Threatened Species Initiative"
     )
 
     # Create users with TSI + Approved (should match)

@@ -42,6 +42,7 @@ def test_biocommons_group_create():
     group = BiocommonsGroupCreate(
         group_id="biocommons/group/tsi",
         name="Threatened Species Initiative",
+        short_name="TSI",
         admin_roles=["biocommons/role/tsi/admin", "biocommons/role/bpa/admin"]
     )
     assert group.group_id == "biocommons/group/tsi"
@@ -57,6 +58,7 @@ def test_biocommons_group_create_save(test_db_session, test_auth0_client):
     group = BiocommonsGroupCreate(
         group_id="biocommons/group/tsi",
         name="Threatened Species Initiative",
+        short_name="TSI",
         admin_roles=[tsi_admin, sysadmin]
     )
     group.save_group(test_db_session)

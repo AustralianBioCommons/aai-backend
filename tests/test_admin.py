@@ -53,7 +53,7 @@ def tsi_group(persistent_factories):
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     return BiocommonsGroupFactory.create_sync(
         group_id=GroupEnum.TSI.value,
-        name="Threatened Species Initiative Bundle",
+        name="Threatened Species Initiative",
         admin_roles=[admin_role],
     )
 
@@ -208,7 +208,8 @@ def test_get_users_filter_by_platform(test_client, as_admin_user,
 def test_get_users_filter_by_group(test_client, as_admin_user, galaxy_platform, test_db_session):
     tsi_group = BiocommonsGroup(
         group_id=GroupEnum.TSI,
-        name="Threatened Species Initiative Bundle"
+        name="Threatened Species Initiative",
+        short_name="TSI"
     )
     test_db_session.add(tsi_group)
     test_db_session.commit()
@@ -419,8 +420,8 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
     assert option_dict["galaxy"] == "Galaxy Australia"
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
     assert option_dict["sbp"] == "Structural Biology Platform"
-    assert option_dict["tsi"] == "Threatened Species Initiative Bundle"
-    assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia Bundle"
+    assert option_dict["tsi"] == "Threatened Species Initiative"
+    assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia"
 
 
 def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
@@ -431,7 +432,17 @@ def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, 
     user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
     resp = test_client.get(f"/admin/users/{user.id}")
     assert resp.status_code == 200
-    assert resp.json() == user.model_dump(mode='json')
+    response_data = resp.json()
+
+    assert response_data["id"] == user.id
+    assert response_data["email"] == user.email
+    assert response_data["username"] == user.username
+    assert response_data["email_verified"] == user.email_verified
+
+    assert "platform_memberships" in response_data
+    assert "group_memberships" in response_data
+    assert isinstance(response_data["platform_memberships"], list)
+    assert isinstance(response_data["group_memberships"], list)
 
 
 def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_admin_user, persistent_factories):
@@ -463,6 +474,7 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_p
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.PENDING
     )
+
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -478,6 +490,7 @@ def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_p
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.REVOKED
     )
+
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -855,7 +868,7 @@ def test_resend_verification_email_unauthorized(test_client, as_admin_user, test
     assert resp.status_code == 403
 
 
-def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group):
+def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group, galaxy_platform):
     user = Auth0UserDataFactory.build()
     db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])
     group_membership = GroupMembershipFactory.create_sync(group=tsi_group, user=db_user, approval_status="approved")

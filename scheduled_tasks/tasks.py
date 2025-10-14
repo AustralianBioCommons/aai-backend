@@ -86,7 +86,8 @@ async def populate_db_groups():
                 continue
             else:
                 logger.info("    Group does not exist in DB, creating")
-                name = GROUP_NAMES.get(group, group.value)
-                db_group = BiocommonsGroup(group_id=group.value, name=name)
+                name_tuple = GROUP_NAMES.get(group, (group.value, group.value))
+                name, short_name = name_tuple if isinstance(name_tuple, tuple) else (name_tuple, group.value)
+                db_group = BiocommonsGroup(group_id=group.value, name=name, short_name=short_name)
                 db_session.add(db_group)
         db_session.commit()
