@@ -148,7 +148,7 @@ async def get_admin_platforms(
 ):
     """Get platforms for which the current user has admin privileges."""
     user_roles = user.access_token.biocommons_roles
-    return Platform.get_for_admin_roles(role_names=user_roles, session=db_session)
+    return Platform.get_from_admin_roles(role_names=user_roles, session=db_session)
 
 
 @router.get("/groups",
