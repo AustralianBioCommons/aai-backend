@@ -20,25 +20,49 @@ class BiocommonsUserFactory(SQLAlchemyFactory[BiocommonsUser]):
     def id(cls) -> str:
         return random_auth0_id()
 
+    @classmethod
+    def is_deleted(cls) -> bool:
+        return False
+
 
 class Auth0RoleFactory(SQLAlchemyFactory[Auth0Role]):
     __set_relationships__ = False
+
+    @classmethod
+    def is_deleted(cls) -> bool:
+        return False
 
 
 class BiocommonsGroupFactory(SQLAlchemyFactory[BiocommonsGroup]):
     __set_relationships__ = False
 
+    @classmethod
+    def is_deleted(cls) -> bool:
+        return False
+
 
 class GroupMembershipFactory(SQLAlchemyFactory[GroupMembership]):
     __set_relationships__ = False
+
+    @classmethod
+    def is_deleted(cls) -> bool:
+        return False
 
 
 class PlatformMembershipFactory(SQLAlchemyFactory[PlatformMembership]):
     __set_relationships__ = False
 
+    @classmethod
+    def is_deleted(cls) -> bool:
+        return False
+
 
 class PlatformFactory(SQLAlchemyFactory[Platform]):
     __set_relationships__ = False
+
+    @classmethod
+    def is_deleted(cls) -> bool:
+        return False
 
 
 def _create_user_with_platform_membership(db_session: Session, platform_id: PlatformEnum,
