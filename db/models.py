@@ -6,6 +6,7 @@ from pydantic import AwareDatetime
 from sqlalchemy import Column, String, UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
+from starlette.exceptions import HTTPException
 
 import schemas
 from auth0.client import Auth0Client
@@ -177,6 +178,12 @@ class Platform(BaseModel, table=True):
         return session.get(cls, platform_id)
 
     @classmethod
+    def get_by_id_or_404(cls, platform_id: PlatformEnum, session: Session) -> Self:
+        platform = cls.get_by_id(platform_id, session)
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+
+    @classmethod
     def get_all_admin_roles(cls, session: Session) -> list["Auth0Role"]:
         return session.exec(
             select(Auth0Role)
@@ -185,7 +192,11 @@ class Platform(BaseModel, table=True):
         ).all()
 
     @classmethod
-    def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+    def get_from_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+        """
+        Given a list of role names, return a list of platforms
+        where the roles grant admin rights.
+        """
         return session.exec(
             select(Platform)
             .join(Platform.admin_roles)
@@ -201,7 +212,7 @@ class Platform(BaseModel, table=True):
             .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
         ).all()
 
-    def is_admin(self, user: SessionUser) -> bool:
+    def user_is_admin(self, user: SessionUser) -> bool:
         """
         Check if the user is an admin on this platform (based on access token roles).
         """
@@ -265,6 +276,13 @@ class PlatformMembership(BaseModel, table=True):
                 PlatformMembership.platform_id == platform_id,
             )
         ).one_or_none()
+
+    @classmethod
+    def get_by_user_id_and_platform_id_or_404(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> Self:
+        membership = cls.get_by_user_id_and_platform_id(user_id, platform_id, session)
+        if membership is None:
+            raise HTTPException(status_code=404, detail=f"Platform membership for user {user_id} on platform {platform_id} not found")
+        return membership
 
     def save_history(self, session: Session) -> "PlatformMembershipHistory":
         # Make sure this object is in the session before accessing relationships
@@ -391,6 +409,13 @@ class GroupMembership(BaseModel, table=True):
                 GroupMembership.group_id == group_id,
             )
         ).one_or_none()
+
+    @classmethod
+    def get_by_user_id_and_group_id_or_404(cls, user_id: str, group_id: str, session: Session) -> Self:
+        membership = cls.get_by_user_id_and_group_id(user_id, group_id, session)
+        if membership is None:
+            raise HTTPException(status_code=404, detail=f"Group membership for user {user_id} on group {group_id} not found")
+        return membership
 
     @classmethod
     def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
@@ -591,6 +616,13 @@ class BiocommonsGroup(BaseModel, table=True):
     def get_by_id(cls, group_id: str, session: Session) -> Self | None:
         return session.get(BiocommonsGroup, group_id)
 
+    @classmethod
+    def get_by_id_or_404(cls, group_id: str, session: Session) -> Self:
+        group = cls.get_by_id(group_id, session)
+        if group is None:
+            raise HTTPException(status_code=404, detail="Group not found")
+        return group
+
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
         """
         Get all admin emails for this group from the Auth0 API, returning a set of emails.
@@ -617,6 +649,18 @@ class BiocommonsGroup(BaseModel, table=True):
             .join(GroupRoleLink, Auth0Role.id == GroupRoleLink.role_id)
             .distinct()
         ).all()
+
+    @classmethod
+    def get_from_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+        """
+        Given a list of role names, return a list of groups
+        where the roles grant admin rights.
+        """
+        return session.exec(
+            select(BiocommonsGroup)
+            .join(BiocommonsGroup.admin_roles)
+            .where(Auth0Role.name.in_(role_names))
+        )
 
 
 # Update all model references
