@@ -677,6 +677,52 @@ def test_platform_membership_delete_soft_deletes_history(test_db_session, persis
         assert deleted_entry.is_deleted
 
 
+def test_platform_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform=platform,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.commit()
+
+    first_history = membership.save_history(test_db_session)
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = "Revoked by platform admin"
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    second_history = membership.save_history(test_db_session)
+    test_db_session.commit()
+
+    platform_id = platform.id
+    membership_id = membership.id
+    history_ids = [first_history.id, second_history.id]
+
+    test_db_session.refresh(platform)
+    platform.delete(test_db_session, commit=True)
+
+    deleted_platform = Platform.get_deleted_by_id(test_db_session, platform_id)
+    assert deleted_platform is not None and deleted_platform.is_deleted
+
+    deleted_membership = PlatformMembership.get_deleted_by_id(test_db_session, membership_id)
+    assert deleted_membership is not None and deleted_membership.is_deleted
+
+    active_memberships = PlatformMembership.get_by_user_id(user.id, test_db_session)
+    assert active_memberships == []
+
+    for history_id in history_ids:
+        deleted_history = PlatformMembershipHistory.get_deleted_by_id(test_db_session, history_id)
+        assert deleted_history is not None and deleted_history.is_deleted
+
+    active_history = test_db_session.exec(
+        select(PlatformMembershipHistory).where(
+            PlatformMembershipHistory.platform_id == platform_id,
+            PlatformMembershipHistory.user_id == user.id,
+        )
+    ).all()
+    assert active_history == []
+
+
 def test_group_membership_getters_respect_soft_delete(test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync()
     user = BiocommonsUserFactory.create_sync()
@@ -772,6 +818,44 @@ def test_biocommons_user_delete_soft_deletes_memberships_and_history(test_db_ses
     deleted_group_history = GroupMembershipHistory.get_deleted_by_id(test_db_session, group_history_id)
     assert deleted_group_history is not None and deleted_group_history.is_deleted
     assert GroupMembershipHistory.get_by_user_id_and_group_id(user_id, group.group_id, test_db_session) == []
+
+
+def test_group_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync()
+    user = BiocommonsUserFactory.create_sync()
+    membership = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.commit()
+
+    first_history = membership.save_history(test_db_session)
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = "Revoked by group admin"
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    second_history = membership.save_history(test_db_session, commit=True)
+
+    group_id = group.group_id
+    membership_id = membership.id
+    history_ids = [first_history.id, second_history.id]
+
+    test_db_session.refresh(group)
+    group.delete(test_db_session, commit=True)
+
+    deleted_group = BiocommonsGroup.get_deleted_by_id(test_db_session, group_id)
+    assert deleted_group is not None and deleted_group.is_deleted
+
+    deleted_membership = GroupMembership.get_deleted_by_id(test_db_session, membership_id)
+    assert deleted_membership is not None and deleted_membership.is_deleted
+    assert GroupMembership.get_by_user_id(user.id, test_db_session) == []
+
+    for history_id in history_ids:
+        deleted_history = GroupMembershipHistory.get_deleted_by_id(test_db_session, history_id)
+        assert deleted_history is not None and deleted_history.is_deleted
+
+    active_history = GroupMembershipHistory.get_by_user_id_and_group_id(user.id, group_id, test_db_session)
+    assert active_history == []
 
 
 def test_platform_membership_get_by_user_filters(test_db_session, persistent_factories):

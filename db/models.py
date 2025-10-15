@@ -186,6 +186,18 @@ class Platform(SoftDeleteModel, table=True):
             .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
         ).all()
 
+    def delete(self, session: Session, commit: bool = False) -> "Platform":
+        memberships = list(self.members or [])
+        for membership in memberships:
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+
+        super().delete(session, commit=False)
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
+
 
 class PlatformMembership(SoftDeleteModel, table=True):
     __table_args__ = (
@@ -607,6 +619,18 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
     @classmethod
     def get_by_id(cls, group_id: str, session: Session) -> Self | None:
         return session.get(BiocommonsGroup, group_id)
+
+    def delete(self, session: Session, commit: bool = False) -> "BiocommonsGroup":
+        memberships = list(self.members or [])
+        for membership in memberships:
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+
+        super().delete(session, commit=False)
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
         """
