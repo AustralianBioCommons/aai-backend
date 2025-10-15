@@ -74,7 +74,7 @@ class SoftDeleteModel(BaseModel):
         """
         Retrieve a soft-deleted record by primary key.
         """
-        identity_dict = cls._identity_dict(identity)
+        identity_dict = cls._coerce_primary_key_map(identity)
         stmt = (
             select(cls)
             .execution_options(include_deleted=True)
@@ -84,7 +84,18 @@ class SoftDeleteModel(BaseModel):
         return session.exec(stmt).scalars().one_or_none()
 
     @classmethod
-    def _identity_dict(cls, identity: Any) -> dict[str, Any]:
+    def _coerce_primary_key_map(cls, identity: Any) -> dict[str, Any]:
+        """
+        Coerce arbitrary primary key identifiers into a ``{column: value}`` mapping.
+
+        ``identity`` may be provided as:
+        * a dict where keys match the primary key columns,
+        * a single scalar value when the model uses a single-column primary key,
+        * a tuple/list containing values for each primary key column in order.
+
+        Any mismatch between the provided structure and the model's primary key
+        definition raises ``ValueError`` so downstream queries remain predictable.
+        """
         mapper = sa_inspect(cls)
         pk_cols = mapper.primary_key
         if not pk_cols:

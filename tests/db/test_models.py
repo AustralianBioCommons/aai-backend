@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from unittest.mock import ANY
+from unittest.mock import ANY, call
 
 import pytest
 import respx
@@ -127,6 +127,57 @@ def test_biocommons_user_add_group_membership_creates_history(test_db_session, p
         )
     ).all()
     assert len(history_entries) == 1
+
+
+def test_biocommons_user_group_membership_delete_restore_creates_history(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    group = BiocommonsGroupFactory.create_sync()
+    membership = user.add_group_membership(group_id=group.group_id, db_session=test_db_session, auto_approve=True)
+    test_db_session.commit()
+
+    membership_id = membership.id
+    history_entries = test_db_session.exec(
+        select(GroupMembershipHistory)
+        .where(
+            GroupMembershipHistory.user_id == user.id,
+            GroupMembershipHistory.group_id == group.group_id,
+        )
+        .order_by(GroupMembershipHistory.updated_at)
+    ).all()
+    assert [entry.approval_status for entry in history_entries] == [ApprovalStatusEnum.APPROVED]
+
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = "No longer required"
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    membership.save_history(test_db_session, commit=True)
+
+    membership.delete(test_db_session, commit=True)
+    deleted_membership = GroupMembership.get_deleted_by_id(test_db_session, membership_id)
+    assert deleted_membership is not None
+
+    deleted_membership.restore(test_db_session, commit=True)
+    restored_membership = GroupMembership.get_by_user_id_and_group_id(user.id, group.group_id, test_db_session)
+    assert restored_membership is not None
+    restored_membership.approval_status = ApprovalStatusEnum.APPROVED
+    restored_membership.revocation_reason = None
+    restored_membership.updated_at = datetime.now(tz=timezone.utc)
+    restored_membership.save_history(test_db_session, commit=True)
+
+    final_history = test_db_session.exec(
+        select(GroupMembershipHistory)
+        .where(
+            GroupMembershipHistory.user_id == user.id,
+            GroupMembershipHistory.group_id == group.group_id,
+        )
+        .order_by(GroupMembershipHistory.updated_at)
+    ).all()
+    assert [entry.approval_status for entry in final_history] == [
+        ApprovalStatusEnum.APPROVED,
+        ApprovalStatusEnum.REVOKED,
+        ApprovalStatusEnum.APPROVED,
+    ]
+    assert final_history[1].reason == "No longer required"
+    assert final_history[-1].reason is None
 
 
 @pytest.mark.parametrize("platform_id", list(PlatformEnum))
@@ -348,6 +399,30 @@ def test_auth0_role_get_or_create_by_name_existing(test_db_session, mocker, pers
     mock_client.get_role_by_name.assert_not_called()
 
 
+def test_auth0_role_get_or_create_by_name_revives_deleted_role(test_db_session, mocker, persistent_factories):
+    role_data = RoleDataFactory.build(name="restorable-role")
+    mock_client = mocker.Mock()
+    mock_client.get_role_by_name.return_value = role_data
+
+    created = Auth0Role.get_or_create_by_name(role_data.name, test_db_session, mock_client)
+    assert created.id == role_data.id
+    mock_client.get_role_by_name.assert_called_once_with(name=role_data.name)
+
+    created.delete(test_db_session, commit=True)
+    assert Auth0Role.get_deleted_by_id(test_db_session, role_data.id) is not None
+
+    mock_client.reset_mock()
+    mock_client.get_role_by_name.return_value = role_data
+
+    revived = Auth0Role.get_or_create_by_name(role_data.name, test_db_session, mock_client)
+
+    assert revived.id == role_data.id
+    assert revived.is_deleted is False
+    mock_client.get_role_by_name.assert_called_once_with(name=role_data.name)
+    stored_role = test_db_session.exec(select(Auth0Role).where(Auth0Role.id == role_data.id)).one()
+    assert stored_role.is_deleted is False
+
+
 @respx.mock
 def test_create_auth0_role_by_id(test_db_session, test_auth0_client):
     """
@@ -390,17 +465,30 @@ def test_create_biocommons_group(test_db_session, persistent_factories):
 
 
 def test_biocommons_group_get_admins_collects_emails(test_db_session, mocker, persistent_factories):
-    role = Auth0RoleFactory.create_sync()
-    group = BiocommonsGroupFactory.create_sync(admin_roles=[role])
+    primary_role = Auth0RoleFactory.create_sync(id="role-primary")
+    secondary_role = Auth0RoleFactory.create_sync(id="role-secondary")
+    group = BiocommonsGroupFactory.create_sync(admin_roles=[primary_role, secondary_role])
     mock_client = mocker.Mock()
     mock_user_1 = Auth0UserDataFactory.build()
     mock_user_2 = Auth0UserDataFactory.build()
-    mock_client.get_all_role_users.return_value = [mock_user_1, mock_user_2]
+    mock_user_3 = Auth0UserDataFactory.build()
+
+    def _get_all_role_users(*, role_id):
+        if role_id == primary_role.id:
+            return [mock_user_1, mock_user_2]
+        if role_id == secondary_role.id:
+            return [mock_user_3]
+        raise AssertionError(f"Unexpected role id {role_id}")
+
+    mock_client.get_all_role_users.side_effect = _get_all_role_users
 
     admins = group.get_admins(mock_client)
 
-    assert admins == {mock_user_1.email, mock_user_2.email}
-    mock_client.get_all_role_users.assert_called_once_with(role_id=role.id)
+    assert admins == {mock_user_1.email, mock_user_2.email, mock_user_3.email}
+    assert mock_client.get_all_role_users.call_args_list == [
+        call(role_id=primary_role.id),
+        call(role_id=secondary_role.id),
+    ]
 
 
 @respx.mock
