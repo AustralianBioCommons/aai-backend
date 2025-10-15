@@ -88,6 +88,23 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             db_session.commit()
         return user
 
+    def delete(self, session: Session, commit: bool = False) -> "BiocommonsUser":
+        """
+        Soft delete the user and cascade the soft delete to related memberships.
+        """
+        for membership in list(self.platform_memberships or []):
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+        for membership in list(self.group_memberships or []):
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+
+        super().delete(session, commit=False)
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
+
     def update_from_auth0(self, auth0_id: str, auth0_client: Auth0Client) -> Self:
         """
         Fetch user data from Auth0 and update this object with it.
@@ -225,6 +242,26 @@ class PlatformMembership(SoftDeleteModel, table=True):
             )
         ).one_or_none()
 
+    def delete(self, session: Session, commit: bool = False) -> "PlatformMembership":
+        history_entries = session.exec(
+            select(PlatformMembershipHistory)
+            .where(
+                PlatformMembershipHistory.user_id == self.user_id,
+                PlatformMembershipHistory.platform_id == self.platform_id,
+            )
+        ).all()
+
+        super().delete(session, commit=False)
+
+        for history in history_entries:
+            if not history.is_deleted:
+                history.delete(session, commit=False)
+
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
+
     def save_history(self, session: Session) -> "PlatformMembershipHistory":
         # Make sure this object is in the session before accessing relationships
         if self not in session:
@@ -351,6 +388,26 @@ class GroupMembership(SoftDeleteModel, table=True):
                 GroupMembership.group_id == group_id,
             )
         ).one_or_none()
+
+    def delete(self, session: Session, commit: bool = False) -> "GroupMembership":
+        history_entries = session.exec(
+            select(GroupMembershipHistory)
+            .where(
+                GroupMembershipHistory.user_id == self.user_id,
+                GroupMembershipHistory.group_id == self.group_id,
+            )
+        ).all()
+
+        super().delete(session, commit=False)
+
+        for history in history_entries:
+            if not history.is_deleted:
+                history.delete(session, commit=False)
+
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
 
     @classmethod
     def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
