@@ -7,7 +7,7 @@ Create Date: 2025-10-20 12:00:00.000000
 """
 from typing import Sequence, Union
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 from sqlalchemy import text
 
@@ -67,6 +67,15 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Remove soft-deleted rows before dropping the column so data does not reappear.
+    ctx = context.get_context()
+    warning_msg = (
+        "!!! WARNING: Downgrading past 6c9d1e8540be permanently deletes all rows "
+        "that were previously soft-deleted. If you need to keep that history, abort now. !!!"
+    )
+    if ctx is not None:
+        ctx.log.warning(warning_msg)
+    else:
+        print(warning_msg)
     for table in DELETE_ORDER:
         op.execute(text(f'DELETE FROM "{table}" WHERE is_deleted = TRUE'))
         op.drop_index(op.f(f"ix_{table}_is_deleted"), table_name=table)
