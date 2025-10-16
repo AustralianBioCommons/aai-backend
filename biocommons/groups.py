@@ -38,13 +38,13 @@ class BiocommonsGroupCreate(BaseModel):
             if isinstance(role, Auth0Role):
                 db_roles.append(role)
             else:
-                role = Auth0Role.get_by_name(
+                db_role = Auth0Role.get_by_name(
                     role,
                     session,
                 )
-                if role is None:
+                if db_role is None:
                     raise ValueError(f"Role {role} doesn't exist in DB - create roles first")
-                db_roles.append(role)
+                db_roles.append(db_role)
         group = BiocommonsGroup(
             group_id=self.group_id,
             name=self.name,
