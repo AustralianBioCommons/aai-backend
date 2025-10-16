@@ -12,6 +12,7 @@ from sqlmodel.sql._expression_select_cls import SelectOfScalar
 from auth.user_permissions import (
     get_db_user,
     get_session_user,
+    has_platform_admin_permission,
     require_admin_permission_for_group,
     require_admin_permission_for_platform,
     require_admin_permission_for_user,
@@ -633,3 +634,10 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
     )
     return _membership_response()
+
+
+@router.get("/platforms/{platform_id}/is-admin")
+def is_platform_admin(platform_id: Annotated[str, ServiceIdParam],
+                      current_user: Annotated[SessionUser, Depends(get_session_user)],
+                      db_session: Annotated[Session, Depends(get_db_session)]):
+    return has_platform_admin_permission(platform_id=platform_id, current_user=current_user, db_session=db_session)

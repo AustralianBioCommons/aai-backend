@@ -73,19 +73,17 @@ def has_platform_admin_permission(
     platform_id: str,
     current_user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
-):
+) -> bool:
+    """
+    Check if user has platform admin privileges.
+    """
     platform = Platform.get_by_id(platform_id, db_session)
     if platform is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Platform '{platform_id}' not found",
         )
-    if platform.user_is_admin(current_user):
-        return current_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have permission to access this platform.",
-    )
+    return platform.user_is_admin(current_user)
 
 
 def has_admin_permission_for_user(
