@@ -123,7 +123,7 @@ def has_platform_admin_permission_for_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User '{user_id}' not found",
         )
-    admin_platforms = Platform.get_from_admin_roles(
+    admin_platforms = Platform.get_for_admin_roles(
         role_names=admin.access_token.biocommons_roles,
         session=db_session,
     )
@@ -143,7 +143,7 @@ def has_group_admin_permission_for_user(
     based on platform admin roles.
     """
     user_in_db = BiocommonsUser.get_by_id(user_id, session=db_session)
-    admin_groups = BiocommonsGroup.get_from_admin_roles(
+    admin_groups = BiocommonsGroup.get_for_admin_roles(
         role_names=admin.access_token.biocommons_roles,
         session=db_session,
     )
