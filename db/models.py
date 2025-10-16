@@ -9,7 +9,7 @@ from sqlmodel import Enum as DbEnum
 
 import schemas
 from auth0.client import Auth0Client
-from db.core import SoftDeleteModel
+from db.core import AuditedModel, AuditLogModel, SoftDeleteModel
 from db.types import (
     ApprovalStatusEnum,
     GroupMembershipData,
@@ -90,14 +90,16 @@ class BiocommonsUser(SoftDeleteModel, table=True):
 
     def delete(self, session: Session, commit: bool = False) -> "BiocommonsUser":
         """
-        Soft delete the user and cascade the soft delete to related memberships.
+        Soft delete the user and cascade removals to related memberships.
         """
         for membership in list(self.platform_memberships or []):
-            if not membership.is_deleted:
-                membership.delete(session, commit=False)
+            session.delete(membership)
+            if membership in self.platform_memberships:
+                self.platform_memberships.remove(membership)
         for membership in list(self.group_memberships or []):
-            if not membership.is_deleted:
-                membership.delete(session, commit=False)
+            session.delete(membership)
+            if membership in self.group_memberships:
+                self.group_memberships.remove(membership)
 
         super().delete(session, commit=commit)
         return self
@@ -131,7 +133,6 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         )
         db_session.add(membership)
         db_session.flush()
-        membership.save_history(db_session)
         return membership
 
     def add_group_membership(
@@ -144,7 +145,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             updated_by_id=None,
         )
         db_session.add(membership)
-        membership.save_history(db_session)
+        db_session.flush()
         return membership
 
 
@@ -186,17 +187,48 @@ class Platform(SoftDeleteModel, table=True):
     def delete(self, session: Session, commit: bool = False) -> "Platform":
         memberships = list(self.members or [])
         for membership in memberships:
-            if not membership.is_deleted:
-                membership.delete(session, commit=False)
+            session.delete(membership)
+            if membership in self.members:
+                self.members.remove(membership)
 
         super().delete(session, commit=commit)
         return self
 
 
-class PlatformMembership(SoftDeleteModel, table=True):
+class PlatformMembershipAuditLog(AuditLogModel, table=True):
+    __tablename__ = "platform_membership_audit_log"
+
+    membership_id: uuid.UUID | None = Field(default=None, index=True)
+    platform_id: PlatformEnum = Field(
+        sa_type=DbEnum(PlatformEnum, name="PlatformEnum"),
+        index=True,
+    )
+    user_id: str = Field(index=True)
+    approval_status: ApprovalStatusEnum = Field(
+        sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
+    )
+    updated_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime,
+    )
+    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
+    updated_by: "BiocommonsUser" = Relationship(
+        sa_relationship_kwargs={
+            "foreign_keys": "PlatformMembershipAuditLog.updated_by_id",
+        }
+    )
+    revocation_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(1024), nullable=True),
+    )
+
+
+class PlatformMembership(AuditedModel, table=True):
     __table_args__ = (
         UniqueConstraint("platform_id", "user_id", name="platform_user_id_platform_id"),
     )
+    __audit_model__ = PlatformMembershipAuditLog
+    __audit_field_map__ = {"id": "membership_id"}
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     platform_id: PlatformEnum = Field(foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     platform: Platform = Relationship(back_populates="members")
@@ -248,42 +280,30 @@ class PlatformMembership(SoftDeleteModel, table=True):
             )
         ).one_or_none()
 
-    def delete(self, session: Session, commit: bool = False) -> "PlatformMembership":
-        history_entries = session.exec(
-            select(PlatformMembershipHistory)
+    @classmethod
+    def get_history_by_user_id_and_platform_id(
+        cls, user_id: str, platform_id: PlatformEnum, session: Session
+    ) -> list[PlatformMembershipAuditLog]:
+        stmt = (
+            select(PlatformMembershipAuditLog)
             .where(
-                PlatformMembershipHistory.user_id == self.user_id,
-                PlatformMembershipHistory.platform_id == self.platform_id,
+                PlatformMembershipAuditLog.user_id == user_id,
+                PlatformMembershipAuditLog.platform_id == platform_id,
             )
-        ).all()
-
-        super().delete(session, commit=False)
-
-        for history in history_entries:
-            if not history.is_deleted:
-                history.delete(session, commit=False)
-
-        if commit:
-            session.commit()
-            session.expunge(self)
-        return self
-
-    def save_history(self, session: Session) -> "PlatformMembershipHistory":
-        # Make sure this object is in the session before accessing relationships
-        if self not in session:
-            session.add(self)
-        session.flush()  # Ensure relationships are loaded
-
-        history = PlatformMembershipHistory(
-            platform_id=self.platform_id,
-            user=self.user,
-            approval_status=self.approval_status,
-            updated_at=self.updated_at,
-            updated_by=self.updated_by,
-            reason=self.revocation_reason,
+            .order_by(PlatformMembershipAuditLog.acted_at.asc())
         )
-        session.add(history)
-        return history
+        return session.exec(stmt).all()
+
+    @classmethod
+    def get_history_by_user_id(
+        cls, user_id: str, session: Session
+    ) -> list[PlatformMembershipAuditLog]:
+        stmt = (
+            select(PlatformMembershipAuditLog)
+            .where(PlatformMembershipAuditLog.user_id == user_id)
+            .order_by(PlatformMembershipAuditLog.acted_at.asc())
+        )
+        return session.exec(stmt).all()
 
     def get_data(self) -> PlatformMembershipData:
         """
@@ -303,45 +323,53 @@ class PlatformMembership(SoftDeleteModel, table=True):
             revocation_reason=self.revocation_reason,
         )
 
+class GroupMembershipAuditLog(AuditLogModel, table=True):
+    __tablename__ = "group_membership_audit_log"
 
-
-class PlatformMembershipHistory(SoftDeleteModel, table=True):
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
-    user_id: str = Field(foreign_key="biocommons_user.id")
+    membership_id: uuid.UUID | None = Field(default=None, index=True)
+    group_id: str = Field(index=True, foreign_key="biocommonsgroup.group_id")
+    group: "BiocommonsGroup" = Relationship(
+        back_populates="approval_history",
+        sa_relationship_kwargs={
+            "foreign_keys": "GroupMembershipAuditLog.group_id",
+        },
+    )
+    user_id: str = Field(index=True, foreign_key="biocommons_user.id")
     user: "BiocommonsUser" = Relationship(
         sa_relationship_kwargs={
-            "foreign_keys": "PlatformMembershipHistory.user_id",
+            "foreign_keys": "GroupMembershipAuditLog.user_id",
         }
     )
     approval_status: ApprovalStatusEnum = Field(
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime,
     )
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
     updated_by: "BiocommonsUser" = Relationship(
         sa_relationship_kwargs={
-            "foreign_keys": "PlatformMembershipHistory.updated_by_id",
+            "foreign_keys": "GroupMembershipAuditLog.updated_by_id",
         }
     )
-    reason: str | None = Field(
+    revocation_reason: str | None = Field(
         default=None,
-        sa_column=Column(String(1024), nullable=True)
+        sa_column=Column(String(1024), nullable=True),
     )
 
 
-class GroupMembership(SoftDeleteModel, table=True):
+class GroupMembership(AuditedModel, table=True):
     """
     Stores the current approval status for a user/group pairing.
-    Note: only one row per user/group, the approval history
-    is kept separately in the GroupMembershipHistory table
+    Note: only one row per user/group; chronological changes are recorded via GroupMembershipAuditLog.
     """
 
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="user_group_pairing"),
     )
+    __audit_model__ = GroupMembershipAuditLog
+    __audit_field_map__ = {"id": "membership_id"}
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
     group: "BiocommonsGroup" = Relationship(back_populates="members")
@@ -395,26 +423,6 @@ class GroupMembership(SoftDeleteModel, table=True):
             )
         ).one_or_none()
 
-    def delete(self, session: Session, commit: bool = False) -> "GroupMembership":
-        history_entries = session.exec(
-            select(GroupMembershipHistory)
-            .where(
-                GroupMembershipHistory.user_id == self.user_id,
-                GroupMembershipHistory.group_id == self.group_id,
-            )
-        ).all()
-
-        super().delete(session, commit=False)
-
-        for history in history_entries:
-            if not history.is_deleted:
-                history.delete(session, commit=False)
-
-        if commit:
-            session.commit()
-            session.expunge(self)
-        return self
-
     @classmethod
     def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
         result = session.exec(
@@ -426,39 +434,41 @@ class GroupMembership(SoftDeleteModel, table=True):
         ).first()
         return result is not None
 
+    @classmethod
+    def get_history_by_user_id_and_group_id(
+        cls, user_id: str, group_id: str, session: Session
+    ) -> list[GroupMembershipAuditLog]:
+        stmt = (
+            select(GroupMembershipAuditLog)
+            .where(
+                GroupMembershipAuditLog.user_id == user_id,
+                GroupMembershipAuditLog.group_id == group_id,
+            )
+            .order_by(GroupMembershipAuditLog.acted_at.asc())
+        )
+        return session.exec(stmt).all()
+
+    @classmethod
+    def get_history_by_user_id(
+        cls, user_id: str, session: Session
+    ) -> list[GroupMembershipAuditLog]:
+        stmt = (
+            select(GroupMembershipAuditLog)
+            .where(GroupMembershipAuditLog.user_id == user_id)
+            .order_by(GroupMembershipAuditLog.acted_at.asc())
+        )
+        return session.exec(stmt).all()
+
 
 
     def save(self, session: Session, commit: bool = True) -> Self:
         """
-        Save the current object, and create a new GroupMembershipHistory row for it
+        Persist the current object.
         """
         session.add(self)
-        # Don't commit history until the main object is committed
-        self.save_history(session, commit=False)
         if commit:
             session.commit()
         return self
-
-    def save_history(
-        self, session: Session, commit: bool = True
-    ) -> "GroupMembershipHistory":
-        # Make sure this object is in the session before accessing relationships
-        if self not in session:
-            session.add(self)
-        session.flush()
-
-        history = GroupMembershipHistory(
-            group_id=self.group_id,
-            user_id=self.user_id,
-            approval_status=self.approval_status,
-            updated_at=self.updated_at,
-            updated_by=self.updated_by,
-            reason=self.revocation_reason,
-        )
-        session.add(history)
-        if commit:
-            session.commit()
-        return history
 
     def grant_auth0_role(self, auth0_client: Auth0Client):
         if not self.approval_status == ApprovalStatusEnum.APPROVED:
@@ -484,65 +494,6 @@ class GroupMembership(SoftDeleteModel, table=True):
             updated_by=updated_by,
             revocation_reason=self.revocation_reason,
         )
-
-
-
-class GroupMembershipHistory(SoftDeleteModel, table=True):
-    """
-    Stores the full history of approval decisions for each user
-    """
-
-    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    group_id: str = Field(foreign_key="biocommonsgroup.group_id")
-    group: "BiocommonsGroup" = Relationship(back_populates="approval_history")
-    user_id: str = Field(foreign_key="biocommons_user.id")
-    user: "BiocommonsUser" = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "GroupMembershipHistory.user_id",
-        }
-    )
-    approval_status: ApprovalStatusEnum = Field(
-        sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
-    )
-    updated_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
-    )
-    # Nullable: some memberships are automatically approved
-    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
-    updated_by: "BiocommonsUser" = Relationship(
-        sa_relationship_kwargs={
-            "foreign_keys": "GroupMembershipHistory.updated_by_id",
-        }
-    )
-    reason: str | None = Field(
-        default=None,
-        sa_column=Column(String(1024), nullable=True)
-    )
-
-    @classmethod
-    def get_by_user_id_and_group_id(
-        cls, user_id: str, group_id: str, session: Session
-    ) -> list[Self] | None:
-        return session.exec(
-            select(GroupMembershipHistory)
-            .where(
-                GroupMembershipHistory.user_id == user_id,
-                GroupMembershipHistory.group_id == group_id,
-            )
-            .order_by(GroupMembershipHistory.updated_at.desc())
-        ).all()
-
-    @classmethod
-    def get_by_user_id(cls, user_id: str, session: Session) -> list[Self] | None:
-        return session.exec(
-            select(GroupMembershipHistory)
-            .where(
-                GroupMembershipHistory.user_id == user_id,
-            )
-            .order_by(GroupMembershipHistory.updated_at.desc())
-        ).all()
-
-
 class GroupRoleLink(SoftDeleteModel, table=True):
     group_id: str = Field(primary_key=True, foreign_key="biocommonsgroup.group_id")
     role_id: str = Field(primary_key=True, foreign_key="auth0role.id")
@@ -606,7 +557,7 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
         back_populates="admin_groups", link_model=GroupRoleLink
     )
     members: list[GroupMembership] = Relationship(back_populates="group")
-    approval_history: list[GroupMembershipHistory] = Relationship(
+    approval_history: list[GroupMembershipAuditLog] = Relationship(
         back_populates="group"
     )
 
@@ -617,8 +568,9 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
     def delete(self, session: Session, commit: bool = False) -> "BiocommonsGroup":
         memberships = list(self.members or [])
         for membership in memberships:
-            if not membership.is_deleted:
-                membership.delete(session, commit=False)
+            session.delete(membership)
+            if membership in self.members:
+                self.members.remove(membership)
 
         super().delete(session, commit=commit)
         return self
@@ -647,6 +599,6 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
 BiocommonsUser.model_rebuild()
 Platform.model_rebuild()
 PlatformMembership.model_rebuild()
-PlatformMembershipHistory.model_rebuild()
+PlatformMembershipAuditLog.model_rebuild()
+GroupMembershipAuditLog.model_rebuild()
 GroupMembership.model_rebuild()
-GroupMembershipHistory.model_rebuild()

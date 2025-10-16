@@ -9,12 +9,8 @@ from moto.ses import ses_backends
 from sqlmodel import select
 
 from auth.validator import get_current_user
-from db.models import (
-    Auth0Role,
-    BiocommonsGroup,
-    GroupMembership,
-    GroupMembershipHistory,
-)
+from db.models import Auth0Role, BiocommonsGroup, GroupMembership
+from db.types import ApprovalStatusEnum, AuditActionEnum
 from main import app
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
@@ -128,10 +124,15 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
     # Check membership request is created along with history entry
     membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
-    assert membership.approval_status == "pending"
-    history = GroupMembershipHistory.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
+    assert membership.approval_status == ApprovalStatusEnum.PENDING
+    history = GroupMembership.get_history_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
     assert len(history) == 1
-    assert history[0].approval_status == "pending"
+    assert history[0].approval_status == ApprovalStatusEnum.PENDING
+    assert history[0].action == AuditActionEnum.CREATED
     assert membership.user == user
     # Check approval email is sent to admins
     ses_backend = ses_backends[DEFAULT_ACCOUNT_ID]["us-east-1"]

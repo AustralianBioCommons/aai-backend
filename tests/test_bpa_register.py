@@ -2,12 +2,8 @@ import httpx
 import pytest
 from sqlmodel import select
 
-from db.models import (
-    BiocommonsUser,
-    PlatformEnum,
-    PlatformMembership,
-    PlatformMembershipHistory,
-)
+from db.models import BiocommonsUser, PlatformEnum, PlatformMembership
+from db.types import ApprovalStatusEnum, AuditActionEnum
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
     Auth0UserDataFactory,
@@ -59,12 +55,16 @@ def test_successful_registration(
         PlatformMembership.user_id == db_user.id,
         PlatformMembership.platform_id == PlatformEnum.BPA_DATA_PORTAL.value
     )).one()
-    assert bpa_membership.approval_status == "approved"
-    membership_history = test_db_session.exec(select(PlatformMembershipHistory).where(
-        PlatformMembershipHistory.user_id == db_user.id,
-        PlatformMembershipHistory.platform_id == PlatformEnum.BPA_DATA_PORTAL.value
-    )).one()
-    assert membership_history.approval_status == "approved"
+    assert bpa_membership.approval_status == ApprovalStatusEnum.APPROVED
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        db_user.id,
+        PlatformEnum.BPA_DATA_PORTAL,
+        test_db_session,
+    )
+    assert len(history_entries) == 1
+    history_entry = history_entries[0]
+    assert history_entry.approval_status == ApprovalStatusEnum.APPROVED
+    assert history_entry.action == AuditActionEnum.CREATED
 
     called_data = mock_auth0_client.create_user.call_args[0][0]
     assert called_data.email == valid_registration_data["email"]

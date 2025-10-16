@@ -11,17 +11,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from db.models import (
-    ApprovalStatusEnum,
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
-    GroupMembershipHistory,
     Platform,
-    PlatformEnum,
     PlatformMembership,
-    PlatformMembershipHistory,
 )
+from db.types import ApprovalStatusEnum, AuditActionEnum, PlatformEnum
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import (
@@ -120,76 +117,203 @@ def test_biocommons_user_add_group_membership_creates_history(test_db_session, p
     test_db_session.commit()
 
     assert membership.group_id == group.group_id
-    history_entries = test_db_session.exec(
-        select(GroupMembershipHistory).where(
-            GroupMembershipHistory.user_id == user.id,
-            GroupMembershipHistory.group_id == group.group_id,
-        )
-    ).all()
+    history_entries = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+    )
     assert len(history_entries) == 1
+    entry = history_entries[0]
+    assert entry.approval_status == ApprovalStatusEnum.APPROVED
+    assert entry.action == AuditActionEnum.CREATED
 
 
-def test_biocommons_user_group_membership_delete_restore_creates_history(test_db_session, persistent_factories):
+def test_group_membership_audit_log_tracks_lifecycle(test_db_session, persistent_factories):
     user = BiocommonsUserFactory.create_sync()
     group = BiocommonsGroupFactory.create_sync()
-    membership = user.add_group_membership(group_id=group.group_id, db_session=test_db_session, auto_approve=True)
+    membership = user.add_group_membership(
+        group_id=group.group_id,
+        db_session=test_db_session,
+        auto_approve=True,
+    )
     test_db_session.commit()
 
-    membership_id = membership.id
-    history_entries = test_db_session.exec(
-        select(GroupMembershipHistory)
-        .where(
-            GroupMembershipHistory.user_id == user.id,
-            GroupMembershipHistory.group_id == group.group_id,
-        )
-        .order_by(GroupMembershipHistory.updated_at)
-    ).all()
-    assert [entry.approval_status for entry in history_entries] == [ApprovalStatusEnum.APPROVED]
+    history_entries = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+    )
+    assert [entry.action for entry in history_entries] == [AuditActionEnum.CREATED]
 
     membership.approval_status = ApprovalStatusEnum.REVOKED
     membership.revocation_reason = "No longer required"
     membership.updated_at = datetime.now(tz=timezone.utc)
-    _revoked_history = membership.save_history(test_db_session, commit=True)
+    test_db_session.add(membership)
+    test_db_session.commit()
 
-    membership.delete(test_db_session, commit=True)
-    deleted_membership = GroupMembership.get_deleted_by_id(test_db_session, membership_id)
-    assert deleted_membership is not None
+    history_entries = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+    )
+    assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
+    assert history_entries[-1].revocation_reason == "No longer required"
+    assert history_entries[-1].action == AuditActionEnum.UPDATED
 
-    deleted_membership.restore(test_db_session, commit=True)
-    restored_membership = GroupMembership.get_by_user_id_and_group_id(user.id, group.group_id, test_db_session)
-    assert restored_membership is not None
-    restored_membership.approval_status = ApprovalStatusEnum.APPROVED
-    restored_membership.revocation_reason = None
-    restored_membership.updated_at = datetime.now(tz=timezone.utc)
-    _final_history_entry = restored_membership.save_history(test_db_session, commit=True)
+    test_db_session.delete(membership)
+    test_db_session.commit()
 
-    final_history = test_db_session.exec(
-        select(GroupMembershipHistory)
-        .where(
-            GroupMembershipHistory.user_id == user.id,
-            GroupMembershipHistory.group_id == group.group_id,
-        )
-        .order_by(GroupMembershipHistory.updated_at)
-    ).all()
-    assert [entry.approval_status for entry in final_history] == [ApprovalStatusEnum.APPROVED]
-    assert final_history[0].reason is None
+    history_entries = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+    )
+    assert history_entries[-1].action == AuditActionEnum.DELETED
 
-    all_history_including_deleted = test_db_session.exec(
-        select(GroupMembershipHistory)
-        .execution_options(include_deleted=True)
-        .where(
-            GroupMembershipHistory.user_id == user.id,
-            GroupMembershipHistory.group_id == group.group_id,
-        )
-        .order_by(GroupMembershipHistory.updated_at)
-    ).all()
-    assert [entry.approval_status for entry in all_history_including_deleted] == [
-        ApprovalStatusEnum.APPROVED,
-        ApprovalStatusEnum.REVOKED,
-        ApprovalStatusEnum.APPROVED,
+    restored_membership = GroupMembership(
+        group_id=group.group_id,
+        user_id=user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by_id=None,
+    )
+    test_db_session.add(restored_membership)
+    test_db_session.commit()
+
+    history_entries = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+    )
+    assert history_entries[-1].action == AuditActionEnum.CREATED
+    assert history_entries[-1].approval_status == ApprovalStatusEnum.APPROVED
+
+
+def test_platform_membership_audit_log_tracks_lifecycle(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform=platform,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    test_db_session.commit()
+
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert [entry.action for entry in history_entries] == [AuditActionEnum.CREATED]
+
+    approver = BiocommonsUserFactory.create_sync()
+    membership.approval_status = ApprovalStatusEnum.APPROVED
+    membership.revocation_reason = None
+    membership.updated_by = approver
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    test_db_session.commit()
+
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert history_entries[-1].action == AuditActionEnum.UPDATED
+    assert history_entries[-1].approval_status == ApprovalStatusEnum.APPROVED
+    assert history_entries[-1].updated_by_id == approver.id
+
+    membership.revocation_reason = "Access revoked"
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    membership.updated_by = approver
+    test_db_session.commit()
+
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert history_entries[-1].action == AuditActionEnum.UPDATED
+    assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
+    assert history_entries[-1].revocation_reason == "Access revoked"
+
+    test_db_session.delete(membership)
+    test_db_session.commit()
+
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert history_entries[-1].action == AuditActionEnum.DELETED
+
+    restored = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform=platform,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.commit()
+
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert history_entries[-1].action == AuditActionEnum.CREATED
+    assert history_entries[-1].membership_id == restored.id
+
+
+def test_platform_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform=platform,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.commit()
+
+    updater = BiocommonsUserFactory.create_sync()
+    membership.updated_by = updater
+    membership.approval_status = ApprovalStatusEnum.REVOKED
+    membership.revocation_reason = "Revoked by platform admin"
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    test_db_session.commit()
+
+    history_before_delete = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert [entry.action for entry in history_before_delete] == [
+        AuditActionEnum.CREATED,
+        AuditActionEnum.UPDATED,
     ]
-    assert [entry.is_deleted for entry in all_history_including_deleted] == [True, True, False]
-    assert all_history_including_deleted[1].reason == "No longer required"
+    membership_id = membership.id
+
+    platform_id = platform.id
+    platform.delete(test_db_session, commit=True)
+
+    deleted_platform = Platform.get_deleted_by_id(test_db_session, platform_id)
+    assert deleted_platform is not None and deleted_platform.is_deleted
+    assert PlatformMembership.get_by_user_id(user.id, test_db_session) == []
+    assert (
+        PlatformMembership.get_by_user_id_and_platform_id(
+            user.id, PlatformEnum.GALAXY, test_db_session
+        )
+        is None
+    )
+
+    history_after_delete = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert [entry.action for entry in history_after_delete] == [
+        AuditActionEnum.CREATED,
+        AuditActionEnum.UPDATED,
+        AuditActionEnum.DELETED,
+    ]
+    assert history_after_delete[-1].membership_id == membership_id
 
 
 @pytest.mark.parametrize("platform_id", list(PlatformEnum))
@@ -240,26 +364,6 @@ def test_create_platform_membership(test_db_session, persistent_factories, froze
     assert membership.revocation_reason is None
 
 
-def test_create_platform_membership_history(test_db_session, persistent_factories, frozen_time):
-    """
-    Test creating a platform membership history model
-    """
-    user = BiocommonsUserFactory.create_sync()
-    membership = PlatformMembershipHistory(
-        platform_id=PlatformEnum.GALAXY,
-        user_id=user.id,
-        approval_status=ApprovalStatusEnum.APPROVED,
-        updated_by_id=None
-    )
-    test_db_session.add(membership)
-    test_db_session.commit()
-    test_db_session.refresh(membership)
-    assert membership.user_id == user.id
-    assert membership.approval_status == ApprovalStatusEnum.APPROVED
-    assert membership.platform_id == "galaxy"
-    assert membership.updated_at == FROZEN_TIME
-
-
 def test_create_group_membership(test_db_session, persistent_factories):
     """
     Test creating a group membership
@@ -270,7 +374,7 @@ def test_create_group_membership(test_db_session, persistent_factories):
     membership = GroupMembership(
         group=group,
         user=user,
-        approval_status="pending",
+        approval_status=ApprovalStatusEnum.PENDING,
         updated_at=datetime.now(tz=timezone.utc),
         updated_by=updater,
     )
@@ -282,26 +386,6 @@ def test_create_group_membership(test_db_session, persistent_factories):
     assert membership.updated_by_id == updater.id
 
 
-def test_platform_membership_save_history_stores_reason(test_db_session, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
-    membership = PlatformMembershipFactory.create_sync(
-        user=user,
-        approval_status=ApprovalStatusEnum.REVOKED,
-        revocation_reason="Policy violation",
-    )
-    membership.save_history(test_db_session)
-    history = test_db_session.exec(
-        select(PlatformMembershipHistory)
-        .where(
-            PlatformMembershipHistory.user_id == membership.user_id,
-            PlatformMembershipHistory.platform_id == membership.platform_id,
-        )
-        .order_by(PlatformMembershipHistory.updated_at.desc())
-    ).first()
-    assert history is not None
-    assert history.reason == "Policy violation"
-
-
 def test_create_group_membership_no_updater(test_db_session, persistent_factories):
     """
     Test creating a group membership without an updated_by (for automatic approvals)
@@ -311,7 +395,7 @@ def test_create_group_membership_no_updater(test_db_session, persistent_factorie
     membership = GroupMembership(
         group=group,
         user=user,
-        approval_status="pending",
+        approval_status=ApprovalStatusEnum.PENDING,
         updated_at=datetime.now(tz=timezone.utc),
         updated_by=None,
     )
@@ -328,19 +412,15 @@ def test_create_group_membership_unique_constraint(test_db_session, persistent_f
     Check that trying to create multiple group memberships
     for the same user/group raises IntegrityError
     """
-    user = Person(locale=Locale("en"))
     user_id = random_auth0_id()
-    updater = Person(locale=Locale("en"))
     updater_id = random_auth0_id()
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     membership = GroupMembership(
         group=group,
         user_id=user_id,
-        user_email=user.email(),
-        approval_status="pending",
+        approval_status=ApprovalStatusEnum.PENDING,
         updated_at=datetime.now(tz=timezone.utc),
         updated_by_id=updater_id,
-        updated_by_email=updater.email(),
     )
     test_db_session.add(membership)
     test_db_session.commit()
@@ -348,11 +428,9 @@ def test_create_group_membership_unique_constraint(test_db_session, persistent_f
     dupe_membership = GroupMembership(
         group=group,
         user_id=user_id,
-        user_email=user.email(),
-        approval_status="approved",
+        approval_status=ApprovalStatusEnum.APPROVED,
         updated_at=datetime.now(tz=timezone.utc),
         updated_by_id=updater_id,
-        updated_by_email=updater.email(),
     )
     with pytest.raises(IntegrityError):
         test_db_session.add(dupe_membership)
@@ -508,7 +586,11 @@ def test_group_membership_grant_auth0_role(test_auth0_client, persistent_factori
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     role_data = RoleDataFactory.build(name="biocommons/group/tsi")
-    membership_request = GroupMembershipFactory.create_sync(group=group, user=user, approval_status="approved")
+    membership_request = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
     # Mock the auth0 calls involved
     respx.get(
         "https://auth0.example.com/api/v2/roles",
@@ -520,46 +602,18 @@ def test_group_membership_grant_auth0_role(test_auth0_client, persistent_factori
     assert route.called
 
 
-@pytest.mark.parametrize("status", ["pending", "revoked"])
+@pytest.mark.parametrize("status", [ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED])
 @respx.mock
 def test_group_membership_grant_auth0_role_not_approved(status, test_auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
-    user = Auth0UserDataFactory.build()
-    membership_request = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
+    user = BiocommonsUserFactory.create_sync()
+    membership_request = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=status,
+    )
     with pytest.raises(ValueError):
         membership_request.grant_auth0_role(test_auth0_client)
-
-
-def test_group_membership_save_with_history(test_db_session, persistent_factories):
-    group = BiocommonsGroupFactory.create_sync()
-    membership = GroupMembershipFactory.build(group_id=group.group_id)
-    membership.save(test_db_session, commit=True)
-    test_db_session.refresh(membership)
-    assert membership.id is not None
-    history = test_db_session.exec(
-        select(GroupMembershipHistory)
-        .where(GroupMembershipHistory.group_id == membership.group_id,
-               GroupMembershipHistory.user_id == membership.user_id)
-    ).one()
-    assert history.group_id == membership.group_id
-    assert history.user_id == membership.user_id
-    assert history.reason == membership.revocation_reason
-
-
-def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
-    group = BiocommonsGroupFactory.create_sync()
-    membership = GroupMembershipFactory.build(group_id=group.group_id)
-    membership.save_history(test_db_session, commit=True)
-    test_db_session.refresh(membership)
-    assert membership.id is not None
-    history = test_db_session.exec(
-        select(GroupMembershipHistory)
-        .where(GroupMembershipHistory.group_id == membership.group_id,
-               GroupMembershipHistory.user_id == membership.user_id)
-    ).one()
-    assert history.group_id == membership.group_id
-    assert history.user_id == membership.user_id
-    assert history.reason == membership.revocation_reason
 
 
 def test_soft_delete_hides_records(test_db_session, persistent_factories):
@@ -612,7 +666,7 @@ def test_platform_getters_respect_soft_delete(test_db_session, persistent_factor
     assert Platform.get_for_admin_roles([admin_role_name], test_db_session) == []
 
 
-def test_platform_membership_getters_respect_soft_delete(test_db_session, persistent_factories):
+def test_platform_membership_getters_respect_deletion(test_db_session, persistent_factories):
     user = BiocommonsUserFactory.create_sync()
     platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
     membership = PlatformMembershipFactory.create_sync(
@@ -627,11 +681,13 @@ def test_platform_membership_getters_respect_soft_delete(test_db_session, persis
         PlatformMembership.get_by_user_id_and_platform_id(
             user.id, PlatformEnum.GALAXY, test_db_session
         )
-        is not None
+        == membership
     )
     assert [p.id for p in Platform.get_approved_by_user_id(user.id, test_db_session)] == [PlatformEnum.GALAXY]
 
-    membership.delete(test_db_session, commit=True)
+    test_db_session.delete(membership)
+    test_db_session.commit()
+
     assert PlatformMembership.get_by_user_id(user.id, test_db_session) == []
     assert (
         PlatformMembership.get_by_user_id_and_platform_id(
@@ -641,221 +697,79 @@ def test_platform_membership_getters_respect_soft_delete(test_db_session, persis
     )
     assert Platform.get_approved_by_user_id(user.id, test_db_session) == []
 
-    membership.restore(test_db_session, commit=True)
-    restored = PlatformMembership.get_by_user_id_and_platform_id(
-        user.id, PlatformEnum.GALAXY, test_db_session
-    )
-    assert restored is not None
-    assert restored.id == membership.id
-    assert [p.id for p in Platform.get_approved_by_user_id(user.id, test_db_session)] == [PlatformEnum.GALAXY]
-
-
-def test_platform_membership_delete_soft_deletes_history(test_db_session, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
-    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
-    membership = PlatformMembershipFactory.create_sync(
+    restored = PlatformMembershipFactory.create_sync(
         user=user,
         platform=platform,
         approval_status=ApprovalStatusEnum.APPROVED,
     )
     test_db_session.commit()
-
-    first_history = membership.save_history(test_db_session)
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = "Revoked by admin"
-    membership.updated_at = datetime.now(tz=timezone.utc)
-    second_history = membership.save_history(test_db_session)
-    test_db_session.commit()
-
-    history_ids = [first_history.id, second_history.id]
-
-    membership.delete(test_db_session, commit=True)
-
-    for history_id in history_ids:
-        deleted_entry = PlatformMembershipHistory.get_deleted_by_id(test_db_session, history_id)
-        assert deleted_entry is not None
-        assert deleted_entry.is_deleted
-
-
-def test_platform_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
-    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
-    membership = PlatformMembershipFactory.create_sync(
-        user=user,
-        platform=platform,
-        approval_status=ApprovalStatusEnum.APPROVED,
-    )
-    test_db_session.commit()
-
-    first_history = membership.save_history(test_db_session)
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = "Revoked by platform admin"
-    membership.updated_at = datetime.now(tz=timezone.utc)
-    second_history = membership.save_history(test_db_session)
-    test_db_session.commit()
-
-    platform_id = platform.id
-    membership_id = membership.id
-    history_ids = [first_history.id, second_history.id]
-
-    test_db_session.refresh(platform)
-    platform.delete(test_db_session, commit=True)
-
-    deleted_platform = Platform.get_deleted_by_id(test_db_session, platform_id)
-    assert deleted_platform is not None and deleted_platform.is_deleted
-
-    deleted_membership = PlatformMembership.get_deleted_by_id(test_db_session, membership_id)
-    assert deleted_membership is not None and deleted_membership.is_deleted
-
-    active_memberships = PlatformMembership.get_by_user_id(user.id, test_db_session)
-    assert active_memberships == []
-
-    for history_id in history_ids:
-        deleted_history = PlatformMembershipHistory.get_deleted_by_id(test_db_session, history_id)
-        assert deleted_history is not None and deleted_history.is_deleted
-
-    active_history = test_db_session.exec(
-        select(PlatformMembershipHistory).where(
-            PlatformMembershipHistory.platform_id == platform_id,
-            PlatformMembershipHistory.user_id == user.id,
-        )
-    ).all()
-    assert active_history == []
-
-
-def test_group_membership_getters_respect_soft_delete(test_db_session, persistent_factories):
-    group = BiocommonsGroupFactory.create_sync()
-    user = BiocommonsUserFactory.create_sync()
-    membership = GroupMembershipFactory.create_sync(
-        group=group,
-        user=user,
-        approval_status=ApprovalStatusEnum.APPROVED,
-    )
-    membership.save_history(test_db_session, commit=True)
-    test_db_session.commit()
-
-    assert GroupMembership.get_by_user_id(user.id, test_db_session)
-    assert GroupMembership.get_by_user_id(
-        user.id, test_db_session, ApprovalStatusEnum.APPROVED
-    )
-    initial_history = GroupMembershipHistory.get_by_user_id_and_group_id(user.id, membership.group_id, test_db_session)[0]
-
-    membership_id = membership.id
-    group_id = membership.group_id
-    membership.delete(test_db_session, commit=True)
-    assert GroupMembership.get_by_user_id(user.id, test_db_session) == []
     assert (
-        GroupMembership.get_by_user_id(
-            user.id, test_db_session, ApprovalStatusEnum.APPROVED
+        PlatformMembership.get_by_user_id_and_platform_id(
+            user.id, PlatformEnum.GALAXY, test_db_session
         )
-        == []
+        == restored
     )
-    assert GroupMembership.get_deleted_by_id(test_db_session, membership_id) is not None
-
-    assert GroupMembershipHistory.get_by_user_id_and_group_id(user.id, group_id, test_db_session) == []
-    deleted_history_entry = GroupMembershipHistory.get_deleted_by_id(test_db_session, initial_history.id)
-    assert deleted_history_entry is not None and deleted_history_entry.is_deleted
-
-    restored_membership = GroupMembership.get_deleted_by_id(test_db_session, membership_id)
-    restored_membership.restore(test_db_session, commit=True)
-    assert GroupMembership.get_by_user_id(user.id, test_db_session)
 
 
-def test_biocommons_user_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
+def test_platform_membership_history_helpers(test_db_session, persistent_factories):
     user = BiocommonsUserFactory.create_sync()
-    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
-    group = BiocommonsGroupFactory.create_sync()
-
-    platform_membership = PlatformMembershipFactory.create_sync(
+    PlatformMembershipFactory.create_sync(
         user=user,
-        platform=platform,
+        platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.APPROVED,
     )
-    group_membership = GroupMembershipFactory.create_sync(
+    PlatformMembershipFactory.create_sync(
         user=user,
-        group=group,
-        approval_status=ApprovalStatusEnum.APPROVED,
+        platform_id=PlatformEnum.BPA_DATA_PORTAL,
+        approval_status=ApprovalStatusEnum.PENDING,
     )
     test_db_session.commit()
 
-    platform_history = platform_membership.save_history(test_db_session)
-    group_history = group_membership.save_history(test_db_session, commit=True)
-    test_db_session.commit()
-
-    platform_history_id = platform_history.id
-    group_history_id = group_history.id
-
-    user_id = user.id
-    platform_membership_id = platform_membership.id
-    group_membership_id = group_membership.id
-
-    test_db_session.refresh(user)
-    user.delete(test_db_session, commit=True)
-
-    deleted_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
-    assert deleted_user is not None and deleted_user.is_deleted
-
-    deleted_platform_membership = PlatformMembership.get_deleted_by_id(test_db_session, platform_membership_id)
-    assert deleted_platform_membership is not None and deleted_platform_membership.is_deleted
-    assert PlatformMembership.get_by_user_id(user_id, test_db_session) == []
-
-    deleted_group_membership = GroupMembership.get_deleted_by_id(test_db_session, group_membership_id)
-    assert deleted_group_membership is not None and deleted_group_membership.is_deleted
-    assert GroupMembership.get_by_user_id(user_id, test_db_session) == []
-
-    deleted_platform_history = PlatformMembershipHistory.get_deleted_by_id(test_db_session, platform_history_id)
-    assert deleted_platform_history is not None and deleted_platform_history.is_deleted
-    assert (
-        test_db_session.exec(
-            select(PlatformMembershipHistory).where(
-                PlatformMembershipHistory.user_id == user_id,
-                PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY,
-            )
-        ).all()
-        == []
+    galaxy_history = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
     )
+    assert len(galaxy_history) == 1
+    assert galaxy_history[0].platform_id == PlatformEnum.GALAXY
 
-    deleted_group_history = GroupMembershipHistory.get_deleted_by_id(test_db_session, group_history_id)
-    assert deleted_group_history is not None and deleted_group_history.is_deleted
-    assert GroupMembershipHistory.get_by_user_id_and_group_id(user_id, group.group_id, test_db_session) == []
+    all_history = PlatformMembership.get_history_by_user_id(user.id, test_db_session)
+    assert {entry.platform_id for entry in all_history} == {
+        PlatformEnum.GALAXY,
+        PlatformEnum.BPA_DATA_PORTAL,
+    }
 
 
-def test_group_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
-    group = BiocommonsGroupFactory.create_sync()
+def test_group_membership_history_helpers(test_db_session, persistent_factories):
     user = BiocommonsUserFactory.create_sync()
-    membership = GroupMembershipFactory.create_sync(
+    group = BiocommonsGroupFactory.create_sync()
+    other_group = BiocommonsGroupFactory.create_sync()
+
+    _ = GroupMembershipFactory.create_sync(
         group=group,
         user=user,
         approval_status=ApprovalStatusEnum.APPROVED,
     )
+    _ = GroupMembershipFactory.create_sync(
+        group=other_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
     test_db_session.commit()
 
-    first_history = membership.save_history(test_db_session)
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = "Revoked by group admin"
-    membership.updated_at = datetime.now(tz=timezone.utc)
-    second_history = membership.save_history(test_db_session, commit=True)
+    history_for_group = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+    )
+    assert len(history_for_group) == 1
+    assert history_for_group[0].group_id == group.group_id
 
-    group_id = group.group_id
-    membership_id = membership.id
-    history_ids = [first_history.id, second_history.id]
-
-    test_db_session.refresh(group)
-    group.delete(test_db_session, commit=True)
-
-    deleted_group = BiocommonsGroup.get_deleted_by_id(test_db_session, group_id)
-    assert deleted_group is not None and deleted_group.is_deleted
-
-    deleted_membership = GroupMembership.get_deleted_by_id(test_db_session, membership_id)
-    assert deleted_membership is not None and deleted_membership.is_deleted
-    assert GroupMembership.get_by_user_id(user.id, test_db_session) == []
-
-    for history_id in history_ids:
-        deleted_history = GroupMembershipHistory.get_deleted_by_id(test_db_session, history_id)
-        assert deleted_history is not None and deleted_history.is_deleted
-
-    active_history = GroupMembershipHistory.get_by_user_id_and_group_id(user.id, group_id, test_db_session)
-    assert active_history == []
+    history_for_user = GroupMembership.get_history_by_user_id(user.id, test_db_session)
+    assert {entry.group_id for entry in history_for_user} == {
+        group.group_id,
+        other_group.group_id,
+    }
 
 
 def test_platform_membership_get_by_user_filters(test_db_session, persistent_factories):
@@ -883,25 +797,6 @@ def test_platform_membership_get_by_user_filters(test_db_session, persistent_fac
         {ApprovalStatusEnum.APPROVED, ApprovalStatusEnum.REVOKED},
     )
     assert {m.platform_id for m in approved_set} == {PlatformEnum.GALAXY}
-
-
-def test_platform_membership_save_history_adds_when_not_in_session(test_db_session, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
-    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
-    membership = PlatformMembership(
-        platform_id=platform.id,
-        platform=platform,
-        user_id=user.id,
-        user=user,
-        approval_status=ApprovalStatusEnum.APPROVED,
-    )
-
-    history = membership.save_history(test_db_session)
-    test_db_session.flush()
-
-    assert membership in test_db_session
-    assert history.platform_id == platform.id
-    assert history.user_id == user.id
 
 
 def test_platform_membership_get_data_updated_by(test_db_session, persistent_factories):
@@ -986,51 +881,42 @@ def test_group_membership_get_data_updated_by(test_db_session, persistent_factor
     assert updated_data.updated_by == updater.email
 
 
-def test_group_membership_history_get_by_user(test_db_session, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
+def test_group_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync()
+    user = BiocommonsUserFactory.create_sync()
     membership = GroupMembershipFactory.create_sync(
         group=group,
         user=user,
         approval_status=ApprovalStatusEnum.APPROVED,
     )
-    membership.save_history(test_db_session, commit=True)
+    test_db_session.commit()
 
+    updater = BiocommonsUserFactory.create_sync()
+    membership.updated_by = updater
     membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.save_history(test_db_session, commit=True)
+    membership.revocation_reason = "Revoked by group admin"
+    membership.updated_at = datetime.now(tz=timezone.utc)
+    test_db_session.commit()
 
-    other_group = BiocommonsGroupFactory.create_sync()
-    other_membership = GroupMembershipFactory.create_sync(
-        group=other_group,
-        user=user,
-        approval_status=ApprovalStatusEnum.APPROVED,
+    membership_id = membership.id
+    group_id = group.group_id
+
+    group.delete(test_db_session, commit=True)
+
+    deleted_group = BiocommonsGroup.get_deleted_by_id(test_db_session, group_id)
+    assert deleted_group is not None and deleted_group.is_deleted
+    assert GroupMembership.get_by_user_id(user.id, test_db_session) == []
+
+    history_after_delete = GroupMembership.get_history_by_user_id_and_group_id(
+        user.id,
+        group_id,
+        test_db_session,
     )
-    other_membership.save_history(test_db_session, commit=True)
-
-    history_entries = GroupMembershipHistory.get_by_user_id(user.id, test_db_session)
-    assert len(history_entries) == 3
-    assert {entry.group_id for entry in history_entries} == {group.group_id, other_group.group_id}
+    assert [entry.action for entry in history_after_delete][-1] == AuditActionEnum.DELETED
+    assert history_after_delete[-1].membership_id == membership_id
 
 
-def test_group_membership_history_get_by_user_id_and_group(test_db_session, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
-    group = BiocommonsGroupFactory.create_sync()
-    membership = GroupMembershipFactory.create_sync(
-        group=group,
-        user=user,
-        approval_status=ApprovalStatusEnum.APPROVED,
-    )
-    membership.save_history(test_db_session, commit=True)
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.save_history(test_db_session, commit=True)
-
-    history_for_group = GroupMembershipHistory.get_by_user_id_and_group_id(
-        user.id, group.group_id, test_db_session
-    )
-    assert len(history_for_group) == 2
-
-
-def test_biocommons_user_has_platform_membership_respects_soft_delete(test_db_session, persistent_factories):
+def test_biocommons_user_has_platform_membership_reflects_deletion(test_db_session, persistent_factories):
     user = BiocommonsUserFactory.create_sync()
     membership = PlatformMembershipFactory.create_sync(
         user=user,
@@ -1041,11 +927,73 @@ def test_biocommons_user_has_platform_membership_respects_soft_delete(test_db_se
 
     assert BiocommonsUser.has_platform_membership(user.id, PlatformEnum.GALAXY, test_db_session)
 
-    membership.delete(test_db_session, commit=True)
+    test_db_session.delete(membership)
+    test_db_session.commit()
     assert not BiocommonsUser.has_platform_membership(user.id, PlatformEnum.GALAXY, test_db_session)
 
-    membership.restore(test_db_session, commit=True)
+    _ = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.commit()
     assert BiocommonsUser.has_platform_membership(user.id, PlatformEnum.GALAXY, test_db_session)
+
+
+def test_biocommons_user_delete_soft_deletes_memberships_and_history(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    group = BiocommonsGroupFactory.create_sync()
+
+    platform_membership = PlatformMembershipFactory.create_sync(
+        user=user,
+        platform=platform,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    group_membership = GroupMembershipFactory.create_sync(
+        user=user,
+        group=group,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.commit()
+
+    updater = BiocommonsUserFactory.create_sync()
+    platform_membership.updated_by = updater
+    platform_membership.approval_status = ApprovalStatusEnum.REVOKED
+    platform_membership.revocation_reason = "Revoked during cleanup"
+    platform_membership.updated_at = datetime.now(tz=timezone.utc)
+
+    group_membership.updated_by = updater
+    group_membership.approval_status = ApprovalStatusEnum.REVOKED
+    group_membership.revocation_reason = "Revoked during cleanup"
+    group_membership.updated_at = datetime.now(tz=timezone.utc)
+    test_db_session.commit()
+
+    user_id = user.id
+    platform_id = platform_membership.platform_id
+    group_id = group_membership.group_id
+
+    user.delete(test_db_session, commit=True)
+
+    deleted_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+    assert deleted_user is not None and deleted_user.is_deleted
+
+    assert PlatformMembership.get_by_user_id(user_id, test_db_session) == []
+    assert GroupMembership.get_by_user_id(user_id, test_db_session) == []
+
+    platform_history = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user_id,
+        platform_id,
+        test_db_session,
+    )
+    assert platform_history[-1].action == AuditActionEnum.DELETED
+
+    group_history = GroupMembership.get_history_by_user_id_and_group_id(
+        user_id,
+        group_id,
+        test_db_session,
+    )
+    assert group_history[-1].action == AuditActionEnum.DELETED
 
 
 def test_soft_delete_recreate_revives_deleted(test_db_session, persistent_factories):

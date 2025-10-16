@@ -10,12 +10,8 @@ from pydantic import ValidationError
 from sqlmodel import select
 
 import register
-from db.models import (
-    BiocommonsUser,
-    PlatformEnum,
-    PlatformMembership,
-    PlatformMembershipHistory,
-)
+from db.models import BiocommonsUser, PlatformEnum, PlatformMembership
+from db.types import ApprovalStatusEnum, AuditActionEnum
 from register.tokens import verify_registration_token
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.galaxy import GalaxyRegistrationData
@@ -130,12 +126,16 @@ def test_register(mock_settings, test_client, mock_auth0_client, test_db_session
         PlatformMembership.user_id == db_user.id,
         PlatformMembership.platform_id == PlatformEnum.GALAXY.value
     )).one()
-    assert galaxy_membership.approval_status == "approved"
-    membership_history = test_db_session.exec(select(PlatformMembershipHistory).where(
-        PlatformMembershipHistory.user_id == db_user.id,
-        PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY.value
-    )).one()
-    assert membership_history.approval_status == "approved"
+    assert galaxy_membership.approval_status == ApprovalStatusEnum.APPROVED
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        db_user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
+    assert len(history_entries) == 1
+    history_entry = history_entries[0]
+    assert history_entry.approval_status == ApprovalStatusEnum.APPROVED
+    assert history_entry.action == AuditActionEnum.CREATED
 
 
 @pytest.mark.respx(base_url="https://mock-domain")

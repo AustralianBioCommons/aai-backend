@@ -3,12 +3,8 @@ import httpx
 import pytest
 from sqlmodel import select
 
-from db.models import (
-    BiocommonsUser,
-    PlatformEnum,
-    PlatformMembership,
-    PlatformMembershipHistory,
-)
+from db.models import BiocommonsUser, PlatformEnum, PlatformMembership
+from db.types import ApprovalStatusEnum, AuditActionEnum
 from routers.sbp_register import validate_sbp_email_domain
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
@@ -93,16 +89,17 @@ def test_successful_registration(
         )
     ).first()
     assert membership is not None
-    assert membership.approval_status == "pending"
+    assert membership.approval_status == ApprovalStatusEnum.PENDING
 
-    history = test_db_session.exec(
-        select(PlatformMembershipHistory).where(
-            PlatformMembershipHistory.user_id == user_id,
-            PlatformMembershipHistory.platform_id == PlatformEnum.SBP
-        )
-    ).first()
-    assert history is not None
-    assert history.approval_status == "pending"
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user_id,
+        PlatformEnum.SBP,
+        test_db_session,
+    )
+    assert len(history_entries) == 1
+    history = history_entries[0]
+    assert history.approval_status == ApprovalStatusEnum.PENDING
+    assert history.action == AuditActionEnum.CREATED
 
     called_data = mock_auth0_client.create_user.call_args[0][0]
     assert called_data.user_metadata.sbp.registration_reason == valid_registration_data["reason"]
