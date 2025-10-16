@@ -99,10 +99,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if not membership.is_deleted:
                 membership.delete(session, commit=False)
 
-        super().delete(session, commit=False)
-        if commit:
-            session.commit()
-            session.expunge(self)
+        super().delete(session, commit=commit)
         return self
 
     def update_from_auth0(self, auth0_id: str, auth0_client: Auth0Client) -> Self:
@@ -192,10 +189,7 @@ class Platform(SoftDeleteModel, table=True):
             if not membership.is_deleted:
                 membership.delete(session, commit=False)
 
-        super().delete(session, commit=False)
-        if commit:
-            session.commit()
-            session.expunge(self)
+        super().delete(session, commit=commit)
         return self
 
 
@@ -626,10 +620,7 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
             if not membership.is_deleted:
                 membership.delete(session, commit=False)
 
-        super().delete(session, commit=False)
-        if commit:
-            session.commit()
-            session.expunge(self)
+        super().delete(session, commit=commit)
         return self
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
