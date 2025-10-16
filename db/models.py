@@ -10,7 +10,7 @@ from starlette.exceptions import HTTPException
 
 import schemas
 from auth0.client import Auth0Client
-from db.core import BaseModel
+from db.core import SoftDeleteModel
 from db.types import (
     ApprovalStatusEnum,
     GroupMembershipData,
@@ -21,7 +21,7 @@ from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 
-class BiocommonsUser(BaseModel, table=True):
+class BiocommonsUser(SoftDeleteModel, table=True):
     __tablename__ = "biocommons_user"
     # Auth0 ID
     id: str = Field(primary_key=True)
@@ -52,13 +52,14 @@ class BiocommonsUser(BaseModel, table=True):
         """
         Check if a user has a membership for a specific platform.
         """
-        return session.exec(
-            select(PlatformMembership).where(
+        result = session.exec(
+            select(PlatformMembership.id).where(
                 PlatformMembership.user_id == user_id,
                 PlatformMembership.platform_id == platform_id,
                 PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED,
             )
-        ).exists()
+        ).first()
+        return result is not None
 
     @classmethod
     def create_from_auth0(cls, auth0_id: str, auth0_client: Auth0Client) -> Self:
@@ -88,6 +89,20 @@ class BiocommonsUser(BaseModel, table=True):
             db_session.add(user)
             db_session.commit()
         return user
+
+    def delete(self, session: Session, commit: bool = False) -> "BiocommonsUser":
+        """
+        Soft delete the user and cascade the soft delete to related memberships.
+        """
+        for membership in list(self.platform_memberships or []):
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+        for membership in list(self.group_memberships or []):
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+
+        super().delete(session, commit=commit)
+        return self
 
     def update_from_auth0(self, auth0_id: str, auth0_client: Auth0Client) -> Self:
         """
@@ -159,12 +174,12 @@ class BiocommonsUser(BaseModel, table=True):
         return False
 
 
-class PlatformRoleLink(BaseModel, table=True):
+class PlatformRoleLink(SoftDeleteModel, table=True):
     platform_id: PlatformEnum = Field(primary_key=True, foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     role_id: str = Field(primary_key=True, foreign_key="auth0role.id")
 
 
-class Platform(BaseModel, table=True):
+class Platform(SoftDeleteModel, table=True):
     id: PlatformEnum = Field(primary_key=True, unique=True, sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     # Human-readable name for the platform
     name: str = Field(unique=True)
@@ -193,7 +208,7 @@ class Platform(BaseModel, table=True):
         ).all()
 
     @classmethod
-    def get_from_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+    def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
         """
         Given a list of role names, return a list of platforms
         where the roles grant admin rights.
@@ -223,7 +238,17 @@ class Platform(BaseModel, table=True):
         return False
 
 
-class PlatformMembership(BaseModel, table=True):
+    def delete(self, session: Session, commit: bool = False) -> "Platform":
+        memberships = list(self.members or [])
+        for membership in memberships:
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+
+        super().delete(session, commit=commit)
+        return self
+
+
+class PlatformMembership(SoftDeleteModel, table=True):
     __table_args__ = (
         UniqueConstraint("platform_id", "user_id", name="platform_user_id_platform_id"),
     )
@@ -285,6 +310,26 @@ class PlatformMembership(BaseModel, table=True):
             raise HTTPException(status_code=404, detail=f"Platform membership for user {user_id} on platform {platform_id} not found")
         return membership
 
+    def delete(self, session: Session, commit: bool = False) -> "PlatformMembership":
+        history_entries = session.exec(
+            select(PlatformMembershipHistory)
+            .where(
+                PlatformMembershipHistory.user_id == self.user_id,
+                PlatformMembershipHistory.platform_id == self.platform_id,
+            )
+        ).all()
+
+        super().delete(session, commit=False)
+
+        for history in history_entries:
+            if not history.is_deleted:
+                history.delete(session, commit=False)
+
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
+
     def save_history(self, session: Session) -> "PlatformMembershipHistory":
         # Make sure this object is in the session before accessing relationships
         if self not in session:
@@ -322,7 +367,7 @@ class PlatformMembership(BaseModel, table=True):
 
 
 
-class PlatformMembershipHistory(BaseModel, table=True):
+class PlatformMembershipHistory(SoftDeleteModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     platform_id: PlatformEnum = Field(sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     user_id: str = Field(foreign_key="biocommons_user.id")
@@ -349,7 +394,7 @@ class PlatformMembershipHistory(BaseModel, table=True):
     )
 
 
-class GroupMembership(BaseModel, table=True):
+class GroupMembership(SoftDeleteModel, table=True):
     """
     Stores the current approval status for a user/group pairing.
     Note: only one row per user/group, the approval history
@@ -412,6 +457,26 @@ class GroupMembership(BaseModel, table=True):
             )
         ).one_or_none()
 
+    def delete(self, session: Session, commit: bool = False) -> "GroupMembership":
+        history_entries = session.exec(
+            select(GroupMembershipHistory)
+            .where(
+                GroupMembershipHistory.user_id == self.user_id,
+                GroupMembershipHistory.group_id == self.group_id,
+            )
+        ).all()
+
+        super().delete(session, commit=False)
+
+        for history in history_entries:
+            if not history.is_deleted:
+                history.delete(session, commit=False)
+
+        if commit:
+            session.commit()
+            session.expunge(self)
+        return self
+
     @classmethod
     def get_by_user_id_and_group_id_or_404(cls, user_id: str, group_id: str, session: Session) -> Self:
         membership = cls.get_by_user_id_and_group_id(user_id, group_id, session)
@@ -421,13 +486,14 @@ class GroupMembership(BaseModel, table=True):
 
     @classmethod
     def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
-        return session.exec(
-            select(GroupMembership).where(
+        result = session.exec(
+            select(GroupMembership.id).where(
                 GroupMembership.user_id == user_id,
                 GroupMembership.group_id == group_id,
                 GroupMembership.approval_status == ApprovalStatusEnum.APPROVED,
             )
-        ).exists()
+        ).first()
+        return result is not None
 
 
 
@@ -490,7 +556,7 @@ class GroupMembership(BaseModel, table=True):
 
 
 
-class GroupMembershipHistory(BaseModel, table=True):
+class GroupMembershipHistory(SoftDeleteModel, table=True):
     """
     Stores the full history of approval decisions for each user
     """
@@ -546,12 +612,12 @@ class GroupMembershipHistory(BaseModel, table=True):
         ).all()
 
 
-class GroupRoleLink(BaseModel, table=True):
+class GroupRoleLink(SoftDeleteModel, table=True):
     group_id: str = Field(primary_key=True, foreign_key="biocommonsgroup.group_id")
     role_id: str = Field(primary_key=True, foreign_key="auth0role.id")
 
 
-class Auth0Role(BaseModel, table=True):
+class Auth0Role(SoftDeleteModel, table=True):
     id: str = Field(primary_key=True, unique=True)
     name: str
     description: str = Field(default="")
@@ -601,7 +667,7 @@ class Auth0Role(BaseModel, table=True):
         ).one_or_none()
 
 
-class BiocommonsGroup(BaseModel, table=True):
+class BiocommonsGroup(SoftDeleteModel, table=True):
     # Name of the group / role name in Auth0, e.g. biocommons/group/tsi
     group_id: str = Field(primary_key=True, unique=True)
     # Human-readable name for the group
@@ -627,6 +693,15 @@ class BiocommonsGroup(BaseModel, table=True):
         if group is None:
             raise HTTPException(status_code=404, detail="Group not found")
         return group
+
+    def delete(self, session: Session, commit: bool = False) -> "BiocommonsGroup":
+        memberships = list(self.members or [])
+        for membership in memberships:
+            if not membership.is_deleted:
+                membership.delete(session, commit=False)
+
+        super().delete(session, commit=commit)
+        return self
 
     def get_admins(self, auth0_client: Auth0Client) -> set[str]:
         """
@@ -656,7 +731,7 @@ class BiocommonsGroup(BaseModel, table=True):
         ).all()
 
     @classmethod
-    def get_from_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+    def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
         """
         Given a list of role names, return a list of groups
         where the roles grant admin rights.
@@ -665,7 +740,7 @@ class BiocommonsGroup(BaseModel, table=True):
             select(BiocommonsGroup)
             .join(BiocommonsGroup.admin_roles)
             .where(Auth0Role.name.in_(role_names))
-        )
+        ).all()
 
 
 # Update all model references

@@ -73,19 +73,17 @@ def has_platform_admin_permission(
     platform_id: str,
     current_user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
-):
+) -> bool:
+    """
+    Check if user has platform admin privileges.
+    """
     platform = Platform.get_by_id(platform_id, db_session)
     if platform is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Platform '{platform_id}' not found",
         )
-    if platform.user_is_admin(current_user):
-        return current_user
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have permission to access this platform.",
-    )
+    return platform.user_is_admin(current_user)
 
 
 def has_admin_permission_for_user(
@@ -125,7 +123,7 @@ def has_platform_admin_permission_for_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"User '{user_id}' not found",
         )
-    admin_platforms = Platform.get_from_admin_roles(
+    admin_platforms = Platform.get_for_admin_roles(
         role_names=admin.access_token.biocommons_roles,
         session=db_session,
     )
@@ -145,7 +143,7 @@ def has_group_admin_permission_for_user(
     based on group admin roles.
     """
     user_in_db = BiocommonsUser.get_by_id(user_id, session=db_session)
-    admin_groups = BiocommonsGroup.get_from_admin_roles(
+    admin_groups = BiocommonsGroup.get_for_admin_roles(
         role_names=admin.access_token.biocommons_roles,
         session=db_session,
     )

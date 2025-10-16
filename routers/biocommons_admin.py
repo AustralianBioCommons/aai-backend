@@ -60,6 +60,7 @@ class PlatformCreateData(BaseModel):
         Save the platform to the DB.
         Any roles in admin_roles must already exist in the DB.
         """
+        db_roles: list[Auth0Role] = []
         for role in self.admin_roles:
             db_role = Auth0Role.get_by_name(role, db_session)
             if db_role is None:
@@ -67,7 +68,12 @@ class PlatformCreateData(BaseModel):
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=f"Role {role} doesn't exist in DB - create roles first"
                 )
-        platform = Platform(**self.model_dump())
+            db_roles.append(db_role)
+        platform = Platform(
+            id=self.id,
+            name=self.name,
+            admin_roles=db_roles,
+        )
         db_session.add(platform)
         if commit:
             db_session.commit()
@@ -77,7 +83,7 @@ class PlatformCreateData(BaseModel):
 class PlatformResponse(BaseModel):
     id: PlatformEnum
     name: str
-    admin_roles: list[Auth0Role]
+    admin_roles: list[str]
 
 
 @router.post("/platforms/create",
@@ -90,7 +96,11 @@ def create_platform(platform_data: PlatformCreateData, db_session: Annotated[Ses
             detail=f"Platform {platform_data.id} already exists"
         )
     platform = platform_data.save_platform(db_session, commit=True)
-    return platform.model_dump()
+    return PlatformResponse(
+        id=platform.id,
+        name=platform.name,
+        admin_roles=[role.name for role in platform.admin_roles],
+    )
 
 
 class CreateRoleData(BaseModel):
