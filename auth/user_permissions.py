@@ -142,7 +142,7 @@ def has_group_admin_permission_for_user(
 ) -> bool:
     """
     Check if the current admin has the right to manage the specified user,
-    based on platform admin roles.
+    based on group admin roles.
     """
     user_in_db = BiocommonsUser.get_by_id(user_id, session=db_session)
     admin_groups = BiocommonsGroup.get_from_admin_roles(
@@ -162,7 +162,7 @@ def require_admin_permission_for_user(
 ):
     """
     Dependency for checking if the current admin has the right to manage the
-    specified user (user_id should be a path parameter)..
+    specified user (user_id should be a path parameter).
     Raises an HTTPException if not.
     """
     if not has_admin_permission_for_user(user_id, admin, db_session):
@@ -180,7 +180,7 @@ def require_admin_permission_for_platform(
 ):
     """
     Dependency for checking if the current admin has the right to manage the
-    platform (platform_id should be a path parameter)..
+    platform (platform_id should be a path parameter).
 
     Raises HTTPException if the admin doesn't have permission.
     """
