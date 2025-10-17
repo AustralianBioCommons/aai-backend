@@ -23,6 +23,8 @@ def get_engine():
             pool_size=20,
             max_overflow=20,
             pool_timeout=60,
+            pool_pre_ping=True,
+            pool_recycle=60 * 10,
         )
     return _engine
 
