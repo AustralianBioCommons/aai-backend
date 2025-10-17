@@ -1,0 +1,37 @@
+name: Check DB connection
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.13
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          uv venv
+          uv sync --extra dev
+
+      - name: Run postgres connection check
+        run: |
+          source .venv/bin/activate
+          python scripts/test_db_connection.py
