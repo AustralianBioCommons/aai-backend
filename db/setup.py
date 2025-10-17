@@ -14,7 +14,8 @@ SQLITE_CONNECT_ARGS = {
     "timeout": 30,
 }
 POSTGRES_CONNECT_ARGS = {
-    "connect_timeout": 10
+    "connect_timeout": 10,
+    "options": "-c statement_timeout=30000"
 }
 
 # Set engine as None initially so it's not created on import
