@@ -9,6 +9,14 @@ from db.core import BaseModel
 
 log = logging.getLogger('uvicorn.error')
 
+SQLITE_CONNECT_ARGS = {
+    "check_same_thread": False,
+    "timeout": 30,
+}
+POSTGRES_CONNECT_ARGS = {
+    "connect_timeout": 10
+}
+
 # Set engine as None initially so it's not created on import
 _engine = None
 
@@ -52,21 +60,24 @@ def get_db_config() -> Tuple[str, dict]:
         database_path = f"/{database_name}" if database_name else ""
 
         db_url = f"postgresql+psycopg://{user}:{password}@{host_with_port}{database_path}"
-        return db_url, {}
+        return db_url, POSTGRES_CONNECT_ARGS
 
     # Case 2: explicit DB_URL provided via environment or .env file
     explicit_url = os.getenv("DB_URL")
     if explicit_url:
-        connect_args = {"check_same_thread": False} if explicit_url.startswith("sqlite://") else {}
+        if explicit_url.startswith("postgresql"):
+            connect_args = POSTGRES_CONNECT_ARGS
+        else:
+            connect_args = SQLITE_CONNECT_ARGS
         return explicit_url, connect_args
 
     # Case 3: DB_URL from .env file (dev/local)
     env_values = dotenv_values(".env")
     db_url = env_values.get("DB_URL") or "sqlite://"
-    if db_url.startswith("sqlite://"):
-        connect_args = {"check_same_thread": False}
+    if db_url.startswith("postgresql"):
+        connect_args = POSTGRES_CONNECT_ARGS
     else:
-        connect_args = {}
+        connect_args = SQLITE_CONNECT_ARGS
     return db_url, connect_args
 
 
