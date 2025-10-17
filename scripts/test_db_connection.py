@@ -75,6 +75,16 @@ def test_select_via_get_db_config():
     with engine.connect() as conn:
         value = conn.exec_driver_sql("SELECT 1;").scalar()
         assert value == 1, f"Expected 1, got {value}"
+
+        # Optional: check timeout settings (if Postgres)
+        if db_url.startswith("postgresql"):
+            timeout = conn.exec_driver_sql("SHOW statement_timeout;").scalar()
+            print(f"⏱️  statement_timeout: {timeout}")
+
+            idle_timeout = conn.exec_driver_sql(
+                "SHOW idle_in_transaction_session_timeout;"
+            ).scalar()
+            print(f"💤 idle_in_transaction_session_timeout: {idle_timeout}")
     print("✅ Connection successful — SELECT 1 returned 1.")
 
 @click.command()
