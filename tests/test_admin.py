@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from urllib.parse import quote
 
 import pytest
 from fastapi import HTTPException
@@ -7,7 +8,7 @@ from freezegun import freeze_time
 from sqlmodel import select
 
 from auth.management import get_management_token
-from auth.validator import get_current_user, user_is_admin
+from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client
 from db.models import BiocommonsGroup, PlatformMembershipHistory
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
@@ -27,6 +28,7 @@ from tests.db.datagen import (
     PlatformFactory,
     PlatformMembershipFactory,
     _create_user_with_platform_membership,
+    _users_with_group_membership,
     _users_with_platform_membership,
 )
 
@@ -86,12 +88,12 @@ def test_pagination_params_start_index():
     assert params.start_index == 10
 
 
-def test_get_users_requires_admin_unauthorized(test_client):
+def test_get_users_requires_admin_unauthorized(test_client, test_db_session):
     def get_nonadmin_user():
         payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
         return SessionUserFactory.build(access_token=payload)
 
-    app.dependency_overrides[get_current_user] = get_nonadmin_user
+    app.dependency_overrides[get_session_user] = get_nonadmin_user
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
     resp = test_client.get("/admin/users")
     assert resp.status_code == 403
@@ -99,17 +101,21 @@ def test_get_users_requires_admin_unauthorized(test_client):
     app.dependency_overrides.clear()
 
 
-def test_user_is_admin(mock_settings):
+def test_user_is_admin(mock_settings, test_db_session, persistent_factories):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     admin_user = SessionUserFactory.build(access_token=payload)
-    assert user_is_admin(current_user=admin_user, settings=mock_settings)
+    db_user = BiocommonsUserFactory.create_sync(id=admin_user.access_token.sub)
+    assert user_is_general_admin(current_user=admin_user, settings=mock_settings, db_session=test_db_session,
+                                 db_user=db_user)
 
 
-def test_user_is_admin_nonadmin_user(mock_settings):
+def test_user_is_admin_nonadmin_user(mock_settings, test_db_session, persistent_factories):
     payload = AccessTokenPayloadFactory.build(biocommons_roles=["User"])
     user = SessionUserFactory.build(access_token=payload)
+    db_user = BiocommonsUserFactory.create_sync(id=user.access_token.sub)
     with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
-        user_is_admin(current_user=user, settings=mock_settings)
+        user_is_general_admin(current_user=user, settings=mock_settings,
+                              db_session=test_db_session, db_user=db_user)
 
 
 def test_get_users(test_client, as_admin_user, galaxy_platform,
@@ -129,6 +135,36 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
     user_ids = [u["id"] for u in data]
     assert all(u.id in user_ids for u in valid_users)
     assert all(u.id not in user_ids for u in invalid_users)
+
+
+def test_get_users_platform_or_group_access(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    tsi_group,
+    test_db_session,
+    persistent_factories
+):
+    """
+    Test that admins can get users with platform *or* group memberships
+    they have access to.
+    """
+    other_platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    other_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.BPA_GALAXY)
+    test_db_session.commit()
+    galaxy_users = _users_with_platform_membership(n=5, db_session=test_db_session, platform_id=galaxy_platform.id)
+    other_platform_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=other_platform.id)
+    tsi_users = _users_with_group_membership(n=5, db_session=test_db_session, group_id=tsi_group.group_id)
+    other_group_users = _users_with_group_membership(n=3, db_session=test_db_session, group_id=other_group.group_id)
+
+    resp = test_client.get("/admin/users")
+    data = resp.json()
+    assert len(data) == 10
+    user_ids = [u["id"] for u in data]
+    assert all(u.id in user_ids for u in galaxy_users)
+    assert all(u.id in user_ids for u in tsi_users)
+    assert all(u.id not in user_ids for u in other_platform_users)
+    assert all(u.id not in user_ids for u in other_group_users)
 
 
 def test_get_users_pagination_params(test_client, as_admin_user, galaxy_platform, mock_auth0_client, test_db_session):
@@ -362,7 +398,7 @@ def test_get_users_search_with_filter(test_client, as_admin_user, galaxy_platfor
     assert len(results) == 0
 
 
-def test_get_filter_options(test_client, as_admin_user):
+def test_get_filter_options(test_client, as_admin_user, test_db_session, persistent_factories):
     resp = test_client.get("/admin/filters")
     assert resp.status_code == 200
 
@@ -388,8 +424,12 @@ def test_get_filter_options(test_client, as_admin_user):
     assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia"
 
 
-def test_get_user(test_client, test_db_session, as_admin_user, persistent_factories):
-    user = BiocommonsUserFactory.create_sync()
+def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    """
+    Test getting a user by ID. The admin must have access to the user
+    via group/platform membership.
+    """
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
     resp = test_client.get(f"/admin/users/{user.id}")
     assert resp.status_code == 200
     response_data = resp.json()
@@ -405,10 +445,20 @@ def test_get_user(test_client, test_db_session, as_admin_user, persistent_factor
     assert isinstance(response_data["group_memberships"], list)
 
 
-def test_get_approved_users(test_client, test_db_session, as_admin_user, persistent_factories, galaxy_platform):
-    approved_users = BiocommonsUserFactory.create_batch_sync(3)
-    for u in approved_users:
-        u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=True)
+def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_admin_user, persistent_factories):
+    # Create user with platform membership that admin can't access
+    platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=platform.id)
+    resp = test_client.get(f"/admin/users/{user.id}")
+    assert resp.status_code == 403
+
+
+def test_get_approved_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    approved_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY
+    )
     resp = test_client.get("/admin/users/approved")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -417,11 +467,13 @@ def test_get_approved_users(test_client, test_db_session, as_admin_user, persist
         assert returned_user["id"] in approved_ids
 
 
-def test_get_pending_users(test_client, test_db_session, as_admin_user, persistent_factories, galaxy_platform):
-    pending_users = BiocommonsUserFactory.create_batch_sync(3)
-    for u in pending_users:
-        u.add_platform_membership(platform=PlatformEnum.GALAXY, db_session=test_db_session, auto_approve=False)
-    test_db_session.commit()
+def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    pending_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.PENDING
+    )
 
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
@@ -431,13 +483,14 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, persiste
         assert returned_user["id"] in expected_ids
 
 
-def test_get_revoked_users(test_client, test_db_session, as_admin_user, persistent_factories, galaxy_platform):
-    revoked_users = BiocommonsUserFactory.create_batch_sync(3)
-    for u in revoked_users:
-        PlatformMembershipFactory.create_sync(
-            user=u, platform_id=PlatformEnum.GALAXY, approval_status=ApprovalStatusEnum.REVOKED
-        )
-    test_db_session.commit()
+def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    revoked_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.REVOKED
+    )
+
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
     assert len(resp.json()) == 3
@@ -472,8 +525,6 @@ def test_approve_platform_membership_updates_db(
     )
     admin_db_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
-        platform_memberships=[],
-        group_memberships=[],
     )
     test_db_session.commit()
 
@@ -518,7 +569,7 @@ def test_approve_platform_membership_forbidden_without_platform_role(
     unauthorized_admin = SessionUserFactory.build(
         access_token=AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
@@ -607,7 +658,7 @@ def test_revoke_platform_membership_forbidden_without_platform_role(
             biocommons_roles=["Admin"]
         )
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
@@ -655,7 +706,8 @@ def test_approve_group_membership_updates_db(
     mock_auth0_client.get_role_by_name.return_value = mock_role
     mock_auth0_client.add_roles_to_user.return_value = True
 
-    resp = test_client.post(f"/admin/users/{user.id}/groups/tsi/approve")
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
@@ -692,12 +744,12 @@ def test_approve_group_membership_forbidden_without_group_role(
             ]
         )
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
         resp = test_client.post(
-            f"/admin/users/{user.id}/groups/tsi/approve",
+            f"/admin/users/{user.id}/groups/{tsi_group.group_id}/approve",
         )
     finally:
         app.dependency_overrides.clear()
@@ -734,7 +786,7 @@ def test_revoke_group_membership_records_reason(
 
     reason = "Access no longer required"
     resp = test_client.post(
-        f"/admin/users/{user.id}/groups/tsi/revoke",
+        f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
         json={"reason": reason},
     )
 
@@ -772,12 +824,12 @@ def test_revoke_group_membership_forbidden_without_group_role(
             ]
         )
     )
-    app.dependency_overrides[get_current_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
 
     try:
         resp = test_client.post(
-            f"/admin/users/{user.id}/groups/tsi/revoke",
+            f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
             json={"reason": "Policy"},
         )
     finally:
@@ -793,13 +845,27 @@ def test_revoke_group_membership_forbidden_without_group_role(
     assert membership.revocation_reason == original_reason
 
 
-def test_resend_verification_email(test_client, as_admin_user, mock_auth0_client):
-    user = Auth0UserDataFactory.build()
+def test_resend_verification_email(test_client, as_admin_user, test_db_session, galaxy_platform, mock_auth0_client):
+    """
+    Test resend verification email - requires admin permissions for the user
+    """
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
     response_data = EmailVerificationResponseFactory.build()
     mock_auth0_client.resend_verification_email.return_value = response_data
-    resp = test_client.post(f"/admin/users/{user.user_id}/verification-email/resend")
+    resp = test_client.post(f"/admin/users/{user.id}/verification-email/resend")
     assert resp.status_code == 200
     assert resp.json() == {"message": "Verification email resent."}
+
+
+def test_resend_verification_email_unauthorized(test_client, as_admin_user, test_db_session, persistent_factories):
+    """
+    Test resend verification email fails when admin doesn't have permission
+    """
+    # User has membership to a platform that admin can't access
+    platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=platform.id)
+    resp = test_client.post(f"/admin/users/{user.id}/verification-email/resend")
+    assert resp.status_code == 403
 
 
 def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group, galaxy_platform):
@@ -821,9 +887,19 @@ def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth
     assert platforms[0] == platform_membership_data
 
 
-def test_get_unverified_users(test_client, test_db_session, as_admin_user, persistent_factories):
-    BiocommonsUserFactory.create_batch_sync(2, email_verified=True)
-    BiocommonsUserFactory.create_batch_sync(3, email_verified=False)
+def test_get_unverified_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+    _users_with_platform_membership(
+        n=2,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        email_verified=True,
+    )
+    _users_with_platform_membership(
+        n=3,
+        db_session=test_db_session,
+        platform_id=PlatformEnum.GALAXY,
+        email_verified=False,
+    )
     resp = test_client.get("/admin/users/unverified")
     assert resp.status_code == 200
     data = resp.json()

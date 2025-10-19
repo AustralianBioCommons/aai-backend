@@ -7,9 +7,14 @@ from pydantic import BaseModel as PydanticBaseModel
 from sqlmodel import Session
 
 from auth.management import get_management_token
-from auth.validator import get_current_user
+from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
 from config import Settings, get_settings
-from db.models import GroupMembership, Platform, PlatformMembership
+from db.models import (
+    BiocommonsUser,
+    GroupMembership,
+    Platform,
+    PlatformMembership,
+)
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
 from schemas.biocommons import Auth0UserData
@@ -99,7 +104,7 @@ async def update_user_metadata(
 @router.get("/platforms",
             response_model=list[PlatformMembershipData],)
 async def get_platforms(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     return PlatformMembership.get_by_user_id(user_id=user.access_token.sub, session=db_session)
@@ -110,7 +115,7 @@ async def get_platforms(
     response_model=list[PlatformMembershipData],
 )
 async def get_approved_platforms(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get approved platforms for the current user."""
@@ -124,7 +129,7 @@ async def get_approved_platforms(
     response_model=list[PlatformMembershipData],
 )
 async def get_pending_platforms(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get pending platforms for the current user."""
@@ -138,7 +143,7 @@ async def get_pending_platforms(
     description="Get platforms for which the current user has admin privileges.",
 )
 async def get_admin_platforms(
-    user: Annotated[SessionUser, Depends(get_current_user)],
+    user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get platforms for which the current user has admin privileges."""
@@ -149,7 +154,7 @@ async def get_admin_platforms(
 @router.get("/groups",
             response_model=list[GroupMembershipData],)
 async def get_groups(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     return GroupMembership.get_by_user_id(user_id=user.access_token.sub, session=db_session)
@@ -159,7 +164,7 @@ async def get_groups(
 @router.get("/groups/approved",
             response_model=list[GroupMembershipData],)
 async def get_approved_groups(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     return GroupMembership.get_by_user_id(user_id=user.access_token.sub,
@@ -170,18 +175,34 @@ async def get_approved_groups(
 @router.get("/groups/pending",
             response_model=list[GroupMembershipData],)
 async def get_pending_groups(
-        user: Annotated[SessionUser, Depends(get_current_user)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     return GroupMembership.get_by_user_id(user_id=user.access_token.sub,
-                                         approval_status=ApprovalStatusEnum.PENDING,
-                                         session=db_session)
+                                          approval_status=ApprovalStatusEnum.PENDING,
+                                          session=db_session)
+
+
+@router.get("/is-general-admin")
+async def check_is_general_admin(
+    user: Annotated[SessionUser, Depends(get_session_user)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """Check if the current user has general admin privileges."""
+    try:
+        validated = user_is_general_admin(user, settings, db_user=db_user, db_session=db_session)
+        if validated:
+            return True
+    except HTTPException:
+        return False
 
 
 @router.get("/all/pending",
             response_model=CombinedMembershipData)
 async def get_all_pending(
-    user: Annotated[SessionUser, Depends(get_current_user)],
+    user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
 ):
     """Get all pending platforms and groups."""
@@ -192,12 +213,3 @@ async def get_all_pending(
                                              approval_status=ApprovalStatusEnum.PENDING,
                                              session=db_session)
     return {"platforms": platforms, "groups": groups}
-
-
-@router.get("/is-admin")
-async def check_is_admin(
-    user: Annotated[SessionUser, Depends(get_current_user)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """Check if the current user has admin privileges."""
-    return {"is_admin": user.is_admin(settings)}

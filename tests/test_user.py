@@ -123,7 +123,7 @@ async def test_update_user_metadata_handles_responses(mocker, mock_settings, sta
 @pytest.mark.parametrize(
     "endpoint",
     [
-        "/me/is-admin",
+        "/me/is-general-admin",
         "/me/platforms",
         "/me/platforms/approved",
         "/me/platforms/pending",
@@ -140,7 +140,7 @@ def test_endpoints_require_auth(endpoint, test_client):
     assert response.json() == {"detail": "Not authenticated"}
 
 
-def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker):
+def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker, test_db_session):
     """Test that admin check returns True for users with admin role"""
     from tests.datagen import SessionUserFactory
 
@@ -149,19 +149,20 @@ def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker):
     )
     admin_user = SessionUserFactory.build(access_token=admin_token)
 
-    mocker.patch("auth.validator.verify_jwt", return_value=admin_token)
-    mocker.patch("auth.validator.get_current_user", return_value=admin_user)
+    mocker.patch("auth.user_permissions.verify_jwt", return_value=admin_token)
+    mocker.patch("auth.user_permissions.get_session_user", return_value=admin_user)
 
     response = test_client.get(
-        "/me/is-admin",
+        "/me/is-general-admin",
         headers={"Authorization": "Bearer valid_token"}
     )
 
     assert response.status_code == 200
-    assert response.json() == {"is_admin": True}
+    is_admin = response.json()
+    assert is_admin
 
 
-def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
+def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker, test_db_session):
     """Test that admin check returns False for users without admin role"""
     from tests.datagen import SessionUserFactory
 
@@ -170,21 +171,22 @@ def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker):
     )
     user = SessionUserFactory.build(access_token=user_token)
 
-    mocker.patch("auth.validator.verify_jwt", return_value=user_token)
-    mocker.patch("auth.validator.get_current_user", return_value=user)
+    mocker.patch("auth.user_permissions.verify_jwt", return_value=user_token)
+    mocker.patch("auth.user_permissions.get_session_user", return_value=user)
 
     response = test_client.get(
-        "/me/is-admin",
+        "/me/is-general-admin",
         headers={"Authorization": "Bearer valid_token"}
     )
 
     assert response.status_code == 200
-    assert response.json() == {"is_admin": False}
+    is_admin = response.json()
+    assert not is_admin
 
 
 def test_check_is_admin_without_authentication(test_client):
     """Test that admin check requires authentication"""
-    response = test_client.get("/me/is-admin")
+    response = test_client.get("/me/is-general-admin")
     assert response.status_code == 401
 
 
@@ -194,8 +196,8 @@ def _act_as_user(mocker, db_user, roles: list[str] = None):
     """
     access_token = AccessTokenPayloadFactory.build(sub=db_user.id, biocommons_roles=roles or [])
     auth0_user = SessionUserFactory.build(access_token=access_token)
-    mocker.patch("auth.validator.verify_jwt", return_value=access_token)
-    mocker.patch("auth.validator.get_current_user", return_value=auth0_user)
+    mocker.patch("auth.user_permissions.verify_jwt", return_value=access_token)
+    mocker.patch("routers.user.get_session_user", return_value=auth0_user)
     return auth0_user
 
 

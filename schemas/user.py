@@ -15,12 +15,10 @@ class SessionUser(BaseModel):
 
     access_token: AccessTokenPayload
 
-    def is_admin(self, settings: Settings) -> bool:
+    def is_biocommons_admin(self, settings: Settings) -> bool:
         """
-        Checks if the user has an admin role.
+        Checks if the user has an admin role listed in settings.admin_roles.
         """
-        # TODO: Need to finalize exactly what roles make
-        #   a user an admin
         for role in self.access_token.biocommons_roles:
             if role in settings.admin_roles:
                 return True

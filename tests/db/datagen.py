@@ -89,3 +89,29 @@ def _users_with_platform_membership(n: int, db_session: Session, platform_id: Pl
         users.append(user)
     db_session.commit()
     return users
+
+
+def _create_user_with_group_membership(db_session: Session, group_id: str,
+                                       approval_status=ApprovalStatusEnum.APPROVED,
+                                       commit=True, **kwargs):
+    user = BiocommonsUserFactory.build(**kwargs)
+    membership = GroupMembershipFactory.create_sync(
+        group_id=group_id,
+        user_id=user.id,
+        approval_status=approval_status,
+    )
+    user.group_memberships.append(membership)
+    db_session.add(user)
+    if commit:
+        db_session.commit()
+    return user
+
+
+def _users_with_group_membership(n: int, db_session: Session, group_id: str,
+                                  approval_status=ApprovalStatusEnum.APPROVED, **kwargs):
+    users = []
+    for i in range(n):
+        user = _create_user_with_group_membership(db_session, group_id, approval_status, commit=False, **kwargs)
+        users.append(user)
+    db_session.commit()
+    return users
