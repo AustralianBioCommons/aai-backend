@@ -1,4 +1,4 @@
-from db.setup import get_db_config
+from db.setup import POSTGRES_CONNECT_ARGS, SQLITE_CONNECT_ARGS, get_db_config
 
 
 def test_db_config_db_host(monkeypatch):
@@ -16,7 +16,7 @@ def test_db_config_db_host(monkeypatch):
     monkeypatch.setenv("DB_PASSWORD", "password")
     db_url, connect_args = get_db_config()
     assert "user:password@db:5432" in db_url
-    assert connect_args == {}
+    assert connect_args == POSTGRES_CONNECT_ARGS
 
 
 def test_db_config_db_url(monkeypatch):
@@ -31,6 +31,7 @@ def test_db_config_db_url(monkeypatch):
     monkeypatch.setenv("DB_URL", env_url)
     db_url, connect_args = get_db_config()
     assert db_url == env_url
+    assert connect_args == SQLITE_CONNECT_ARGS
     assert connect_args["check_same_thread"] is False
 
 
@@ -43,7 +44,7 @@ def test_db_config_db_host_and_port(monkeypatch):
     monkeypatch.setenv("DB_PASSWORD", "password")
     db_url, connect_args = get_db_config()
     assert "user:password@db:5432" in db_url
-    assert connect_args == {}
+    assert connect_args == POSTGRES_CONNECT_ARGS
 
 
 def test_db_config_db_host_preserves_existing_port(monkeypatch):
@@ -87,7 +88,7 @@ def test_db_config_explicit_non_sqlite_url(monkeypatch):
     monkeypatch.delenv("DB_PORT", raising=False)
     db_url, connect_args = get_db_config()
     assert db_url == env_url
-    assert connect_args == {}
+    assert connect_args == POSTGRES_CONNECT_ARGS
 
 
 def test_db_config_env_fallback_sqlite(monkeypatch):
@@ -115,4 +116,4 @@ def test_db_config_env_fallback_postgres(monkeypatch):
     monkeypatch.setattr("db.setup.dotenv_values", fake_dotenv_values)
     db_url, connect_args = get_db_config()
     assert db_url == "postgresql+psycopg://user:password@db/service"
-    assert connect_args == {}
+    assert connect_args == POSTGRES_CONNECT_ARGS
