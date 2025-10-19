@@ -6,6 +6,8 @@ from contextlib import contextmanager
 import click
 from sqlmodel import create_engine
 
+from db.setup import POSTGRES_STATEMENT_TIMEOUT_S, get_db_config
+
 # --- Config ---
 DB_CONTAINER_NAME = "temp_db_conn_test"
 DEFAULT_POSTGRES_IMAGE = "postgres:17"
@@ -14,10 +16,12 @@ POSTGRES_USER = "testuser"
 POSTGRES_PASSWORD = "testpass"
 POSTGRES_DB = "postgres"  # default DB created by the image
 
+
 # --- Utilities ---
 def run(cmd, env=None):
     print(f"> {cmd}")
     subprocess.run(cmd, shell=True, check=True, env=env or os.environ)
+
 
 @contextmanager
 def temp_postgres_container(port: int, image: str):
@@ -31,9 +35,13 @@ def temp_postgres_container(port: int, image: str):
             f"-p {port}:5432 {image}"
         )
         yield
+    except subprocess.CalledProcessError as e:
+        print("Running docker failed: is docker running?")
+        print(e)
     finally:
         print("🧹 Cleaning up: stopping container...")
         subprocess.run(f"docker stop {DB_CONTAINER_NAME}", shell=True)
+
 
 def wait_for_db_ready(host: str, port: int, timeout_s: int = 30):
     """
@@ -57,16 +65,12 @@ def wait_for_db_ready(host: str, port: int, timeout_s: int = 30):
             time.sleep(1)
     raise RuntimeError("Database did not become ready in time.")
 
+
 def test_select_via_get_db_config():
     """
     Imports your project's get_db_config(), creates an engine, and runs SELECT 1.
     NOTE: Adjust the import below to where your get_db_config() lives.
     """
-    # >>> CHANGE THIS IMPORT PATH IF NEEDED <<<
-    # For example, if your function is in `db/config.py`, use:
-    #   from db.config import get_db_config
-    from db.setup import get_db_config  # <-- adjust to your module
-
     db_url, connect_args = get_db_config()
     print(f"🔗 DB URL: {db_url}")
     print(f"⚙️  Connect args: {connect_args}")
@@ -87,6 +91,39 @@ def test_select_via_get_db_config():
             print(f"💤 idle_in_transaction_session_timeout: {idle_timeout}")
     print("✅ Connection successful — SELECT 1 returned 1.")
 
+
+def test_long_statement_hits_timeout():
+    """
+    Verify that a long-running statement (pg_sleep) exceeds a short statement_timeout
+    and produces a server-side timeout error.
+    """
+    db_url, connect_args = get_db_config()
+    if not db_url.startswith("postgresql"):
+        print("⚠️ Skipping timeout test: non-Postgres URL.")
+        return
+
+    engine = create_engine(db_url, connect_args=connect_args)
+    with engine.connect() as conn:
+        print("😴 Running SELECT pg_sleep() to exceed the timeout...")
+        start = time.time()
+        try:
+            # This should raise due to statement timeout
+            conn.exec_driver_sql(f"SELECT pg_sleep({POSTGRES_STATEMENT_TIMEOUT_S + 5});")
+            raise AssertionError("Expected statement timeout, but query succeeded.")
+        except Exception as e:
+            elapsed = time.time() - start
+            msg = str(e).lower()
+            print(f"⏲️ Query failed after ~{elapsed:.2f}s with error:\n{e}")
+            # Be permissive about driver wording but ensure it's clearly a timeout.
+            assert (
+                    "statement timeout" in msg
+                    or "canceling statement due to statement timeout" in msg
+                    or "context deadline exceeded" in msg  # some wrappers
+                    or "query canceled" in msg
+            ), "Unexpected error; expected a statement-timeout-related error."
+    print("✅ Long-running statement correctly failed due to timeout.")
+
+
 @click.command()
 @click.option("--port", default=DEFAULT_PORT, show_default=True, help="Host port to bind Postgres on.")
 @click.option("--image", default=DEFAULT_POSTGRES_IMAGE, show_default=True, help="Postgres Docker image.")
@@ -103,6 +140,9 @@ def main(port, image):
         wait_for_db_ready("localhost", port)
         print("🧪 Running connectivity test via get_db_config()...")
         test_select_via_get_db_config()
+        print("🐢 Running statement timeout test...")
+        test_long_statement_hits_timeout()
+
 
 if __name__ == "__main__":
     main()
