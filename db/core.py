@@ -134,7 +134,7 @@ class AuditLogModel(BaseModel):
         sa_type=DbEnum(AuditActionEnum, name="AuditActionEnum"),
         description="Type of change that produced this audit record.",
     )
-    acted_at: datetime = Field(
+    action_time: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_type=DateTime(timezone=True),
         description="Timestamp when the audit record was produced.",
@@ -197,7 +197,7 @@ class AuditedModel(BaseModel):
         if payload is None:
             return
         payload["action"] = action
-        payload.setdefault("acted_at", datetime.now(timezone.utc))
+        payload.setdefault("action_time", datetime.now(timezone.utc))
         insert_stmt = audit_model.__table__.insert().values(**payload)
         connection.execute(insert_stmt)
 

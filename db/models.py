@@ -290,7 +290,7 @@ class PlatformMembership(AuditedModel, table=True):
                 PlatformMembershipAuditLog.user_id == user_id,
                 PlatformMembershipAuditLog.platform_id == platform_id,
             )
-            .order_by(PlatformMembershipAuditLog.acted_at.asc())
+            .order_by(PlatformMembershipAuditLog.action_time.asc())
         )
         return session.exec(stmt).all()
 
@@ -301,7 +301,7 @@ class PlatformMembership(AuditedModel, table=True):
         stmt = (
             select(PlatformMembershipAuditLog)
             .where(PlatformMembershipAuditLog.user_id == user_id)
-            .order_by(PlatformMembershipAuditLog.acted_at.asc())
+            .order_by(PlatformMembershipAuditLog.action_time.asc())
         )
         return session.exec(stmt).all()
 
@@ -444,7 +444,7 @@ class GroupMembership(AuditedModel, table=True):
                 GroupMembershipAuditLog.user_id == user_id,
                 GroupMembershipAuditLog.group_id == group_id,
             )
-            .order_by(GroupMembershipAuditLog.acted_at.asc())
+            .order_by(GroupMembershipAuditLog.action_time.asc())
         )
         return session.exec(stmt).all()
 
@@ -455,7 +455,7 @@ class GroupMembership(AuditedModel, table=True):
         stmt = (
             select(GroupMembershipAuditLog)
             .where(GroupMembershipAuditLog.user_id == user_id)
-            .order_by(GroupMembershipAuditLog.acted_at.asc())
+            .order_by(GroupMembershipAuditLog.action_time.asc())
         )
         return session.exec(stmt).all()
 

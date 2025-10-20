@@ -125,11 +125,11 @@ class GroupMembershipAuditLogAdmin(ModelView, model=GroupMembershipAuditLog):
         "approval_status",
         "updated_at",
         "action",
-        "acted_at",
+        "action_time",
         "updated_by_id",
         "revocation_reason",
     ]
-    column_default_sort = ("acted_at", True)
+    column_default_sort = ("action_time", True)
 
 
 class PlatformAdmin(ModelView, model=Platform):
@@ -168,11 +168,11 @@ class PlatformMembershipAuditLogAdmin(ModelView, model=PlatformMembershipAuditLo
         "approval_status",
         "updated_at",
         "action",
-        "acted_at",
+        "action_time",
         "updated_by_id",
         "revocation_reason",
     ]
-    column_default_sort = ("acted_at", True)
+    column_default_sort = ("action_time", True)
 
 
 class DatabaseAdmin:
