@@ -44,17 +44,9 @@ class BiocommonsGroupFactory(SQLAlchemyFactory[BiocommonsGroup]):
 class GroupMembershipFactory(SQLAlchemyFactory[GroupMembership]):
     __set_relationships__ = False
 
-    @classmethod
-    def is_deleted(cls) -> bool:
-        return False
-
 
 class PlatformMembershipFactory(SQLAlchemyFactory[PlatformMembership]):
     __set_relationships__ = False
-
-    @classmethod
-    def is_deleted(cls) -> bool:
-        return False
 
 
 class PlatformFactory(SQLAlchemyFactory[Platform]):

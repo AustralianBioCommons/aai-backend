@@ -241,7 +241,6 @@ def _approve_platform_membership(
     membership.updated_at = datetime.now(timezone.utc)
     membership.updated_by = admin_record
     db_session.add(membership)
-    membership.save_history(db_session)
     db_session.commit()
     db_session.refresh(membership)
     logger.info("Approved platform %s for user %s", platform.value, user_id)
@@ -265,7 +264,6 @@ def _revoke_platform_membership(
     membership.updated_at = datetime.now(timezone.utc)
     membership.updated_by = admin_record
     db_session.add(membership)
-    membership.save_history(db_session)
     db_session.commit()
     db_session.refresh(membership)
     logger.info("Revoked platform %s for user %s", platform.value, user_id)

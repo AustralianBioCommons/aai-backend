@@ -22,6 +22,12 @@ class PlatformEnum(str, Enum):
     SBP = "sbp"
 
 
+class AuditActionEnum(str, Enum):
+    CREATED = "created"
+    UPDATED = "updated"
+    DELETED = "deleted"
+
+
 class PlatformMembershipData(BaseModel):
     """Data model for platform membership, when returned from the API"""
     id: uuid.UUID

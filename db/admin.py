@@ -15,10 +15,10 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
-    GroupMembershipHistory,
+    GroupMembershipAuditLog,
     Platform,
     PlatformMembership,
-    PlatformMembershipHistory,
+    PlatformMembershipAuditLog,
 )
 from db.setup import get_engine
 
@@ -115,20 +115,21 @@ class GroupMembershipAdmin(ModelView, model=GroupMembership):
     ]
 
 
-class GroupMembershipHistoryAdmin(ModelView, model=GroupMembershipHistory):
+class GroupMembershipAuditLogAdmin(ModelView, model=GroupMembershipAuditLog):
     can_edit = False
     can_create = False
     can_delete = False
     column_list = [
-        "name",
         "group_id",
-        "user_email",
         "user_id",
         "approval_status",
         "updated_at",
-        "updated_by_email",
+        "action",
+        "action_time",
+        "updated_by_id",
+        "revocation_reason",
     ]
-    column_default_sort = ("updated_at", True)
+    column_default_sort = ("action_time", True)
 
 
 class PlatformAdmin(ModelView, model=Platform):
@@ -157,19 +158,21 @@ class PlatformMembershipAdmin(ModelView, model=PlatformMembership):
     column_default_sort = ("updated_at", True)
 
 
-class PlatformMembershipHistoryAdmin(ModelView, model=PlatformMembershipHistory):
+class PlatformMembershipAuditLogAdmin(ModelView, model=PlatformMembershipAuditLog):
     can_edit = False
     can_create = False
-    can_delete = True
+    can_delete = False
     column_list = [
-        "id",
         "platform_id",
         "user_id",
         "approval_status",
         "updated_at",
-        "updated_by"
+        "action",
+        "action_time",
+        "updated_by_id",
+        "revocation_reason",
     ]
-    column_default_sort = ("updated_at", True)
+    column_default_sort = ("action_time", True)
 
 
 class DatabaseAdmin:
@@ -182,10 +185,10 @@ class DatabaseAdmin:
         GroupAdmin,
         Auth0RoleAdmin,
         GroupMembershipAdmin,
-        GroupMembershipHistoryAdmin,
+        GroupMembershipAuditLogAdmin,
         PlatformAdmin,
         PlatformMembershipAdmin,
-        PlatformMembershipHistoryAdmin,
+        PlatformMembershipAuditLogAdmin,
     )
 
     def __init__(self, app: FastAPI, secret_key: str):

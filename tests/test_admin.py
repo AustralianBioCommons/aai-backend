@@ -4,13 +4,12 @@ from datetime import datetime
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
-from sqlmodel import select
 
 from auth.management import get_management_token
 from auth.validator import get_current_user, user_is_admin
 from auth0.client import Auth0Client
-from db.models import BiocommonsGroup, PlatformMembershipHistory
-from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
+from db.models import BiocommonsGroup, PlatformMembership
+from db.types import ApprovalStatusEnum, AuditActionEnum, GroupEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams
 from tests.datagen import (
@@ -468,7 +467,7 @@ def test_approve_platform_membership_updates_db(
     membership = PlatformMembershipFactory.create_sync(
         user=user,
         platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.PENDING.value,
+        approval_status=ApprovalStatusEnum.PENDING,
     )
     admin_db_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
@@ -487,16 +486,15 @@ def test_approve_platform_membership_updates_db(
     assert membership.revocation_reason is None
     assert membership.updated_by_id == admin_db_user.id
 
-    history_entries = test_db_session.exec(
-        select(PlatformMembershipHistory)
-        .where(
-            PlatformMembershipHistory.user_id == user.id,
-            PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY,
-        )
-        .order_by(PlatformMembershipHistory.updated_at)
-    ).all()
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
     assert history_entries[-1].approval_status == ApprovalStatusEnum.APPROVED
-    assert history_entries[-1].reason is None
+    assert history_entries[-1].revocation_reason is None
+    assert history_entries[-1].action == AuditActionEnum.UPDATED
+    assert history_entries[-1].updated_by_id == admin_db_user.id
 
 
 def test_approve_platform_membership_forbidden_without_platform_role(
@@ -509,7 +507,7 @@ def test_approve_platform_membership_forbidden_without_platform_role(
     membership = PlatformMembershipFactory.create_sync(
         user=user,
         platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.PENDING.value,
+        approval_status=ApprovalStatusEnum.PENDING,
     )
     test_db_session.commit()
 
@@ -550,7 +548,7 @@ def test_revoke_platform_membership_records_reason(
     membership = PlatformMembershipFactory.create_sync(
         user=user,
         platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.APPROVED.value,
+        approval_status=ApprovalStatusEnum.APPROVED,
     )
     admin_db_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
@@ -573,16 +571,15 @@ def test_revoke_platform_membership_records_reason(
     assert membership.revocation_reason == reason.strip()
     assert membership.updated_by_id == admin_db_user.id
 
-    history_entries = test_db_session.exec(
-        select(PlatformMembershipHistory)
-        .where(
-            PlatformMembershipHistory.user_id == user.id,
-            PlatformMembershipHistory.platform_id == PlatformEnum.GALAXY,
-        )
-        .order_by(PlatformMembershipHistory.updated_at)
-    ).all()
+    history_entries = PlatformMembership.get_history_by_user_id_and_platform_id(
+        user.id,
+        PlatformEnum.GALAXY,
+        test_db_session,
+    )
     assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
-    assert history_entries[-1].reason == reason.strip()
+    assert history_entries[-1].revocation_reason == reason.strip()
+    assert history_entries[-1].action == AuditActionEnum.UPDATED
+    assert history_entries[-1].updated_by_id == admin_db_user.id
 
 
 def test_revoke_platform_membership_forbidden_without_platform_role(
@@ -595,7 +592,7 @@ def test_revoke_platform_membership_forbidden_without_platform_role(
     membership = PlatformMembershipFactory.create_sync(
         user=user,
         platform_id=PlatformEnum.GALAXY,
-        approval_status=ApprovalStatusEnum.APPROVED.value,
+        approval_status=ApprovalStatusEnum.APPROVED,
     )
     test_db_session.commit()
 
