@@ -131,7 +131,7 @@ class AuditLogModel(BaseModel):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     action: AuditActionEnum = Field(
-        sa_type=DbEnum(AuditActionEnum, name="AuditActionEnum"),
+        sa_type=DbEnum(AuditActionEnum, name="audit_action_enum"),
         description="Type of change that produced this audit record.",
     )
     action_time: datetime = Field(

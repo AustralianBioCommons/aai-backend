@@ -36,9 +36,9 @@ def upgrade() -> None:
         "created",
         "updated",
         "deleted",
-        name="AuditActionEnum",
+        name="audit_action_enum",
+        create_type=False,
     )
-    audit_action_enum.create(bind, checkfirst=True)
 
     op.create_table(
         "platform_membership_audit_log",
@@ -56,29 +56,18 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.Column("action_time", sa.DateTime(), nullable=False),
+        sa.Column("action_time", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_by_id", sa.String(), nullable=True),
         sa.Column("revocation_reason", sa.String(length=1024), nullable=True),
         sa.Column(
             "action",
-            sa.Enum("created", "updated", "deleted", name="AuditActionEnum"),
+            sa.Enum(name="audit_action_enum", create_type=False),
             nullable=False,
-        ),
-        sa.ForeignKeyConstraint(
-            ["membership_id"],
-            ["platformmembership.id"],
-            ondelete="SET NULL",
-            name="fk_platform_membership_audit_log_membership_id_platformmembership",
         ),
         sa.ForeignKeyConstraint(
             ["updated_by_id"],
             ["biocommons_user.id"],
-            name="fk_platform_membership_audit_log_updated_by_id_biocommons_user",
-        ),
-        sa.ForeignKeyConstraint(
-            ["user_id"],
-            ["biocommons_user.id"],
-            name="fk_platform_membership_audit_log_user_id_biocommons_user",
+            name="fk_platform_membership_log_updated_by_id",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_platform_membership_audit_log"),
     )
@@ -113,24 +102,18 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
-        sa.Column("action_time", sa.DateTime(), nullable=False),
+        sa.Column("action_time", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_by_id", sa.String(), nullable=True),
         sa.Column("revocation_reason", sa.String(length=1024), nullable=True),
         sa.Column(
             "action",
-            sa.Enum("created", "updated", "deleted", name="AuditActionEnum"),
+            sa.Enum(name="audit_action_enum", create_type=False),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(
             ["group_id"],
             ["biocommonsgroup.group_id"],
             name="fk_group_membership_audit_log_group_id_biocommonsgroup",
-        ),
-        sa.ForeignKeyConstraint(
-            ["membership_id"],
-            ["groupmembership.id"],
-            ondelete="SET NULL",
-            name="fk_group_membership_audit_log_membership_id_groupmembership",
         ),
         sa.ForeignKeyConstraint(
             ["updated_by_id"],
