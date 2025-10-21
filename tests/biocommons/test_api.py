@@ -20,6 +20,7 @@ from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
+    RoleUserDataFactory,
     SessionUserFactory,
 )
 from tests.db.datagen import (
@@ -116,7 +117,9 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
     # Mock an admin that has the required admin role (to send approval email to)
     admin_info = Auth0UserDataFactory.build(email="admin@example.com")
-    mock_auth0_client.get_all_role_users.return_value = [admin_info]
+    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = admin_info
     # Request membership
     resp = test_client.post(
         "/biocommons/groups/request",

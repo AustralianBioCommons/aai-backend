@@ -16,7 +16,11 @@ from scheduled_tasks.tasks import (
     sync_auth0_users,
     update_auth0_user,
 )
-from tests.datagen import Auth0UserDataFactory, UsersWithTotalsFactory
+from tests.datagen import (
+    Auth0UserDataFactory,
+    RoleUserDataFactory,
+    UsersWithTotalsFactory,
+)
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
@@ -315,12 +319,20 @@ async def test_sync_auth0_user_roles_syncs_assignments(mocker, test_db_session, 
         email="new.assignment@example.com",
         username="new_assignment",
     )
+    role_user_keep = RoleUserDataFactory.build(user_id=auth0_user_keep.user_id)
+    role_user_pending = RoleUserDataFactory.build(user_id=auth0_user_pending.user_id)
+    role_user_new = RoleUserDataFactory.build(user_id=auth0_user_new.user_id)
 
     mock_auth0_client = MagicMock()
     mock_auth0_client.get_all_roles.return_value = [
         SimpleNamespace(id=role.id, name=role.name, description=role.description)
     ]
     mock_auth0_client.get_all_role_users.return_value = [
+        role_user_keep,
+        role_user_pending,
+        role_user_new,
+    ]
+    mock_auth0_client.get_user.side_effect = [
         auth0_user_keep,
         auth0_user_pending,
         auth0_user_new,

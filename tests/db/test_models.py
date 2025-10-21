@@ -23,7 +23,7 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from tests.biocommons.datagen import RoleDataFactory
-from tests.datagen import Auth0UserDataFactory, random_auth0_id
+from tests.datagen import Auth0UserDataFactory, RoleUserDataFactory, random_auth0_id
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
@@ -484,15 +484,19 @@ def test_biocommons_group_get_admins_collects_emails(test_db_session, mocker, pe
     mock_user_1 = Auth0UserDataFactory.build()
     mock_user_2 = Auth0UserDataFactory.build()
     mock_user_3 = Auth0UserDataFactory.build()
+    stub_1 = RoleUserDataFactory.build(user_id=mock_user_1.user_id, email=mock_user_1.email)
+    stub_2 = RoleUserDataFactory.build(user_id=mock_user_2.user_id, email=None)
+    stub_3 = RoleUserDataFactory.build(user_id=mock_user_3.user_id, email=None)
 
     def _get_all_role_users(*, role_id):
         if role_id == primary_role.id:
-            return [mock_user_1, mock_user_2]
+            return [stub_1, stub_2]
         if role_id == secondary_role.id:
-            return [mock_user_3]
+            return [stub_3]
         raise AssertionError(f"Unexpected role id {role_id}")
 
     mock_client.get_all_role_users.side_effect = _get_all_role_users
+    mock_client.get_user.side_effect = [mock_user_2, mock_user_3]
 
     admins = group.get_admins(mock_client)
 
