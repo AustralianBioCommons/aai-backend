@@ -631,7 +631,12 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
         for role in self.admin_roles:
             role_admins = auth0_client.get_all_role_users(role_id=role.id)
             for admin in role_admins:
-                admins.add(admin.email)
+                email = admin.email
+                if email is None:
+                    full_admin = auth0_client.get_user(admin.user_id)
+                    email = full_admin.email
+                if email:
+                    admins.add(email)
         return admins
 
     def user_is_admin(self, user: SessionUser) -> bool:

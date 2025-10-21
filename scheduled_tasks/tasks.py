@@ -184,9 +184,10 @@ async def sync_auth0_user_roles():
             if group is None:
                 continue
             logger.info(f"  Processing assignments for role {role.name}")
-            auth0_users = auth0_client.get_all_role_users(role_id=role.id)
-            for auth0_user in auth0_users:
-                assignments_in_auth0.add((auth0_user.user_id, group.group_id))
+            role_users = auth0_client.get_all_role_users(role_id=role.id)
+            for role_user in role_users:
+                assignments_in_auth0.add((role_user.user_id, group.group_id))
+                auth0_user = auth0_client.get_user(role_user.user_id)
                 db_user, _, _ = _ensure_user_from_auth0(db_session, auth0_user)
                 key = (db_user.id, group.group_id)
                 membership = existing_memberships.get(key)

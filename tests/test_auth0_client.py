@@ -4,7 +4,7 @@ import pytest
 import respx
 from httpx import Response
 
-from auth0.client import UsersWithTotals
+from auth0.client import RoleUserData, RoleUsersWithTotals
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegisterDataFactory,
@@ -90,16 +90,18 @@ def test_get_role_users(test_auth0_client):
     Test we can get users for a role from Auth0 API
     """
     role_id = "auth0|role_id"
-    users = Auth0UserDataFactory.batch(size=3)
-    route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").respond(
-        200, json=[u.model_dump(mode="json") for u in users]
-    )
+    users = [
+        {"user_id": random_auth0_id(), "name": "User 1"},
+        {"user_id": random_auth0_id(), "name": "User 2"},
+        {"user_id": random_auth0_id(), "name": "User 3"},
+    ]
+    route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").respond(200, json=users)
     result = test_auth0_client.get_role_users(role_id)
     assert route.called
     assert len(result) == 3
     for user in result:
-        assert any(user.user_id == original.user_id for original in users)
-    assert result[0].model_dump(mode="json") == users[0].model_dump(mode="json")
+        assert any(user.user_id == original["user_id"] for original in users)
+    assert isinstance(result[0], RoleUserData)
 
 
 @respx.mock
@@ -109,9 +111,12 @@ def test_get_all_role_users(test_auth0_client):
     running through multiple pages if necessary.
     """
     role_id = "auth0|role_id"
-    users = Auth0UserDataFactory.batch(size=150)
-    batch1 = UsersWithTotals(users=users[:100], total=150, start=0, limit=100)
-    batch2 = UsersWithTotals(users=users[100:], total=150, start=100, limit=100)
+    users = [
+        {"user_id": random_auth0_id(), "name": f"User {i}"}
+        for i in range(150)
+    ]
+    batch1 = RoleUsersWithTotals(users=[RoleUserData(**data) for data in users[:100]], total=150, start=0, limit=100)
+    batch2 = RoleUsersWithTotals(users=[RoleUserData(**data) for data in users[100:]], total=150, start=100, limit=100)
     route = respx.get(f"https://auth0.example.com/api/v2/roles/{role_id}/users").mock(
         side_effect=[Response(200, json=batch1.model_dump(mode="json")),
                      Response(200, json=batch2.model_dump(mode="json"))]
