@@ -4,7 +4,7 @@ from typing import Optional, Type, TypeVar
 
 import httpx
 from fastapi import Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, HttpUrl
 
 from auth.management import get_management_token
 from config import Settings, get_settings
@@ -43,6 +43,31 @@ class UsersWithTotals(BaseModel):
     :var total: total number of items
     """
     users: list[Auth0UserData]
+    start: int
+    limit: int
+    total: int
+
+
+class RoleUserData(BaseModel):
+    """
+    Minimal payload returned by the Auth0 role users endpoint.
+    """
+
+    user_id: str
+    email: EmailStr | None = None
+    name: str | None = None
+    nickname: str | None = None
+    picture: HttpUrl | None = None
+
+    model_config = {"extra": "ignore"}
+
+
+class RoleUsersWithTotals(BaseModel):
+    """
+    Response wrapper for role users when include_totals is True.
+    """
+
+    users: list[RoleUserData]
     start: int
     limit: int
     total: int
@@ -231,7 +256,7 @@ class Auth0Client:
         resp.raise_for_status()
         return RoleData(**resp.json())
 
-    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[Auth0UserData] | UsersWithTotals:
+    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[RoleUserData] | RoleUsersWithTotals:
         url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
         params = {}
         if page is not None:
@@ -243,15 +268,15 @@ class Auth0Client:
         resp = self._client.get(url, params=params or None)
         resp.raise_for_status()
         if include_totals:
-            return UsersWithTotals(**resp.json())
-        return self._convert_users(resp)
+            return RoleUsersWithTotals(**resp.json())
+        return [RoleUserData(**raw) for raw in resp.json()]
 
-    def get_all_role_users(self, role_id: str) -> list[Auth0UserData]:
+    def get_all_role_users(self, role_id: str) -> list[RoleUserData]:
         page = 0
         per_page = 100
         users = []
         while True:
-            page_users: UsersWithTotals = self.get_role_users(role_id, page=page, per_page=per_page, include_totals=True)
+            page_users: RoleUsersWithTotals = self.get_role_users(role_id, page=page, per_page=per_page, include_totals=True)
             users.extend(page_users.users)
             if len(users) >= page_users.total:
                 break

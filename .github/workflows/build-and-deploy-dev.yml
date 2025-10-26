@@ -91,6 +91,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          export AWS_MAX_ATTEMPTS=1
+
           PAYLOAD=$(jq -n --arg tag "${IMAGE_TAG}" '{tag: $tag}')
           RESPONSE_FILE=$(mktemp)
 

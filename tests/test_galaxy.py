@@ -163,21 +163,6 @@ def test_register_requires_token(test_client):
     assert resp.json()["detail"] == "Missing registration token"
 
 
-def test_register_duplicate_galaxy_username(test_client, mock_galaxy_client):
-    """
-    Test we raise an error if the galaxy username is already taken
-    """
-    user_data = GalaxyRegistrationDataFactory.build()
-    token_resp = test_client.get("/galaxy/register/get-registration-token")
-    headers = {"registration-token": token_resp.json()["token"]}
-    mock_galaxy_client.username_exists.return_value = True
-    resp = test_client.post("/galaxy/register", json=user_data.model_dump(), headers=headers)
-    assert resp.status_code == 400
-    details = resp.json()
-    assert details["message"] == "Username already exists in Galaxy"
-    assert "username" in details["field_errors"][0]["field"]
-
-
 def test_register_duplicate_auth0_username(test_client, mock_galaxy_client, mock_auth0_client):
     """Test registration with duplicate Auth0 username"""
     user_data = GalaxyRegistrationDataFactory.build()

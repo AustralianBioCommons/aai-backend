@@ -7,7 +7,12 @@ from polyfactory.decorators import post_generated
 from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import TypeAdapter, ValidationError
 
-from auth0.client import EmailVerificationResponse, UsersWithTotals
+from auth0.client import (
+    EmailVerificationResponse,
+    RoleUserData,
+    RoleUsersWithTotals,
+    UsersWithTotals,
+)
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
@@ -152,3 +157,20 @@ class UsersWithTotalsFactory(ModelFactory[UsersWithTotals]):
     @classmethod
     def users(cls, limit: int) -> list[Auth0UserData]:
         return Auth0UserDataFactory.batch(size=limit)
+
+
+class RoleUserDataFactory(ModelFactory[RoleUserData]):
+    @classmethod
+    def user_id(cls) -> str:
+        return random_auth0_id()
+
+
+class RoleUsersWithTotalsFactory(ModelFactory[RoleUsersWithTotals]):
+    total = 20
+    limit = 10
+    start = 0
+
+    @post_generated
+    @classmethod
+    def users(cls, limit: int) -> list[RoleUserData]:
+        return RoleUserDataFactory.batch(size=limit)

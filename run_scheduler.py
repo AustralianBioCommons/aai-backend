@@ -12,7 +12,12 @@ from sqlalchemy import text
 
 from db.setup import get_engine
 from scheduled_tasks.scheduler import SCHEDULER
-from scheduled_tasks.tasks import populate_db_groups, sync_auth0_roles, sync_auth0_users
+from scheduled_tasks.tasks import (
+    populate_db_groups,
+    sync_auth0_roles,
+    sync_auth0_user_roles,
+    sync_auth0_users,
+)
 
 
 def schedule_jobs(scheduler: AsyncIOScheduler):
@@ -39,6 +44,14 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         id="sync_auth0_users",
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=15)
+    )
+    logger.info("Adding hourly job: sync_auth0_user_roles")
+    scheduler.add_job(
+        sync_auth0_user_roles,
+        trigger=hourly_trigger,
+        id="sync_auth0_user_roles",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=30)
     )
 
 
@@ -77,6 +90,13 @@ async def run_immediate():
             sync_auth0_users,
             trigger=now_trigger,
             id="sync_auth0_users",
+            replace_existing=True
+        )
+        logger.info("Adding one-off job: sync_auth0_user_roles")
+        SCHEDULER.add_job(
+            sync_auth0_user_roles,
+            trigger=now_trigger,
+            id="sync_auth0_user_roles",
             replace_existing=True
         )
         logger.info("Resuming scheduler and waiting for jobs to complete...")
