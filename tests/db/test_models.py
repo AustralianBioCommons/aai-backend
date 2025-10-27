@@ -665,6 +665,36 @@ def test_group_membership_grant_auth0_role_not_approved(status, test_auth0_clien
         membership_request.grant_auth0_role(test_auth0_client)
 
 
+@respx.mock
+def test_group_membership_revoke_auth0_role(test_auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(group=group, user=user, approval_status=ApprovalStatusEnum.APPROVED.value)
+    role_data = RoleDataFactory.build(name=group.group_id)
+    role_lookup = respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
+    route = respx.delete(f"https://auth0.example.com/api/v2/users/{user.id}/roles").respond(status_code=200)
+    assert membership.revoke_auth0_role(test_auth0_client)
+    assert role_lookup.called
+    assert route.called
+
+
+@pytest.mark.parametrize("status", ["pending", "revoked"])
+@respx.mock
+def test_group_membership_revoke_auth0_role_not_approved(status, test_auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    user = Auth0UserDataFactory.build()
+    membership = GroupMembershipFactory.create_sync(group=group, user_id=user.user_id, approval_status=status)
+    role_lookup = respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(status_code=200, json=[])
+    assert membership.revoke_auth0_role(test_auth0_client) is False
+    assert not role_lookup.called
+
+
 def test_group_membership_save_with_history(test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync()
     membership = GroupMembershipFactory.build(group_id=group.group_id)

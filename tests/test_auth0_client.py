@@ -143,6 +143,20 @@ def test_add_roles_to_user(test_auth0_client):
 
 
 @respx.mock
+def test_remove_roles_from_user(test_auth0_client):
+    """
+    Test we can remove roles from a user in Auth0 API
+    """
+    user_id = random_auth0_id()
+    role_id = random_auth0_role_id()
+    route = respx.delete(f"https://auth0.example.com/api/v2/users/{user_id}/roles").respond(204)
+    test_auth0_client.remove_roles_from_user(user_id, role_id)
+    assert route.called
+    call_data = route.calls[0].request.content
+    assert call_data == b'{"roles":["' + role_id.encode() + b'"]}'
+
+
+@respx.mock
 def test_create_user(test_auth0_client):
     """
     Test that we call the Auth0 API to create a user with the data we expect

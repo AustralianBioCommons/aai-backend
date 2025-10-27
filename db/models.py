@@ -536,6 +536,16 @@ class GroupMembership(SoftDeleteModel, table=True):
         auth0_client.add_roles_to_user(user_id=self.user_id, role_id=role.id)
         return True
 
+    def revoke_auth0_role(self, auth0_client: Auth0Client):
+        """
+        Remove the Auth0 role backing this group membership when access is revoked.
+        """
+        if self.approval_status != ApprovalStatusEnum.APPROVED:
+            return False
+        role = auth0_client.get_role_by_name(self.group_id)
+        auth0_client.remove_roles_from_user(user_id=self.user_id, role_id=role.id)
+        return True
+
     def get_data(self) -> GroupMembershipData:
         """
         Get a data model for this membership, suitable for returning to the frontend.

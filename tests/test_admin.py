@@ -18,6 +18,7 @@ from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
     EmailVerificationResponseFactory,
+    RoleDataFactory,
     SessionUserFactory,
 )
 from tests.db.datagen import (
@@ -770,6 +771,7 @@ def test_revoke_group_membership_records_reason(
     admin_user,
     tsi_group,
     persistent_factories,
+    mock_auth0_client,
 ):
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     membership = GroupMembershipFactory.create_sync(
@@ -784,6 +786,9 @@ def test_revoke_group_membership_records_reason(
     )
     test_db_session.commit()
 
+    mock_role = RoleDataFactory.build(name=tsi_group.group_id)
+    mock_auth0_client.get_role_by_name.return_value = mock_role
+
     reason = "Access no longer required"
     resp = test_client.post(
         f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
@@ -797,6 +802,11 @@ def test_revoke_group_membership_records_reason(
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
     assert membership.revocation_reason == reason
     assert membership.updated_by_id == admin_db_user.id
+    mock_auth0_client.get_role_by_name.assert_called_once_with(tsi_group.group_id)
+    mock_auth0_client.remove_roles_from_user.assert_called_once_with(
+        user_id=user.id,
+        role_id=mock_role.id,
+    )
 
 
 def test_revoke_group_membership_forbidden_without_group_role(
@@ -804,6 +814,7 @@ def test_revoke_group_membership_forbidden_without_group_role(
     test_db_session,
     tsi_group,
     persistent_factories,
+    mock_auth0_client,
 ):
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
     membership = GroupMembershipFactory.create_sync(
@@ -843,6 +854,8 @@ def test_revoke_group_membership_forbidden_without_group_role(
     test_db_session.refresh(membership)
     assert membership.approval_status == original_status
     assert membership.revocation_reason == original_reason
+    mock_auth0_client.get_role_by_name.assert_not_called()
+    mock_auth0_client.remove_roles_from_user.assert_not_called()
 
 
 def test_resend_verification_email(test_client, as_admin_user, test_db_session, galaxy_platform, mock_auth0_client):
