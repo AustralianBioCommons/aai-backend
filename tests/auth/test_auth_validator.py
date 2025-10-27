@@ -18,8 +18,11 @@ from httpx import Response
 from jose import jwk, jwt
 from jose.backends.cryptography_backend import CryptographyRSAKey
 
+from auth.user_permissions import user_is_general_admin
 from auth.validator import get_rsa_key, verify_jwt
 from config import Settings
+from db.models import BiocommonsUser
+from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
 
 
 def generate_public_private_key_pair():
@@ -266,3 +269,117 @@ def test_verify_jwt_custom_domain_issuer(mock_settings: Settings, mocker):
     mocker.patch("auth.validator.get_rsa_key", return_value=token.public_key)
     decoded = verify_jwt(token.access_token_str, settings=mock_settings)
     assert decoded.email == "user@example.com"
+
+
+def test_user_is_general_admin_returns_current_user_for_biocommons_admin(
+    mock_settings: Settings,
+    mocker,
+    test_db_session,
+):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["Admin"])
+    current_user = SessionUserFactory.build(access_token=payload)
+    db_user = mocker.Mock(spec=BiocommonsUser)
+    db_user.is_any_platform_admin = mocker.Mock()
+    db_user.is_any_group_admin = mocker.Mock()
+
+    result = user_is_general_admin(
+        current_user=current_user,
+        settings=mock_settings,
+        db_user=db_user,
+        db_session=test_db_session,
+    )
+
+    assert result is current_user
+    db_user.is_any_platform_admin.assert_not_called()
+    db_user.is_any_group_admin.assert_not_called()
+
+
+def test_user_is_general_admin_accepts_platform_admin(
+    mock_settings: Settings,
+    mocker,
+    test_db_session,
+):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/platform/admin"])
+    current_user = SessionUserFactory.build(access_token=payload)
+    db_user = mocker.Mock(spec=BiocommonsUser)
+    db_user.is_any_platform_admin = mocker.Mock(return_value=True)
+    db_user.is_any_group_admin = mocker.Mock()
+
+    result = user_is_general_admin(
+        current_user=current_user,
+        settings=mock_settings,
+        db_user=db_user,
+        db_session=test_db_session,
+    )
+
+    assert result is current_user
+    db_user.is_any_platform_admin.assert_called_once_with(
+        access_token=current_user.access_token,
+        db_session=test_db_session,
+    )
+    db_user.is_any_group_admin.assert_not_called()
+
+
+def test_user_is_general_admin_accepts_group_admin(
+    mock_settings: Settings,
+    mocker,
+    test_db_session,
+):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/group/admin"])
+    current_user = SessionUserFactory.build(access_token=payload)
+    db_user = mocker.Mock(spec=BiocommonsUser)
+    db_user.is_any_platform_admin = mocker.Mock(return_value=False)
+    db_user.is_any_group_admin = mocker.Mock(return_value=True)
+
+    result = user_is_general_admin(
+        current_user=current_user,
+        settings=mock_settings,
+        db_user=db_user,
+        db_session=test_db_session,
+    )
+
+    assert result is current_user
+    db_user.is_any_platform_admin.assert_called_once_with(
+        access_token=current_user.access_token,
+        db_session=test_db_session,
+    )
+    db_user.is_any_group_admin.assert_called_once_with(
+        access_token=current_user.access_token,
+        db_session=test_db_session,
+    )
+
+
+def test_user_is_general_admin_raises_when_not_admin(
+    mock_settings: Settings,
+    mocker,
+    test_db_session,
+):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/user"])
+    current_user = SessionUserFactory.build(access_token=payload)
+    db_user = mocker.Mock(spec=BiocommonsUser)
+    db_user.is_any_platform_admin = mocker.Mock(return_value=False)
+    db_user.is_any_group_admin = mocker.Mock(return_value=False)
+
+    with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
+        user_is_general_admin(
+            current_user=current_user,
+            settings=mock_settings,
+            db_user=db_user,
+            db_session=test_db_session,
+        )
+
+
+def test_user_is_general_admin_raises_when_db_user_missing(
+    mock_settings: Settings,
+    test_db_session,
+):
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=[])
+    current_user = SessionUserFactory.build(access_token=payload)
+
+    with pytest.raises(HTTPException, match="You must be an admin to access this endpoint."):
+        user_is_general_admin(
+            current_user=current_user,
+            settings=mock_settings,
+            db_user=None,
+            db_session=test_db_session,
+        )

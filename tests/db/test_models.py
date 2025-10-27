@@ -23,7 +23,12 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from tests.biocommons.datagen import RoleDataFactory
-from tests.datagen import Auth0UserDataFactory, RoleUserDataFactory, random_auth0_id
+from tests.datagen import (
+    AccessTokenPayloadFactory,
+    Auth0UserDataFactory,
+    RoleUserDataFactory,
+    random_auth0_id,
+)
 from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
@@ -98,6 +103,132 @@ def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_cl
     assert user.id == user_data.user_id
     assert user.email == user_data.email
     assert user.username == user_data.username
+
+
+def test_is_any_platform_admin_returns_true_for_matching_role(test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/platform/admin")
+    PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        name="Galaxy Admin Platform",
+        admin_roles=[admin_role],
+    )
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=[admin_role.name])
+    user = BiocommonsUserFactory.create_sync(id=payload.sub)
+
+    assert user.is_any_platform_admin(access_token=payload, db_session=test_db_session) is True
+
+
+def test_is_any_platform_admin_returns_false_without_matching_role(test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/platform/admin")
+    PlatformFactory.create_sync(
+        id=PlatformEnum.BPA_DATA_PORTAL,
+        name="BPA Admin Platform",
+        admin_roles=[admin_role],
+    )
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/platform/user"])
+    user = BiocommonsUserFactory.create_sync(id=payload.sub)
+
+    assert user.is_any_platform_admin(access_token=payload, db_session=test_db_session) is False
+
+
+def test_is_any_platform_admin_raises_for_mismatched_sub(test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/platform/admin")
+    PlatformFactory.create_sync(
+        id=PlatformEnum.SBP,
+        name="TSI Portal Platform",
+        admin_roles=[admin_role],
+    )
+    user = BiocommonsUserFactory.create_sync(id="auth0|user")
+    payload = AccessTokenPayloadFactory.build(
+        sub="auth0|other",
+        biocommons_roles=[admin_role.name],
+    )
+
+    with pytest.raises(ValueError, match="User ID does not match access token"):
+        user.is_any_platform_admin(access_token=payload, db_session=test_db_session)
+
+
+def test_is_any_group_admin_returns_true_for_matching_role(test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/group/admin")
+    BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/test",
+        name="Test Group",
+        admin_roles=[admin_role],
+    )
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=[admin_role.name])
+    user = BiocommonsUserFactory.create_sync(id=payload.sub)
+
+    assert user.is_any_group_admin(access_token=payload, db_session=test_db_session) is True
+
+
+def test_is_any_group_admin_returns_false_without_matching_role(test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/group/admin")
+    BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/test-false",
+        name="Test Group False",
+        admin_roles=[admin_role],
+    )
+    payload = AccessTokenPayloadFactory.build(biocommons_roles=["biocommons/role/group/user"])
+    user = BiocommonsUserFactory.create_sync(id=payload.sub)
+
+    assert user.is_any_group_admin(access_token=payload, db_session=test_db_session) is False
+
+
+def test_is_any_group_admin_raises_for_mismatched_sub(test_db_session, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/group/admin")
+    BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/test-mismatch",
+        name="Test Group Mismatch",
+        admin_roles=[admin_role],
+    )
+    user = BiocommonsUserFactory.create_sync(id="auth0|user")
+    payload = AccessTokenPayloadFactory.build(
+        sub="auth0|other",
+        biocommons_roles=[admin_role.name],
+    )
+
+    with pytest.raises(ValueError, match="User ID does not match access token"):
+        user.is_any_group_admin(access_token=payload, db_session=test_db_session)
+
+
+def test_platform_get_all_admin_roles_returns_distinct_roles(test_db_session, persistent_factories):
+    admin_role_one = Auth0RoleFactory.create_sync(name="biocommons/role/platform/admin-one")
+    admin_role_two = Auth0RoleFactory.create_sync(name="biocommons/role/platform/admin-two")
+    PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        name="Galaxy Admin Distinct",
+        admin_roles=[admin_role_one],
+    )
+    PlatformFactory.create_sync(
+        id=PlatformEnum.BPA_DATA_PORTAL,
+        name="BPA Admin Distinct",
+        admin_roles=[admin_role_one, admin_role_two],
+    )
+    Auth0RoleFactory.create_sync(name="biocommons/role/platform/unused")
+
+    roles = Platform.get_all_admin_roles(test_db_session)
+
+    assert {role.id for role in roles} == {admin_role_one.id, admin_role_two.id}
+
+
+def test_biocommons_group_get_all_admin_roles_returns_distinct_roles(test_db_session, persistent_factories):
+    admin_role_one = Auth0RoleFactory.create_sync(name="biocommons/role/group/admin-one")
+    admin_role_two = Auth0RoleFactory.create_sync(name="biocommons/role/group/admin-two")
+    BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/distinct-one",
+        name="Distinct Group One",
+        admin_roles=[admin_role_one],
+    )
+    BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/distinct-two",
+        name="Distinct Group Two",
+        admin_roles=[admin_role_one, admin_role_two],
+    )
+    Auth0RoleFactory.create_sync(name="biocommons/role/group/unused")
+
+    roles = BiocommonsGroup.get_all_admin_roles(test_db_session)
+
+    assert {role.id for role in roles} == {admin_role_one.id, admin_role_two.id}
 
 
 def test_biocommons_user_update_from_auth0(test_db_session, mocker, persistent_factories):

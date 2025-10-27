@@ -6,6 +6,7 @@ from pydantic import AwareDatetime
 from sqlalchemy import Column, String, UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
+from starlette.exceptions import HTTPException
 
 import schemas
 from auth0.client import Auth0Client
@@ -16,6 +17,7 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 
@@ -147,6 +149,30 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         membership.save_history(db_session)
         return membership
 
+    def is_any_platform_admin(self, access_token: AccessTokenPayload, db_session: Session) -> bool:
+        """
+        Check if the user is an admin on any platform.
+        """
+        if access_token.sub != self.id:
+            raise ValueError("User ID does not match access token")
+        all_admin_roles = Platform.get_all_admin_roles(db_session)
+        for role in all_admin_roles:
+            if role.name in access_token.biocommons_roles:
+                return True
+        return False
+
+    def is_any_group_admin(self, access_token: AccessTokenPayload, db_session: Session) -> bool:
+        """
+        Check if the user is an admin on any group.
+        """
+        if access_token.sub != self.id:
+            raise ValueError("User ID does not match access token")
+        all_admin_roles = BiocommonsGroup.get_all_admin_roles(db_session)
+        for role in all_admin_roles:
+            if role.name in access_token.biocommons_roles:
+                return True
+        return False
+
 
 class PlatformRoleLink(SoftDeleteModel, table=True):
     platform_id: PlatformEnum = Field(primary_key=True, foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
@@ -164,10 +190,29 @@ class Platform(SoftDeleteModel, table=True):
 
     @classmethod
     def get_by_id(cls, platform_id: PlatformEnum, session: Session) -> Self | None:
-        return session.get(Platform, platform_id)
+        return session.get(cls, platform_id)
+
+    @classmethod
+    def get_by_id_or_404(cls, platform_id: PlatformEnum, session: Session) -> Self:
+        platform = cls.get_by_id(platform_id, session)
+        if platform is None:
+            raise HTTPException(status_code=404, detail=f"Platform {platform_id} not found")
+        return platform
+
+    @classmethod
+    def get_all_admin_roles(cls, session: Session) -> list["Auth0Role"]:
+        return session.exec(
+            select(Auth0Role)
+            .join(PlatformRoleLink, Auth0Role.id == PlatformRoleLink.role_id)
+            .distinct()
+        ).all()
 
     @classmethod
     def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+        """
+        Given a list of role names, return a list of platforms
+        where the roles grant admin rights.
+        """
         return session.exec(
             select(Platform)
             .join(Platform.admin_roles)
@@ -182,6 +227,16 @@ class Platform(SoftDeleteModel, table=True):
             .where(PlatformMembership.user_id == user_id)
             .where(PlatformMembership.approval_status == ApprovalStatusEnum.APPROVED)
         ).all()
+
+    def user_is_admin(self, user: SessionUser) -> bool:
+        """
+        Check if the user is an admin on this platform (based on access token roles).
+        """
+        for role in user.access_token.biocommons_roles:
+            if role in {ar.name for ar in self.admin_roles}:
+                return True
+        return False
+
 
     def delete(self, session: Session, commit: bool = False) -> "Platform":
         memberships = list(self.members or [])
@@ -247,6 +302,13 @@ class PlatformMembership(SoftDeleteModel, table=True):
                 PlatformMembership.platform_id == platform_id,
             )
         ).one_or_none()
+
+    @classmethod
+    def get_by_user_id_and_platform_id_or_404(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> Self:
+        membership = cls.get_by_user_id_and_platform_id(user_id, platform_id, session)
+        if membership is None:
+            raise HTTPException(status_code=404, detail=f"Platform membership for user {user_id} on platform {platform_id} not found")
+        return membership
 
     def delete(self, session: Session, commit: bool = False) -> "PlatformMembership":
         history_entries = session.exec(
@@ -416,6 +478,13 @@ class GroupMembership(SoftDeleteModel, table=True):
         return self
 
     @classmethod
+    def get_by_user_id_and_group_id_or_404(cls, user_id: str, group_id: str, session: Session) -> Self:
+        membership = cls.get_by_user_id_and_group_id(user_id, group_id, session)
+        if membership is None:
+            raise HTTPException(status_code=404, detail=f"Group membership for user {user_id} on group {group_id} not found")
+        return membership
+
+    @classmethod
     def has_group_membership(cls, user_id: str, group_id: str, session: Session) -> bool:
         result = session.exec(
             select(GroupMembership.id).where(
@@ -581,9 +650,7 @@ class Auth0Role(SoftDeleteModel, table=True):
         cls, name: str, session: Session, auth0_client: Auth0Client = None
     ) -> Self:
         # Try to get from the DB
-        role = session.exec(
-            select(Auth0Role).where(Auth0Role.name == name)
-        ).one_or_none()
+        role = cls.get_by_name(name=name, session=session)
         if role is not None:
             return role
         # Try to get from the API and save to the DB
@@ -592,6 +659,12 @@ class Auth0Role(SoftDeleteModel, table=True):
         session.add(role)
         session.commit()
         return role
+
+    @classmethod
+    def get_by_name(cls, name: str, session: Session) -> Self | None:
+        return session.exec(
+            select(Auth0Role).where(Auth0Role.name == name)
+        ).one_or_none()
 
 
 class BiocommonsGroup(SoftDeleteModel, table=True):
@@ -613,6 +686,13 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
     @classmethod
     def get_by_id(cls, group_id: str, session: Session) -> Self | None:
         return session.get(BiocommonsGroup, group_id)
+
+    @classmethod
+    def get_by_id_or_404(cls, group_id: str, session: Session) -> Self:
+        group = cls.get_by_id(group_id, session)
+        if group is None:
+            raise HTTPException(status_code=404, detail="Group not found")
+        return group
 
     def delete(self, session: Session, commit: bool = False) -> "BiocommonsGroup":
         memberships = list(self.members or [])
@@ -646,6 +726,26 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
             if role in admin_role_names:
                 return True
         return False
+
+    @classmethod
+    def get_all_admin_roles(cls, session: Session) -> list[Auth0Role]:
+        return session.exec(
+            select(Auth0Role)
+            .join(GroupRoleLink, Auth0Role.id == GroupRoleLink.role_id)
+            .distinct()
+        ).all()
+
+    @classmethod
+    def get_for_admin_roles(cls, role_names: list[str], session: Session) -> list[Self]:
+        """
+        Given a list of role names, return a list of groups
+        where the roles grant admin rights.
+        """
+        return session.exec(
+            select(BiocommonsGroup)
+            .join(BiocommonsGroup.admin_roles)
+            .where(Auth0Role.name.in_(role_names))
+        ).all()
 
 
 # Update all model references
