@@ -17,7 +17,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
-from schemas.biocommons import Auth0UserData
+from schemas.biocommons import Auth0UserData, UserProfileData
 from schemas.user import SessionUser
 
 router = APIRouter(
@@ -99,6 +99,13 @@ async def update_user_metadata(
             status_code=403,
             detail=f"Failed to update user metadata: {str(e)}",
         )
+
+
+@router.get("/profile", response_model=UserProfileData)
+async def get_profile(
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+):
+    return UserProfileData.from_db_user(db_user)
 
 
 @router.get("/platforms",
