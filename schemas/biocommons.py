@@ -300,14 +300,14 @@ class UserProfileData(BaseModel):
     group_memberships: list[UserProfileGroupData]
 
     @classmethod
-    def from_db_user(cls, user: 'models.BiocommonsUser') -> Self:
+    def from_db_user(cls, user: 'models.BiocommonsUser', auth0_user: Auth0UserData) -> Self:
         platform_memberships = [UserProfilePlatformData.from_platform_membership(membership)
                                 for membership in user.platform_memberships]
         group_memberships = [UserProfileGroupData.from_group_membership(membership)
                              for membership in user.group_memberships]
         return cls(
             user_id=user.id,
-            name=user.name,
+            name=auth0_user.name,
             email=user.email,
             username=user.username,
             platform_memberships=platform_memberships,
