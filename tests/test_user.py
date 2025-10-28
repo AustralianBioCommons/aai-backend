@@ -211,7 +211,11 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
         name="Profile User",
     )
     from main import app
-    app.dependency_overrides[get_auth0_user_info] = lambda: auth0_data
+
+    async def override_get_auth0_user_info():
+        return auth0_data
+
+    app.dependency_overrides[get_auth0_user_info] = override_get_auth0_user_info
     db_user = BiocommonsUserFactory.create_sync(
         id=auth0_data.sub,
         email=auth0_data.email,
@@ -268,28 +272,31 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
 
     _act_as_user(mocker, db_user)
 
-    response = test_client.get("/me/profile", headers={"Authorization": "Bearer valid_token"})
-    assert response.status_code == 200
-    data = response.json()
+    try:
+        response = test_client.get("/me/profile", headers={"Authorization": "Bearer valid_token"})
+        assert response.status_code == 200
+        data = response.json()
 
-    assert data["user_id"] == auth0_data.sub
-    assert data["name"] == auth0_data.name
-    assert data["email"] == db_user.email
-    assert data["username"] == db_user.username
+        assert data["user_id"] == auth0_data.sub
+        assert data["name"] == auth0_data.name
+        assert data["email"] == db_user.email
+        assert data["username"] == db_user.username
 
-    platform_map = {item["platform_id"]: item for item in data["platform_memberships"]}
-    assert platform_map[PlatformEnum.GALAXY]["platform_name"] == galaxy_platform.name
-    assert platform_map[PlatformEnum.GALAXY]["approval_status"] == ApprovalStatusEnum.APPROVED.value
-    assert platform_map[PlatformEnum.SBP]["platform_name"] == sbp_platform.name
-    assert platform_map[PlatformEnum.SBP]["approval_status"] == ApprovalStatusEnum.PENDING.value
+        platform_map = {item["platform_id"]: item for item in data["platform_memberships"]}
+        assert platform_map[PlatformEnum.GALAXY]["platform_name"] == galaxy_platform.name
+        assert platform_map[PlatformEnum.GALAXY]["approval_status"] == ApprovalStatusEnum.APPROVED.value
+        assert platform_map[PlatformEnum.SBP]["platform_name"] == sbp_platform.name
+        assert platform_map[PlatformEnum.SBP]["approval_status"] == ApprovalStatusEnum.PENDING.value
 
-    group_map = {item["group_id"]: item for item in data["group_memberships"]}
-    assert group_map[tsi_group.group_id]["group_name"] == tsi_group.name
-    assert group_map[tsi_group.group_id]["group_short_name"] == tsi_group.short_name
-    assert group_map[tsi_group.group_id]["approval_status"] == ApprovalStatusEnum.APPROVED.value
-    assert group_map[bpa_group.group_id]["group_name"] == bpa_group.name
-    assert group_map[bpa_group.group_id]["group_short_name"] == bpa_group.short_name
-    assert group_map[bpa_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
+        group_map = {item["group_id"]: item for item in data["group_memberships"]}
+        assert group_map[tsi_group.group_id]["group_name"] == tsi_group.name
+        assert group_map[tsi_group.group_id]["group_short_name"] == tsi_group.short_name
+        assert group_map[tsi_group.group_id]["approval_status"] == ApprovalStatusEnum.APPROVED.value
+        assert group_map[bpa_group.group_id]["group_name"] == bpa_group.name
+        assert group_map[bpa_group.group_id]["group_short_name"] == bpa_group.short_name
+        assert group_map[bpa_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
+    finally:
+        app.dependency_overrides.pop(get_auth0_user_info, None)
 
 
 def test_get_platforms(test_client, test_db_session, mocker, persistent_factories):
