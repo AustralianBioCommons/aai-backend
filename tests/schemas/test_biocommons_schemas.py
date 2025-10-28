@@ -9,7 +9,7 @@ from schemas.biocommons import (
     BiocommonsUsername,
     UserProfileData,
 )
-from tests.datagen import Auth0UserDataFactory
+from tests.datagen import UserInfoFactory
 from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
@@ -30,7 +30,6 @@ def test_valid_password(password: str):
     password_adapter = TypeAdapter(BiocommonsPassword)
     result = password_adapter.validate_python(password)
     assert result == password
-
 
 
 @pytest.mark.parametrize("password,expected_error", [
@@ -62,11 +61,11 @@ def test_invalid_password(password: str, expected_error: str):
 
 
 def test_user_profile_data_with_memberships(test_db_session, persistent_factories):
-    auth0_user = Auth0UserDataFactory.build()
+    auth0_user = UserInfoFactory.build()
     db_user = BiocommonsUserFactory.create_sync(
-        id=auth0_user.user_id,
+        id=auth0_user.sub,
         email=auth0_user.email,
-        username=auth0_user.username or "test-user",
+        username="test-user",
         platform_memberships=[],
         group_memberships=[],
     )
@@ -119,7 +118,7 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
 
     profile = UserProfileData.from_db_user(db_user, auth0_user)
 
-    assert profile.user_id == auth0_user.user_id
+    assert profile.user_id == auth0_user.sub
     assert profile.email == db_user.email
     assert profile.username == db_user.username
     platform_map = {membership.platform_id: membership for membership in profile.platform_memberships}

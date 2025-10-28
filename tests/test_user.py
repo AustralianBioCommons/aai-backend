@@ -3,6 +3,7 @@ import respx
 from fastapi import HTTPException
 from httpx import Response
 
+from auth0.user_info import get_auth0_user_info
 from db.types import ApprovalStatusEnum, PlatformEnum
 from routers.user import get_user_data, update_user_metadata
 from schemas.biocommons import BiocommonsAppMetadata
@@ -10,6 +11,7 @@ from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
     SessionUserFactory,
+    UserInfoFactory,
 )
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -201,18 +203,19 @@ def _act_as_user(mocker, db_user, roles: list[str] = None):
     return auth0_user
 
 
-def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, mock_auth0_client, persistent_factories):
+def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, persistent_factories):
     """Ensure the profile endpoint combines Auth0 data with DB memberships."""
-    auth0_data = Auth0UserDataFactory.build(
-        user_id="auth0|profile-user",
+    auth0_data = UserInfoFactory.build(
+        sub="auth0|profile-user",
         email="profile.user@example.com",
-        username="profile_user",
         name="Profile User",
     )
+    from main import app
+    app.dependency_overrides[get_auth0_user_info] = lambda: auth0_data
     db_user = BiocommonsUserFactory.create_sync(
-        id=auth0_data.user_id,
+        id=auth0_data.sub,
         email=auth0_data.email,
-        username=auth0_data.username,
+        username="profile_user",
         platform_memberships=[],
         group_memberships=[],
     )
@@ -263,15 +266,13 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
     test_db_session.flush()
     test_db_session.refresh(db_user)
 
-    mock_auth0_client.get_user.return_value = auth0_data
-
     _act_as_user(mocker, db_user)
 
     response = test_client.get("/me/profile", headers={"Authorization": "Bearer valid_token"})
     assert response.status_code == 200
     data = response.json()
 
-    assert data["user_id"] == auth0_data.user_id
+    assert data["user_id"] == auth0_data.sub
     assert data["name"] == auth0_data.name
     assert data["email"] == db_user.email
     assert data["username"] == db_user.username
@@ -289,8 +290,6 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
     assert group_map[bpa_group.group_id]["group_name"] == bpa_group.name
     assert group_map[bpa_group.group_id]["group_short_name"] == bpa_group.short_name
     assert group_map[bpa_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
-
-    mock_auth0_client.get_user.assert_called_once_with(db_user.id)
 
 
 def test_get_platforms(test_client, test_db_session, mocker, persistent_factories):
