@@ -33,6 +33,10 @@ def get_management_token(settings: Annotated[Settings, Depends(get_settings)]):
     effective_ttl = max(1, ttl_seconds - 30)
     # Update TOKEN_CACHE based on actual expiry time
     if TOKEN_CACHE.ttl != effective_ttl:
-        TOKEN_CACHE = TTLCache(maxsize=1, ttl=effective_ttl)
-    TOKEN_CACHE[cache_key] = token
+        new_cache = TTLCache(maxsize=1, ttl=effective_ttl)
+        # Transfer the token to the new cache
+        new_cache[cache_key] = token
+        TOKEN_CACHE = new_cache
+    else:
+        TOKEN_CACHE[cache_key] = token
     return token
