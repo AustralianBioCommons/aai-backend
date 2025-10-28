@@ -24,9 +24,10 @@ async def get_auth0_user_info(
     Doesn't require management API access so may be more efficient when
     only the current user is required
     """
-    resp = httpx.get(
-        f"https://{settings.auth0_domain}/userinfo", headers={
-            "Authorization": f"Bearer {token}"
-        })
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"https://{settings.auth0_domain}/userinfo", headers={
+                "Authorization": f"Bearer {token}"
+            })
     resp.raise_for_status()
     return UserInfo(**resp.json())
