@@ -3,7 +3,6 @@ import respx
 from fastapi import HTTPException
 from httpx import Response
 
-from auth0.user_info import get_auth0_user_info
 from db.types import ApprovalStatusEnum, PlatformEnum
 from routers.user import get_user_data, update_user_metadata
 from schemas.biocommons import BiocommonsAppMetadata
@@ -210,12 +209,6 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
         email="profile.user@example.com",
         name="Profile User",
     )
-    from main import app
-
-    async def override_get_auth0_user_info():
-        return auth0_data
-
-    app.dependency_overrides[get_auth0_user_info] = override_get_auth0_user_info
     db_user = BiocommonsUserFactory.create_sync(
         id=auth0_data.sub,
         email=auth0_data.email,
@@ -272,7 +265,10 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
 
     _act_as_user(mocker, db_user)
 
-    try:
+    with respx.mock:
+        auth0_route = respx.get("https://mock-domain/userinfo").mock(
+            return_value=Response(200, json=auth0_data.model_dump(mode="json"))
+        )
         response = test_client.get("/me/profile", headers={"Authorization": "Bearer valid_token"})
         assert response.status_code == 200
         data = response.json()
@@ -295,8 +291,7 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
         assert group_map[bpa_group.group_id]["group_name"] == bpa_group.name
         assert group_map[bpa_group.group_id]["group_short_name"] == bpa_group.short_name
         assert group_map[bpa_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
-    finally:
-        app.dependency_overrides.pop(get_auth0_user_info, None)
+        assert auth0_route.called
 
 
 def test_get_platforms(test_client, test_db_session, mocker, persistent_factories):
