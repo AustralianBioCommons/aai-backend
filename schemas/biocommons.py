@@ -4,10 +4,11 @@ Schemas for how we represent users in Auth0 for BioCommons.
 These are the core schemas we use for storing/representing users
 and their metadata
 """
+from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Annotated, List, Literal, Optional, Self
+from typing import TYPE_CHECKING, Annotated, List, Literal, Optional, Self
 
 from fastapi import Path
 from pydantic import (
@@ -22,8 +23,10 @@ from pydantic_core import PydanticCustomError
 import db
 import schemas
 from auth0.user_info import UserInfo
-from db import models
 from db.types import ApprovalStatusEnum, GroupMembershipData, PlatformMembershipData
+
+if TYPE_CHECKING:
+    from db import models
 
 # From Auth0 password settings
 ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
