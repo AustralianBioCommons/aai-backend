@@ -262,6 +262,8 @@ class UserProfilePlatformData(BaseModel):
 
     @classmethod
     def from_platform_membership(cls, platform_membership: 'models.PlatformMembership') -> Self:
+        if platform_membership.approval_status == ApprovalStatusEnum.REVOKED:
+            raise ValueError("Revoked platform memberships are not included in user profile")
         return cls(
             platform_id=platform_membership.platform_id,
             platform_name=platform_membership.platform.name,
@@ -280,6 +282,8 @@ class UserProfileGroupData(BaseModel):
 
     @classmethod
     def from_group_membership(cls, group_membership: 'models.GroupMembership'):
+        if group_membership.approval_status == ApprovalStatusEnum.REVOKED:
+            raise ValueError("Revoked group memberships are not included in user profile")
         return cls(
             group_id=group_membership.group_id,
             group_name=group_membership.group.name,
@@ -304,10 +308,18 @@ class UserProfileData(BaseModel):
 
     @classmethod
     def from_db_user(cls, user: 'models.BiocommonsUser', auth0_user_info: UserInfo) -> Self:
+        """
+        Get profile data for a user - requires their DB info (for memberships) as
+        well as their user info (for name/picture etc., which are not stored in the DB currently).
+
+        Revoked platforms and groups are not included.
+        """
         platform_memberships = [UserProfilePlatformData.from_platform_membership(membership)
-                                for membership in user.platform_memberships]
+                                for membership in user.platform_memberships
+                                if membership.approval_status != ApprovalStatusEnum.REVOKED]
         group_memberships = [UserProfileGroupData.from_group_membership(membership)
-                             for membership in user.group_memberships]
+                             for membership in user.group_memberships
+                             if membership.approval_status != ApprovalStatusEnum.REVOKED]
         return cls(
             user_id=user.id,
             name=auth0_user_info.name,
