@@ -78,6 +78,10 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
         id=PlatformEnum.SBP,
         name="SBP",
     )
+    bpa_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.BPA_DATA_PORTAL,
+        name="BPA Data Portal",
+    )
     tsi_group = BiocommonsGroupFactory.create_sync(
         group_id="biocommons/group/tsi",
         name="Threatened Species Initiative",
@@ -101,6 +105,11 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
         platform_id=sbp_platform.id,
         approval_status=ApprovalStatusEnum.PENDING,
     )
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=bpa_platform,
+        approval_status=ApprovalStatusEnum.REVOKED,
+    )
     GroupMembershipFactory.create_sync(
         user=db_user,
         group=tsi_group,
@@ -111,7 +120,7 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
         user=db_user,
         group=bpa_group,
         group_id=bpa_group.group_id,
-        approval_status=ApprovalStatusEnum.PENDING,
+        approval_status=ApprovalStatusEnum.REVOKED,
     )
     test_db_session.flush()
     test_db_session.refresh(db_user)
@@ -126,17 +135,17 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
     assert platform_map[PlatformEnum.GALAXY].approval_status == ApprovalStatusEnum.APPROVED
     assert platform_map[PlatformEnum.SBP].platform_name == "SBP"
     assert platform_map[PlatformEnum.SBP].approval_status == ApprovalStatusEnum.PENDING
+    # Revoked platforms should not be included
+    assert PlatformEnum.BPA_DATA_PORTAL not in platform_map
 
     group_map = {membership.group_id: membership for membership in profile.group_memberships}
+    # Revoked groups should not be included
+    assert bpa_group.group_id not in group_map
     tsi_membership = group_map["biocommons/group/tsi"]
     assert tsi_membership.group_name == "Threatened Species Initiative"
     assert tsi_membership.group_short_name == "TSI"
     assert tsi_membership.approval_status == ApprovalStatusEnum.APPROVED
 
-    bpa_membership = group_map["biocommons/group/bpa_galaxy"]
-    assert bpa_membership.group_name == "Bioplatforms Australia & Galaxy Australia"
-    assert bpa_membership.group_short_name == "BPA-GA"
-    assert bpa_membership.approval_status == ApprovalStatusEnum.PENDING
 
 
 @pytest.mark.parametrize("username", [
