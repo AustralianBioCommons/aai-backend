@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
-from auth0.client import Auth0Client, get_auth0_client
+from auth0.user_info import UserInfo, get_auth0_user_info
 from config import Settings, get_settings
 from db.models import (
     BiocommonsUser,
@@ -104,11 +104,10 @@ async def update_user_metadata(
 
 @router.get("/profile", response_model=UserProfileData)
 async def get_profile(
+    user_info: Annotated[UserInfo, Depends(get_auth0_user_info)],
     db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
-    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)]
 ):
-    auth0_user = auth0_client.get_user(db_user.id)
-    return UserProfileData.from_db_user(db_user, auth0_user=auth0_user)
+    return UserProfileData.from_db_user(db_user, auth0_user_info=user_info)
 
 
 @router.get("/platforms",
@@ -168,7 +167,6 @@ async def get_groups(
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     return GroupMembership.get_by_user_id(user_id=user.access_token.sub, session=db_session)
-
 
 
 @router.get("/groups/approved",

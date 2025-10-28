@@ -21,6 +21,7 @@ from pydantic_core import PydanticCustomError
 
 import db
 import schemas
+from auth0.user_info import UserInfo
 from db import models
 from db.types import ApprovalStatusEnum, GroupMembershipData, PlatformMembershipData
 
@@ -295,21 +296,25 @@ class UserProfileData(BaseModel):
     user_id: str
     name: str
     email: str
+    email_verified: bool
     username: BiocommonsUsername
+    picture: str
     platform_memberships: list[UserProfilePlatformData]
     group_memberships: list[UserProfileGroupData]
 
     @classmethod
-    def from_db_user(cls, user: 'models.BiocommonsUser', auth0_user: Auth0UserData) -> Self:
+    def from_db_user(cls, user: 'models.BiocommonsUser', auth0_user_info: UserInfo) -> Self:
         platform_memberships = [UserProfilePlatformData.from_platform_membership(membership)
                                 for membership in user.platform_memberships]
         group_memberships = [UserProfileGroupData.from_group_membership(membership)
                              for membership in user.group_memberships]
         return cls(
             user_id=user.id,
-            name=auth0_user.name,
+            name=auth0_user_info.name,
             email=user.email,
+            email_verified=auth0_user_info.email_verified,
             username=user.username,
+            picture=auth0_user_info.picture,
             platform_memberships=platform_memberships,
             group_memberships=group_memberships,
         )
