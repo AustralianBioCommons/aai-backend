@@ -13,6 +13,7 @@ from auth0.client import (
     RoleUsersWithTotals,
     UsersWithTotals,
 )
+from auth0.user_info import UserInfo
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
@@ -90,6 +91,9 @@ class BiocommonsRegistrationRequestFactory(ModelFactory[BiocommonsRegistrationRe
 
 
 class SessionUserFactory(ModelFactory[SessionUser]): ...
+
+
+class UserInfoFactory(ModelFactory[UserInfo]): ...
 
 
 class Auth0UserDataFactory(ModelFactory[Auth0UserData]):

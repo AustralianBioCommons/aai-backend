@@ -21,7 +21,9 @@ from pydantic_core import PydanticCustomError
 
 import db
 import schemas
-from db.types import GroupMembershipData, PlatformMembershipData
+from auth0.user_info import UserInfo
+from db import models
+from db.types import ApprovalStatusEnum, GroupMembershipData, PlatformMembershipData
 
 # From Auth0 password settings
 ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
@@ -248,6 +250,86 @@ class Auth0UserDataWithMemberships(Auth0UserData):
         platforms = [platform.get_data() for platform in db_data.platform_memberships]
         groups = [group.get_data() for group in db_data.group_memberships]
         return cls(**auth0_data.model_dump(), platform_memberships=platforms, group_memberships=groups)
+
+
+class UserProfilePlatformData(BaseModel):
+    """
+    User-facing platform data - excludes information on approvers/admins.
+    """
+    platform_id: str
+    platform_name: str
+    approval_status: ApprovalStatusEnum
+
+    @classmethod
+    def from_platform_membership(cls, platform_membership: 'models.PlatformMembership') -> Self:
+        if platform_membership.approval_status == ApprovalStatusEnum.REVOKED:
+            raise ValueError("Revoked platform memberships are not included in user profile")
+        return cls(
+            platform_id=platform_membership.platform_id,
+            platform_name=platform_membership.platform.name,
+            approval_status=platform_membership.approval_status,
+        )
+
+
+class UserProfileGroupData(BaseModel):
+    """
+    User-facing group data - excludes information on approvers/admins.
+    """
+    group_id: str
+    group_name: str
+    group_short_name: str
+    approval_status: ApprovalStatusEnum
+
+    @classmethod
+    def from_group_membership(cls, group_membership: 'models.GroupMembership'):
+        if group_membership.approval_status == ApprovalStatusEnum.REVOKED:
+            raise ValueError("Revoked group memberships are not included in user profile")
+        return cls(
+            group_id=group_membership.group_id,
+            group_name=group_membership.group.name,
+            group_short_name=group_membership.group.short_name,
+            approval_status=group_membership.approval_status,
+        )
+
+
+class UserProfileData(BaseModel):
+    """
+    User-facing user profile data - excludes information on approvers/admins,
+    only contains data needed for the user's profile
+    """
+    user_id: str
+    name: str
+    email: str
+    email_verified: bool
+    username: BiocommonsUsername
+    picture: str
+    platform_memberships: list[UserProfilePlatformData]
+    group_memberships: list[UserProfileGroupData]
+
+    @classmethod
+    def from_db_user(cls, user: 'models.BiocommonsUser', auth0_user_info: UserInfo) -> Self:
+        """
+        Get profile data for a user - requires their DB info (for memberships) as
+        well as their user info (for name/picture etc., which are not stored in the DB currently).
+
+        Revoked platforms and groups are not included.
+        """
+        platform_memberships = [UserProfilePlatformData.from_platform_membership(membership)
+                                for membership in user.platform_memberships
+                                if membership.approval_status != ApprovalStatusEnum.REVOKED]
+        group_memberships = [UserProfileGroupData.from_group_membership(membership)
+                             for membership in user.group_memberships
+                             if membership.approval_status != ApprovalStatusEnum.REVOKED]
+        return cls(
+            user_id=user.id,
+            name=auth0_user_info.name,
+            email=user.email,
+            email_verified=auth0_user_info.email_verified,
+            username=user.username,
+            picture=auth0_user_info.picture,
+            platform_memberships=platform_memberships,
+            group_memberships=group_memberships,
+        )
 
 
 UserIdParam = Path(..., pattern=r"^auth0\\|[a-zA-Z0-9]+$")

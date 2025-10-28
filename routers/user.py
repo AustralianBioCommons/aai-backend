@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
+from auth0.user_info import UserInfo, get_auth0_user_info
 from config import Settings, get_settings
 from db.models import (
     BiocommonsUser,
@@ -17,7 +18,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
-from schemas.biocommons import Auth0UserData
+from schemas.biocommons import Auth0UserData, UserProfileData
 from schemas.user import SessionUser
 
 router = APIRouter(
@@ -101,6 +102,14 @@ async def update_user_metadata(
         )
 
 
+@router.get("/profile", response_model=UserProfileData)
+async def get_profile(
+    user_info: Annotated[UserInfo, Depends(get_auth0_user_info)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+):
+    return UserProfileData.from_db_user(db_user, auth0_user_info=user_info)
+
+
 @router.get("/platforms",
             response_model=list[PlatformMembershipData],)
 async def get_platforms(
@@ -158,7 +167,6 @@ async def get_groups(
         db_session: Annotated[Session, Depends(get_db_session)],
 ):
     return GroupMembership.get_by_user_id(user_id=user.access_token.sub, session=db_session)
-
 
 
 @router.get("/groups/approved",

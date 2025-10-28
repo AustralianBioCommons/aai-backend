@@ -1,11 +1,21 @@
 import pytest
 from pydantic import TypeAdapter
 
+from db.types import ApprovalStatusEnum, PlatformEnum
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     PASSWORD_FORMAT_MESSAGE,
     BiocommonsPassword,
     BiocommonsUsername,
+    UserProfileData,
+)
+from tests.datagen import UserInfoFactory
+from tests.db.datagen import (
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    GroupMembershipFactory,
+    PlatformFactory,
+    PlatformMembershipFactory,
 )
 
 
@@ -20,7 +30,6 @@ def test_valid_password(password: str):
     password_adapter = TypeAdapter(BiocommonsPassword)
     result = password_adapter.validate_python(password)
     assert result == password
-
 
 
 @pytest.mark.parametrize("password,expected_error", [
@@ -49,6 +58,94 @@ def test_invalid_password(password: str, expected_error: str):
 
     # Check that the error message contains our custom message
     assert expected_error in str(exc_info.value)
+
+
+def test_user_profile_data_with_memberships(test_db_session, persistent_factories):
+    auth0_user = UserInfoFactory.build()
+    db_user = BiocommonsUserFactory.create_sync(
+        id=auth0_user.sub,
+        email=auth0_user.email,
+        username="test-user",
+        platform_memberships=[],
+        group_memberships=[],
+    )
+
+    galaxy_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        name="Galaxy Australia",
+    )
+    sbp_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.SBP,
+        name="SBP",
+    )
+    bpa_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.BPA_DATA_PORTAL,
+        name="BPA Data Portal",
+    )
+    tsi_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/tsi",
+        name="Threatened Species Initiative",
+        short_name="TSI",
+    )
+    bpa_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/bpa_galaxy",
+        name="Bioplatforms Australia & Galaxy Australia",
+        short_name="BPA-GA",
+    )
+
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=galaxy_platform,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=sbp_platform,
+        platform_id=sbp_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=bpa_platform,
+        approval_status=ApprovalStatusEnum.REVOKED,
+    )
+    GroupMembershipFactory.create_sync(
+        user=db_user,
+        group=tsi_group,
+        group_id=tsi_group.group_id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    GroupMembershipFactory.create_sync(
+        user=db_user,
+        group=bpa_group,
+        group_id=bpa_group.group_id,
+        approval_status=ApprovalStatusEnum.REVOKED,
+    )
+    test_db_session.flush()
+    test_db_session.refresh(db_user)
+
+    profile = UserProfileData.from_db_user(db_user, auth0_user)
+
+    assert profile.user_id == auth0_user.sub
+    assert profile.email == db_user.email
+    assert profile.username == db_user.username
+    platform_map = {membership.platform_id: membership for membership in profile.platform_memberships}
+    assert platform_map[PlatformEnum.GALAXY].platform_name == "Galaxy Australia"
+    assert platform_map[PlatformEnum.GALAXY].approval_status == ApprovalStatusEnum.APPROVED
+    assert platform_map[PlatformEnum.SBP].platform_name == "SBP"
+    assert platform_map[PlatformEnum.SBP].approval_status == ApprovalStatusEnum.PENDING
+    # Revoked platforms should not be included
+    assert PlatformEnum.BPA_DATA_PORTAL not in platform_map
+
+    group_map = {membership.group_id: membership for membership in profile.group_memberships}
+    # Revoked groups should not be included
+    assert bpa_group.group_id not in group_map
+    tsi_membership = group_map["biocommons/group/tsi"]
+    assert tsi_membership.group_name == "Threatened Species Initiative"
+    assert tsi_membership.group_short_name == "TSI"
+    assert tsi_membership.approval_status == ApprovalStatusEnum.APPROVED
+
 
 
 @pytest.mark.parametrize("username", [

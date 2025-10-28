@@ -10,6 +10,7 @@ from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
     SessionUserFactory,
+    UserInfoFactory,
 )
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -199,6 +200,98 @@ def _act_as_user(mocker, db_user, roles: list[str] = None):
     mocker.patch("auth.user_permissions.verify_jwt", return_value=access_token)
     mocker.patch("routers.user.get_session_user", return_value=auth0_user)
     return auth0_user
+
+
+def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, persistent_factories):
+    """Ensure the profile endpoint combines Auth0 data with DB memberships."""
+    auth0_data = UserInfoFactory.build(
+        sub="auth0|profile-user",
+        email="profile.user@example.com",
+        name="Profile User",
+    )
+    db_user = BiocommonsUserFactory.create_sync(
+        id=auth0_data.sub,
+        email=auth0_data.email,
+        username="profile_user",
+        platform_memberships=[],
+        group_memberships=[],
+    )
+
+    galaxy_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        name="Galaxy Australia",
+    )
+    sbp_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.SBP,
+        name="Sydney BioPlatforms",
+    )
+    tsi_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/tsi",
+        name="Threatened Species Initiative",
+        short_name="TSI",
+    )
+    bpa_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/bpa_galaxy",
+        name="Bioplatforms Australia & Galaxy Australia",
+        short_name="BPA-GA",
+    )
+
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=galaxy_platform,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=sbp_platform,
+        platform_id=sbp_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    GroupMembershipFactory.create_sync(
+        user=db_user,
+        group=tsi_group,
+        group_id=tsi_group.group_id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    GroupMembershipFactory.create_sync(
+        user=db_user,
+        group=bpa_group,
+        group_id=bpa_group.group_id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    test_db_session.flush()
+    test_db_session.refresh(db_user)
+
+    _act_as_user(mocker, db_user)
+
+    with respx.mock:
+        auth0_route = respx.get("https://mock-domain/userinfo").mock(
+            return_value=Response(200, json=auth0_data.model_dump(mode="json"))
+        )
+        response = test_client.get("/me/profile", headers={"Authorization": "Bearer valid_token"})
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["user_id"] == auth0_data.sub
+        assert data["name"] == auth0_data.name
+        assert data["email"] == db_user.email
+        assert data["username"] == db_user.username
+
+        platform_map = {item["platform_id"]: item for item in data["platform_memberships"]}
+        assert platform_map[PlatformEnum.GALAXY]["platform_name"] == galaxy_platform.name
+        assert platform_map[PlatformEnum.GALAXY]["approval_status"] == ApprovalStatusEnum.APPROVED.value
+        assert platform_map[PlatformEnum.SBP]["platform_name"] == sbp_platform.name
+        assert platform_map[PlatformEnum.SBP]["approval_status"] == ApprovalStatusEnum.PENDING.value
+
+        group_map = {item["group_id"]: item for item in data["group_memberships"]}
+        assert group_map[tsi_group.group_id]["group_name"] == tsi_group.name
+        assert group_map[tsi_group.group_id]["group_short_name"] == tsi_group.short_name
+        assert group_map[tsi_group.group_id]["approval_status"] == ApprovalStatusEnum.APPROVED.value
+        assert group_map[bpa_group.group_id]["group_name"] == bpa_group.name
+        assert group_map[bpa_group.group_id]["group_short_name"] == bpa_group.short_name
+        assert group_map[bpa_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
+        assert auth0_route.called
 
 
 def test_get_platforms(test_client, test_db_session, mocker, persistent_factories):
