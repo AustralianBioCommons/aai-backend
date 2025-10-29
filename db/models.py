@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Self
+from typing import Optional, Self
 
 from pydantic import AwareDatetime
 from sqlalchemy import Column, String, UniqueConstraint
@@ -545,6 +545,29 @@ class GroupMembership(SoftDeleteModel, table=True):
         role = auth0_client.get_role_by_name(self.group_id)
         auth0_client.remove_roles_from_user(user_id=self.user_id, role_id=role.id)
         return True
+
+    def revoke(
+        self,
+        *,
+        auth0_client: Auth0Client,
+        reason: str | None,
+        updated_by: Optional["BiocommonsUser"],
+        session: Session,
+        commit: bool = True,
+    ) -> bool:
+        """
+        Revoke this membership by removing its Auth0 role (when applicable) and
+        persisting the revoked status in the database.
+
+        :return: True when an Auth0 role removal call was performed.
+        """
+        role_revoked = self.revoke_auth0_role(auth0_client)
+        self.approval_status = ApprovalStatusEnum.REVOKED
+        self.revocation_reason = reason
+        self.updated_at = datetime.now(timezone.utc)
+        self.updated_by = updated_by
+        self.save(session=session, commit=commit)
+        return role_revoked
 
     def get_data(self) -> GroupMembershipData:
         """

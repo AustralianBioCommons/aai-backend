@@ -211,14 +211,19 @@ def _revoke_group_membership(
         group_id=group.group_id,
         session=db_session,
     )
-    membership.revoke_auth0_role(auth0_client=client)
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = reason
-    membership.updated_at = datetime.now(timezone.utc)
-    membership.updated_by = admin_record
-    membership.save(session=db_session, commit=True)
+    role_revoked = membership.revoke(
+        auth0_client=client,
+        reason=reason,
+        updated_by=admin_record,
+        session=db_session,
+    )
     db_session.refresh(membership)
-    logger.info("Revoked group %s for user %s", group.group_id, user_id)
+    logger.info(
+        "Revoked group %s for user %s%s",
+        group.group_id,
+        user_id,
+        "" if role_revoked else " (no Auth0 role assigned)",
+    )
 
 
 @router.get("/filters")

@@ -168,7 +168,8 @@ class Auth0Client:
         url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
         if isinstance(role_id, str):
             role_id = [role_id]
-        resp = self._client.delete(url, json={"roles": role_id})
+        # httpx.Client.delete() no longer accepts json payloads (0.28+), so use request()
+        resp = self._client.request("DELETE", url, json={"roles": role_id})
         resp.raise_for_status()
         return True
 

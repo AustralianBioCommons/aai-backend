@@ -681,6 +681,61 @@ def test_group_membership_revoke_auth0_role(test_auth0_client, persistent_factor
     assert route.called
 
 
+@respx.mock
+def test_group_membership_revoke_updates_state(test_db_session, test_auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    admin = BiocommonsUserFactory.create_sync()
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(group=group, user=user, approval_status=ApprovalStatusEnum.APPROVED.value)
+    role_data = RoleDataFactory.build(name=group.group_id)
+    respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(status_code=200, json=[role_data.model_dump(mode="json")])
+    route = respx.delete(f"https://auth0.example.com/api/v2/users/{user.id}/roles").respond(status_code=200)
+
+    result = membership.revoke(
+        auth0_client=test_auth0_client,
+        reason="No longer required",
+        updated_by=admin,
+        session=test_db_session,
+    )
+
+    assert result is True
+    assert route.called
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REVOKED
+    assert membership.revocation_reason == "No longer required"
+    assert membership.updated_by_id == admin.id
+
+
+@pytest.mark.parametrize("status", ["pending", "revoked"])
+@respx.mock
+def test_group_membership_revoke_skips_auth0_when_not_approved(status, test_db_session, test_auth0_client, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])
+    admin = BiocommonsUserFactory.create_sync()
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(group=group, user=user, approval_status=status)
+    role_lookup = respx.get(
+        "https://auth0.example.com/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(status_code=200, json=[])
+
+    result = membership.revoke(
+        auth0_client=test_auth0_client,
+        reason="Policy update",
+        updated_by=admin,
+        session=test_db_session,
+    )
+
+    assert result is False
+    assert not role_lookup.called
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REVOKED
+    assert membership.revocation_reason == "Policy update"
+    assert membership.updated_by_id == admin.id
+
+
 @pytest.mark.parametrize("status", ["pending", "revoked"])
 @respx.mock
 def test_group_membership_revoke_auth0_role_not_approved(status, test_auth0_client, persistent_factories):
