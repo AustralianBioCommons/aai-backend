@@ -14,11 +14,11 @@ from db.models import BiocommonsGroup, PlatformMembershipHistory
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams
+from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
     EmailVerificationResponseFactory,
-    RoleDataFactory,
     SessionUserFactory,
 )
 from tests.db.datagen import (
