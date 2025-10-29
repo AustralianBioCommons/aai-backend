@@ -26,6 +26,7 @@ from schemas.galaxy import GalaxyRegistrationData
 from schemas.sbp import SBPRegistrationRequest
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
+from tests.biocommons.datagen import RoleDataFactory
 
 fake = Faker()
 
