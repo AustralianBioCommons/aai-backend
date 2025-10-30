@@ -161,6 +161,18 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
+    def remove_roles_from_user(self, user_id: str, role_id: str | list[str]):
+        """
+        Remove one or more roles from a user.
+        """
+        url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
+        if isinstance(role_id, str):
+            role_id = [role_id]
+        # httpx.Client.delete() no longer accepts json payloads (0.28+), so use request()
+        resp = self._client.request("DELETE", url, json={"roles": role_id})
+        resp.raise_for_status()
+        return True
+
     def search_users_by_email(self, email: str) -> list[Auth0UserData]:
         url = f"https://{self.domain}/api/v2/users-by-email"
         resp = self._client.get(url, params={"email": email})

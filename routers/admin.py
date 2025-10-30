@@ -204,19 +204,26 @@ def _revoke_group_membership(
     reason: str | None,
     admin_record: BiocommonsUser,
     db_session: Session,
+    client: Auth0Client,
 ) -> None:
     membership = GroupMembership.get_by_user_id_and_group_id_or_404(
         user_id=user_id,
         group_id=group.group_id,
         session=db_session,
     )
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = reason
-    membership.updated_at = datetime.now(timezone.utc)
-    membership.updated_by = admin_record
-    membership.save(session=db_session, commit=True)
+    role_revoked = membership.revoke(
+        auth0_client=client,
+        reason=reason,
+        updated_by=admin_record,
+        session=db_session,
+    )
     db_session.refresh(membership)
-    logger.info("Revoked group %s for user %s", group.group_id, user_id)
+    logger.info(
+        "Revoked group %s for user %s%s",
+        group.group_id,
+        user_id,
+        "" if role_revoked else " (no Auth0 role assigned)",
+    )
 
 
 @router.get("/filters")
@@ -623,6 +630,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
 def revoke_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RevokeServiceRequest,
+                            client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                             db_session: Annotated[Session, Depends(get_db_session)]):
     group_record = BiocommonsGroup.get_by_id_or_404(group_id, session=db_session)
@@ -632,6 +640,7 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
         reason=payload.reason,
         admin_record=admin_record,
         db_session=db_session,
+        client=client,
     )
     return _membership_response()
 
