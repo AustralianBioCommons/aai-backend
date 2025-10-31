@@ -71,6 +71,7 @@ class PlatformCreateData(BaseModel):
             db_roles.append(db_role)
         platform = Platform(
             id=self.id,
+            role_name=f"biocommons/platform/{self.id}",
             name=self.name,
             admin_roles=db_roles,
         )

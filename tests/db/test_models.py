@@ -325,9 +325,11 @@ def test_biocommons_user_group_membership_delete_restore_creates_history(test_db
 
 @pytest.mark.parametrize("platform_id", list(PlatformEnum))
 def test_create_platform(platform_id, test_db_session, persistent_factories):
+    platform_role = Auth0RoleFactory.create_sync(name=f"biocommons/platform/{platform_id}")
     admin_role = Auth0RoleFactory.create_sync()
     platform = Platform(
         id=platform_id,
+        role_name=platform_role.name,
         name=f"Platform {platform_id}",
         admin_roles=[admin_role]
     )
@@ -336,8 +338,9 @@ def test_create_platform(platform_id, test_db_session, persistent_factories):
     assert platform.id == platform_id
 
 
-def test_create_platform_unique_id(test_db_session):
-    platform = Platform(id=PlatformEnum.GALAXY, name="Galaxy", admin_roles=[])
+def test_create_platform_unique_id(test_db_session, persistent_factories):
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
+    platform = Platform(id=PlatformEnum.GALAXY, name="Galaxy", role_name=platform_role.name, admin_roles=[])
     test_db_session.add(platform)
     test_db_session.commit()
     with pytest.raises(IntegrityError):
