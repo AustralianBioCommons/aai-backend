@@ -1,6 +1,8 @@
 import pytest
+from starlette.exceptions import HTTPException
 
 from db.types import PlatformEnum
+from routers.biocommons_register import BUNDLES
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
 from tests.datagen import (
@@ -102,7 +104,6 @@ def test_biocommons_registration_tsi_bundle():
 def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session, galaxy_platform, bpa_platform, mock_auth0_client):
     """Test database record creation for bpa_galaxy bundle"""
     from db.models import BiocommonsGroup, PlatformEnum
-    from routers.biocommons_register import _create_biocommons_user_record
 
     group = BiocommonsGroup(
         group_id="biocommons/group/bpa_galaxy",
@@ -128,8 +129,9 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session, galaxy
         name="BPA Galaxy",
         user_id="auth0|bpagalaxy123",
     )
+    bundle = BUNDLES[registration.bundle]
 
-    user = _create_biocommons_user_record(auth0_data, registration=registration, auth0_client=mock_auth0_client, session=test_db_session)
+    user = bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
 
     assert user.username == "bpagalaxy"
     assert user.email == "bpa.galaxy@example.com"
@@ -138,7 +140,7 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session, galaxy
     assert len(user.group_memberships) == 1
     group_membership = user.group_memberships[0]
     assert group_membership.group_id == "biocommons/group/bpa_galaxy"
-    assert group_membership.approval_status.value == "pending"
+    assert group_membership.approval_status.value == "approved"
 
     assert len(user.platform_memberships) == 2
     platform_ids = {pm.platform_id for pm in user.platform_memberships}
@@ -152,7 +154,6 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session, galaxy
 def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_client, galaxy_platform, bpa_platform):
     """Test database record creation for tsi bundle"""
     from db.models import BiocommonsGroup, PlatformEnum
-    from routers.biocommons_register import _create_biocommons_user_record
 
     group = BiocommonsGroup(
         group_id="biocommons/group/tsi",
@@ -178,8 +179,8 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
         name="TSI User",
         user_id="auth0|tsiuser123",
     )
-
-    user = _create_biocommons_user_record(auth0_data, registration=registration, auth0_client=mock_auth0_client, session=test_db_session)
+    bundle = BUNDLES[registration.bundle]
+    user = bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
 
     assert user.username == "tsiuser"
     assert user.email == "tsi.user@example.com"
@@ -199,8 +200,6 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
     """Test that registration fails when the required group doesn't exist"""
     import pytest
 
-    from routers.biocommons_register import _create_biocommons_user_record
-
     registration = BiocommonsRegistrationRequest(
         first_name="New",
         last_name="User",
@@ -213,17 +212,17 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
     auth0_data = Auth0UserDataFactory.build(
         email="new.user@example.com", username="newuser", user_id="auth0|newuser123"
     )
+    bundle = BUNDLES[registration.bundle]
 
     with pytest.raises(
-        ValueError, match="Group 'biocommons/group/bpa_galaxy' not found. Groups must be pre-configured in the database."
+        HTTPException, match="404: Group biocommons/group/bpa_galaxy not found in database"
     ):
-        _create_biocommons_user_record(auth0_data, registration=registration, auth0_client=mock_auth0_client, session=test_db_session)
+        bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
 
 
 def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, galaxy_platform, bpa_platform, persistent_factories):
     """Test that user is assigned to group when group exists"""
     from db.models import BiocommonsGroup
-    from routers.biocommons_register import _create_biocommons_user_record
 
     group = BiocommonsGroup(
         group_id="biocommons/group/bpa_galaxy",
@@ -242,16 +241,17 @@ def test_biocommons_group_membership_with_existing_group(test_db_session, mock_a
         password="StrongPass1!",
         bundle="bpa_galaxy",
     )
+    bundle = BUNDLES[registration.bundle]
 
     auth0_data = Auth0UserDataFactory.build(
         email="test.user@example.com", username="testuser", user_id="auth0|testuser123"
     )
 
-    user = _create_biocommons_user_record(auth0_data, registration=registration, auth0_client=mock_auth0_client, session=test_db_session)
+    user = bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
 
     assert len(user.group_memberships) == 1
     assert user.group_memberships[0].group_id == "biocommons/group/bpa_galaxy"
-    assert user.group_memberships[0].approval_status.value == "pending"
+    assert user.group_memberships[0].approval_status.value == "approved"
 
 
 def test_bundle_validation():
@@ -290,7 +290,7 @@ def test_successful_biocommons_registration_endpoint(
     from tests.datagen import random_auth0_id
 
     group = BiocommonsGroup(
-        group_id="biocommons/group/bpa_galaxy",
+        group_id="biocommons/group/tsi",
         name="BPA Data Portal & Galaxy Access",
         short_name="BPA-GA",
         admin_roles=[],
@@ -314,7 +314,7 @@ def test_successful_biocommons_registration_endpoint(
         "email": "test@example.com",
         "username": "testuser",
         "password": "StrongPass1!",
-        "bundle": "bpa_galaxy",
+        "bundle": "tsi",
     }
 
     response = test_client_with_email.post(
@@ -331,7 +331,7 @@ def test_successful_biocommons_registration_endpoint(
     assert db_user.email == "test@example.com"
 
     assert len(db_user.group_memberships) == 1
-    assert db_user.group_memberships[0].group_id == "biocommons/group/bpa_galaxy"
+    assert db_user.group_memberships[0].group_id == "biocommons/group/tsi"
 
     assert len(db_user.platform_memberships) == 2
     platform_ids = {pm.platform_id for pm in db_user.platform_memberships}
