@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from logging import getLogger
 from typing import Optional, Self
 
 from pydantic import AwareDatetime
@@ -20,6 +21,8 @@ from db.types import (
 from schemas.auth0 import get_platform_id_from_role_name
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
+
+logger = getLogger(__name__)
 
 
 class BiocommonsUser(SoftDeleteModel, table=True):
@@ -121,9 +124,27 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.email_verified = data.email_verified
         return self
 
+    def add_role(self, role_name: str, auth0_client: Auth0Client, session: Session) -> None:
+        """
+        Add a role to the user in Auth0. The role must already exist in Auth0 and the DB.
+        """
+        role = Auth0Role.get_by_name(role_name, session)
+        if role is None:
+            raise ValueError(f"Role {role_name} not found in DB")
+        resp = auth0_client.add_roles_to_user(user_id=self.id, role_id=role.id)
+        resp.raise_for_status()
+
     def add_platform_membership(
-        self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False
+        self, platform: PlatformEnum, db_session: Session, auth0_client: Auth0Client, auto_approve: bool = False
     ) -> "PlatformMembership":
+        """
+        Create a platform membership for this user. If auto_approve is True,
+        add the Auth0 role for the platform to the user's roles
+        """
+        db_platform = Platform.get_by_id(platform, db_session)
+        if auto_approve:
+            logger.info(f"Adding role {db_platform.role_name} to user {self.id}")
+            self.add_role(role_name=db_platform.role_name, auth0_client=auth0_client, session=db_session)
         membership = PlatformMembership(
             platform_id=platform,
             user=self,
