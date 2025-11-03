@@ -777,7 +777,7 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
     def get_by_id_or_404(cls, group_id: str, session: Session) -> Self:
         group = cls.get_by_id(group_id, session)
         if group is None:
-            raise HTTPException(status_code=404, detail="Group not found")
+            raise HTTPException(status_code=404, detail=f"Group {group_id} not found in database")
         return group
 
     def delete(self, session: Session, commit: bool = False) -> "BiocommonsGroup":
