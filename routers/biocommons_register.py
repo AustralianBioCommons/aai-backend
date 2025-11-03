@@ -29,9 +29,9 @@ class BiocommonsBundle(BaseModel):
 
     def _add_group_membership(self, user: BiocommonsUser, session: Session):
         # Verify group exists
-        BiocommonsGroup.get_by_id_or_404(group_id=self.group_id, session=session)
+        BiocommonsGroup.get_by_id_or_404(group_id=self.group_id.value, session=session)
         group_membership = user.add_group_membership(
-            group_id=self.group_id, db_session=session, auto_approve=self.group_auto_approve
+            group_id=self.group_id.value, db_session=session, auto_approve=self.group_auto_approve
         )
         session.add(group_membership)
 
