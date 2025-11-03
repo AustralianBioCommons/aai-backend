@@ -17,6 +17,7 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.auth0 import get_platform_id_from_role_name
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
@@ -190,6 +191,29 @@ class Platform(SoftDeleteModel, table=True):
         back_populates="admin_platforms", link_model=PlatformRoleLink,
     )
     members: list["PlatformMembership"] = Relationship(back_populates="platform")
+
+    @classmethod
+    def create_from_auth0_role(cls, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
+        platform_id = get_platform_id_from_role_name(role.name)
+        platform = cls(
+            id=platform_id,
+            role_name=role.name,
+            name=role.description,
+        )
+        session.add(platform)
+        if commit:
+            session.commit()
+        session.flush()
+        return platform
+
+    def update_from_auth0_role(self, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
+        self.role_name = role.name
+        self.name = role.description
+        session.add(self)
+        if commit:
+            session.commit()
+        session.flush()
+        return self
 
     @classmethod
     def get_by_id(cls, platform_id: PlatformEnum, session: Session) -> Self | None:
@@ -664,6 +688,10 @@ class Auth0Role(SoftDeleteModel, table=True):
     admin_platforms: list["Platform"] = Relationship(
         back_populates="admin_roles", link_model=PlatformRoleLink
     )
+
+    @classmethod
+    def get_by_id(cls, role_id: str, session: Session) -> Self | None:
+        return session.get(Auth0Role, role_id)
 
     @classmethod
     def get_or_create_by_id(
