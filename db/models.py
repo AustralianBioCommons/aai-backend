@@ -216,10 +216,12 @@ class Platform(SoftDeleteModel, table=True):
     @classmethod
     def create_from_auth0_role(cls, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
         platform_id = get_platform_id_from_role_name(role.name)
+        default_admin_role = f"biocommons/role/{platform_id}/admin"
         platform = cls(
             id=platform_id,
             role_name=role.name,
             name=role.description,
+            admin_roles=[default_admin_role],
         )
         session.add(platform)
         if commit:
