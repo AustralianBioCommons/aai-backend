@@ -78,7 +78,12 @@ async def register_biocommons_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        _create_biocommons_user_record(auth0_user_data, registration, db_session)
+        _create_biocommons_user_record(
+            auth0_user_data=auth0_user_data,
+            auth0_client=auth0_client,
+            registration=registration,
+            session=db_session
+        )
 
         # Send approval email in background
         if settings.send_email:
@@ -107,10 +112,14 @@ async def register_biocommons_user(
 
 def _create_biocommons_user_record(
     auth0_user_data: Auth0UserData,
+    auth0_client: Auth0Client,
     registration: BiocommonsRegistrationRequest,
     session: Session,
 ) -> BiocommonsUser:
-    """Create a BioCommons user record in the database with group membership based on selected bundle."""
+    """
+    Create a BioCommons user record in the database with group and platform membership based on
+    the selected bundle.
+    """
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
     session.add(db_user)
     session.flush()
@@ -134,8 +143,9 @@ def _create_biocommons_user_record(
 
     # Add platform memberships based on bundle configuration
     for platform in bundle_config["platforms"]:
+        logger.info(f"Adding platform membership for {platform.value} to user {db_user.id}")
         platform_membership = db_user.add_platform_membership(
-            platform=platform, db_session=session, auto_approve=True
+            platform=platform, db_session=session, auth0_client=auth0_client, auto_approve=True
         )
         session.add(platform_membership)
 
