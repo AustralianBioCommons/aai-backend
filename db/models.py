@@ -204,7 +204,7 @@ class PlatformRoleLink(SoftDeleteModel, table=True):
 class Platform(SoftDeleteModel, table=True):
     id: PlatformEnum = Field(primary_key=True, unique=True, sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     # Role name in Auth0 for basic access to the platform
-    role_name: str = Field(foreign_key="auth0role.name")
+    role_name: str | None = Field(foreign_key="auth0role.name", nullable=True)
     platform_role: "Auth0Role" = Relationship(back_populates="platform")
     # Human-readable name for the platform
     name: str = Field(unique=True)
