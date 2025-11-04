@@ -104,6 +104,28 @@ def create_platform(platform_data: PlatformCreateData, db_session: Annotated[Ses
     )
 
 
+class SetRolesData(BaseModel):
+    role_names: list[str]
+
+
+@router.post("/platforms/{platform_id}/set-admin-roles")
+def set_platform_admin_roles(platform_id: PlatformEnum, data: SetRolesData, db_session: Annotated[Session, Depends(get_db_session)]):
+    platform = Platform.get_by_id(platform_id, db_session)
+    db_roles = []
+    for role_name in data.role_names:
+        role = Auth0Role.get_by_name(role_name, db_session)
+        if role is None:
+            raise HTTPException(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=f"Role {role_name} doesn't exist in DB - create roles first"
+            )
+        db_roles.append(role)
+    platform.admin_roles = db_roles
+    db_session.add(platform)
+    db_session.commit()
+    return {"message": f"Admin roles for platform {platform_id} set successfully."}
+
+
 class CreateRoleData(BaseModel):
     name: RoleId | GroupId
     description: str
