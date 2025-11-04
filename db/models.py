@@ -216,7 +216,9 @@ class Platform(SoftDeleteModel, table=True):
     @classmethod
     def create_from_auth0_role(cls, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
         platform_id = get_platform_id_from_role_name(role.name)
-        default_admin_role = f"biocommons/role/{platform_id}/admin"
+        default_admin_role = Auth0Role.get_by_name(f"biocommons/role/{platform_id}/admin", session=session)
+        if default_admin_role is None:
+            raise ValueError(f"Default admin role for platform {platform_id} not found in DB. ")
         platform = cls(
             id=platform_id,
             role_name=role.name,
@@ -286,7 +288,6 @@ class Platform(SoftDeleteModel, table=True):
             if role in {ar.name for ar in self.admin_roles}:
                 return True
         return False
-
 
     def delete(self, session: Session, commit: bool = False) -> "Platform":
         memberships = list(self.members or [])
