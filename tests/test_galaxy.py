@@ -23,20 +23,6 @@ from tests.datagen import (
     Auth0UserDataFactory,
     GalaxyRegistrationDataFactory,
 )
-from tests.db.datagen import Auth0RoleFactory, PlatformFactory
-
-
-@pytest.fixture
-def galaxy_platform(persistent_factories):
-    """
-    Set up a Galaxy platform with the associated platform role
-    """
-    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
-    return PlatformFactory.create_sync(
-        id=PlatformEnum.GALAXY,
-        role_name=platform_role.name,
-        name="Galaxy Australia",
-    )
 
 
 def test_galaxy_registration_data_password_match():
@@ -114,7 +100,7 @@ def test_to_biocommons_register_data_empty_fields():
 
 
 @freeze_time("2025-01-01")
-def test_register(mock_settings, test_client, mock_auth0_client, galaxy_platform, test_db_session):
+def test_register(mock_settings, test_client, mock_auth0_client, test_db_session):
     """
     Try to test our register endpoint. Since we don't want to call
     an actual Auth0 API, test that:
@@ -153,7 +139,7 @@ def test_register(mock_settings, test_client, mock_auth0_client, galaxy_platform
 
 
 @pytest.mark.respx(base_url="https://mock-domain")
-def test_register_json_types(mock_auth0_client, mock_settings, test_client, galaxy_platform, mock_galaxy_client, test_db_session):
+def test_register_json_types(mock_auth0_client, mock_settings, test_client, mock_galaxy_client, test_db_session):
     """
     Test how we handle datetimes in the response data: if we don't
     use model_dump(mode="json") when providing json data, we can get errors
@@ -226,7 +212,7 @@ def test_register_invalid_email(test_client):
     assert field_errors[0]["field"] == "email"
 
 
-def test_register_galaxy_error(test_client, mock_galaxy_client, galaxy_platform, mock_auth0_client, test_db_session):
+def test_register_galaxy_error(test_client, mock_galaxy_client, mock_auth0_client, test_db_session):
     """
     Test registration can continue if there's an error with the Galaxy API - don't
     want this to block registration

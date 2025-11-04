@@ -68,15 +68,14 @@ def register(
         return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
     # Add to database and record Galaxy membership
     logger.info("Adding user to DB")
-    _create_galaxy_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
+    _create_galaxy_user_record(auth0_user_data, db_session)
     return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
 
 
-def _create_galaxy_user_record(auth0_user_data: Auth0UserData, auth0_client: Auth0Client, session: Session) -> BiocommonsUser:
+def _create_galaxy_user_record(auth0_user_data: Auth0UserData, session: Session) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
     galaxy_membership = db_user.add_platform_membership(
         platform=PlatformEnum.GALAXY,
-        auth0_client=auth0_client,
         db_session=session,
         auto_approve=True
     )

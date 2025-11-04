@@ -14,7 +14,6 @@ from tests.datagen import (
     BPARegistrationDataFactory,
     random_auth0_id,
 )
-from tests.db.datagen import Auth0RoleFactory, PlatformFactory
 
 
 @pytest.fixture
@@ -29,19 +28,6 @@ def valid_registration_data():
     ).model_dump()
 
 
-@pytest.fixture
-def bpa_platform(persistent_factories):
-    """
-    Set up a BPA DP platform with the associated platform role
-    """
-    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/bpa_data_portal")
-    return PlatformFactory.create_sync(
-        id=PlatformEnum.BPA_DATA_PORTAL,
-        role_name=platform_role.name,
-        name="BPA Data Portal",
-    )
-
-
 def test_to_biocommons_register_data(valid_registration_data):
     bpa_data = BPARegistrationDataFactory.build()
     register_data = BiocommonsRegisterData.from_bpa_registration(
@@ -53,7 +39,7 @@ def test_to_biocommons_register_data(valid_registration_data):
 
 
 def test_successful_registration(
-    test_client, valid_registration_data, mock_auth0_client, bpa_platform, test_db_session
+    test_client, valid_registration_data, mock_auth0_client, test_db_session
 ):
     """Test successful user registration with BPA service"""
     user_id = random_auth0_id()
