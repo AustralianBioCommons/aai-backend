@@ -2,6 +2,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
+from pydantic import BaseModel
 from sqlmodel import Session
 from starlette.responses import JSONResponse
 
@@ -18,19 +19,62 @@ from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 
 logger = logging.getLogger(__name__)
 
+
+class BiocommonsBundle(BaseModel):
+    id: BundleType
+    group_id: GroupEnum
+    group_auto_approve: bool
+    # Platforms that are automatically approved upon registration
+    platforms: list[PlatformEnum]
+
+    def _add_group_membership(self, user: BiocommonsUser, session: Session):
+        # Verify group exists
+        BiocommonsGroup.get_by_id_or_404(group_id=self.group_id.value, session=session)
+        group_membership = user.add_group_membership(
+            group_id=self.group_id.value, db_session=session, auto_approve=self.group_auto_approve
+        )
+        session.add(group_membership)
+
+    def _add_platform_memberships(self, user: BiocommonsUser, session: Session, auth0_client: Auth0Client):
+        for platform in self.platforms:
+            logger.info(f"Adding platform membership for {platform.value} to user {user.id}")
+            platform_membership = user.add_platform_membership(
+                platform=platform, db_session=session, auth0_client=auth0_client, auto_approve=True
+            )
+            session.add(platform_membership)
+
+    def create_user_record(self, auth0_user_data: Auth0UserData, auth0_client: Auth0Client, db_session: Session):
+        """
+        Create a user record for the bundle user.
+        """
+        db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+        db_session.add(db_user)
+        db_session.flush()
+        # Create group membership
+        self._add_group_membership(user=db_user, session=db_session)
+        # Add platform memberships based on bundle configuration
+        self._add_platform_memberships(user=db_user, session=db_session, auth0_client=auth0_client)
+        db_session.commit()
+        return db_user
+
+
 # Bundle configuration mapping bundle names to their groups and included platforms
 # Note: Platforms listed here are auto-approved upon registration,
 # while group memberships require manual approval
 # Currently BPA Data Portal and Galaxy are auto-approved for all bundles
-BUNDLES: dict[BundleType, dict] = {
-    "bpa_galaxy": {
-        "group_id": GroupEnum.BPA_GALAXY,
-        "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
-    },
-    "tsi": {
-        "group_id": GroupEnum.TSI,
-        "platforms": [PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
-    },
+BUNDLES: dict[BundleType, BiocommonsBundle] = {
+    "bpa_galaxy": BiocommonsBundle(
+        id="bpa_galaxy",
+        group_id=GroupEnum.BPA_GALAXY,
+        group_auto_approve=True,
+        platforms=[PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
+    ),
+    "tsi": BiocommonsBundle(
+        id="tsi",
+        group_id=GroupEnum.TSI,
+        group_auto_approve=False,
+        platforms=[PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
+    ),
 }
 
 router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], route_class=RegistrationRoute)
@@ -72,17 +116,23 @@ async def register_biocommons_user(
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_biocommons_registration(registration)
+    bundle = BUNDLES[registration.bundle]
 
     try:
         logger.info("Registering user with Auth0")
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        _create_biocommons_user_record(auth0_user_data, registration, db_session)
+        bundle.create_user_record(
+            auth0_user_data=auth0_user_data,
+            auth0_client=auth0_client,
+            db_session=db_session
+        )
 
         # Send approval email in background
-        if settings.send_email:
-            background_tasks.add_task(send_approval_email, registration, settings)
+        if not bundle.group_auto_approve:
+            if settings.send_email:
+                background_tasks.add_task(send_approval_email, registration, settings)
 
         logger.info(
             f"Successfully registered biocommons user: {auth0_user_data.user_id}"
@@ -103,41 +153,3 @@ async def register_biocommons_user(
     except Exception as e:
         logger.error(f"Unexpected error during registration: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
-
-
-def _create_biocommons_user_record(
-    auth0_user_data: Auth0UserData,
-    registration: BiocommonsRegistrationRequest,
-    session: Session,
-) -> BiocommonsUser:
-    """Create a BioCommons user record in the database with group membership based on selected bundle."""
-    db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
-    session.add(db_user)
-    session.flush()
-
-    # Get bundle configuration
-    bundle_config = BUNDLES[registration.bundle]
-    group_id = bundle_config["group_id"]
-
-    # Verify the group exists (this will raise an error if it doesn't)
-    db_group = BiocommonsGroup.get_by_id(group_id, session)
-    if not db_group:
-        raise ValueError(
-            f"Group '{group_id.value}' not found. Groups must be pre-configured in the database."
-        )
-
-    # Create group membership
-    group_membership = db_user.add_group_membership(
-        group_id=group_id, db_session=session, auto_approve=False
-    )
-    session.add(group_membership)
-
-    # Add platform memberships based on bundle configuration
-    for platform in bundle_config["platforms"]:
-        platform_membership = db_user.add_platform_membership(
-            platform=platform, db_session=session, auto_approve=True
-        )
-        session.add(platform_membership)
-
-    session.commit()
-    return db_user

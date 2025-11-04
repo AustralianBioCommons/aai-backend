@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from logging import getLogger
 from typing import Optional, Self
 
 from pydantic import AwareDatetime
@@ -17,8 +18,11 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.auth0 import get_platform_id_from_role_name
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
+
+logger = getLogger(__name__)
 
 
 class BiocommonsUser(SoftDeleteModel, table=True):
@@ -120,9 +124,27 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.email_verified = data.email_verified
         return self
 
+    def add_role(self, role_name: str, auth0_client: Auth0Client, session: Session) -> None:
+        """
+        Add a role to the user in Auth0. The role must already exist in Auth0 and the DB.
+        """
+        role = Auth0Role.get_by_name(role_name, session)
+        if role is None:
+            raise ValueError(f"Role {role_name} not found in DB")
+        resp = auth0_client.add_roles_to_user(user_id=self.id, role_id=role.id)
+        resp.raise_for_status()
+
     def add_platform_membership(
-        self, platform: PlatformEnum, db_session: Session, auto_approve: bool = False
+        self, platform: PlatformEnum, db_session: Session, auth0_client: Auth0Client, auto_approve: bool = False
     ) -> "PlatformMembership":
+        """
+        Create a platform membership for this user. If auto_approve is True,
+        add the Auth0 role for the platform to the user's roles
+        """
+        db_platform = Platform.get_by_id(platform, db_session)
+        if auto_approve:
+            logger.info(f"Adding role {db_platform.role_name} to user {self.id}")
+            self.add_role(role_name=db_platform.role_name, auth0_client=auth0_client, session=db_session)
         membership = PlatformMembership(
             platform_id=platform,
             user=self,
@@ -181,12 +203,42 @@ class PlatformRoleLink(SoftDeleteModel, table=True):
 
 class Platform(SoftDeleteModel, table=True):
     id: PlatformEnum = Field(primary_key=True, unique=True, sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
+    # Role name in Auth0 for basic access to the platform
+    role_name: str | None = Field(foreign_key="auth0role.name", nullable=True)
+    platform_role: "Auth0Role" = Relationship(back_populates="platform")
     # Human-readable name for the platform
     name: str = Field(unique=True)
     admin_roles: list["Auth0Role"] = Relationship(
         back_populates="admin_platforms", link_model=PlatformRoleLink,
     )
     members: list["PlatformMembership"] = Relationship(back_populates="platform")
+
+    @classmethod
+    def create_from_auth0_role(cls, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
+        platform_id = get_platform_id_from_role_name(role.name)
+        default_admin_role = Auth0Role.get_by_name(f"biocommons/role/{platform_id}/admin", session=session)
+        if default_admin_role is None:
+            raise ValueError(f"Default admin role for platform {platform_id} not found in DB. ")
+        platform = cls(
+            id=platform_id,
+            role_name=role.name,
+            name=role.description,
+            admin_roles=[default_admin_role],
+        )
+        session.add(platform)
+        if commit:
+            session.commit()
+        session.flush()
+        return platform
+
+    def update_from_auth0_role(self, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
+        self.role_name = role.name
+        self.name = role.description
+        session.add(self)
+        if commit:
+            session.commit()
+        session.flush()
+        return self
 
     @classmethod
     def get_by_id(cls, platform_id: PlatformEnum, session: Session) -> Self | None:
@@ -236,7 +288,6 @@ class Platform(SoftDeleteModel, table=True):
             if role in {ar.name for ar in self.admin_roles}:
                 return True
         return False
-
 
     def delete(self, session: Session, commit: bool = False) -> "Platform":
         memberships = list(self.members or [])
@@ -652,14 +703,19 @@ class GroupRoleLink(SoftDeleteModel, table=True):
 
 class Auth0Role(SoftDeleteModel, table=True):
     id: str = Field(primary_key=True, unique=True)
-    name: str
+    name: str = Field(unique=True)
     description: str = Field(default="")
+    platform: Platform | None = Relationship(back_populates="platform_role")
     admin_groups: list["BiocommonsGroup"] = Relationship(
         back_populates="admin_roles", link_model=GroupRoleLink
     )
     admin_platforms: list["Platform"] = Relationship(
         back_populates="admin_roles", link_model=PlatformRoleLink
     )
+
+    @classmethod
+    def get_by_id(cls, role_id: str, session: Session) -> Self | None:
+        return session.get(Auth0Role, role_id)
 
     @classmethod
     def get_or_create_by_id(
@@ -724,7 +780,7 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
     def get_by_id_or_404(cls, group_id: str, session: Session) -> Self:
         group = cls.get_by_id(group_id, session)
         if group is None:
-            raise HTTPException(status_code=404, detail="Group not found")
+            raise HTTPException(status_code=404, detail=f"Group {group_id} not found in database")
         return group
 
     def delete(self, session: Session, commit: bool = False) -> "BiocommonsGroup":

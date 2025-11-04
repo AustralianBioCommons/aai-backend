@@ -94,7 +94,7 @@ async def register_sbp_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        _create_sbp_user_record(auth0_user_data, db_session)
+        _create_sbp_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
 
         # Send approval email in the background
         if settings.send_email:
@@ -118,11 +118,12 @@ async def register_sbp_user(
         )
 
 
-def _create_sbp_user_record(auth0_user_data: Auth0UserData, session: Session) -> BiocommonsUser:
+def _create_sbp_user_record(auth0_user_data: Auth0UserData, auth0_client: Auth0Client, session: Session) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
     sbp_membership = db_user.add_platform_membership(
         platform=PlatformEnum.SBP,
         db_session=session,
+        auth0_client=auth0_client,
         auto_approve=False
     )
     session.add(db_user)

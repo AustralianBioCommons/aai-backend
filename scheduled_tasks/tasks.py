@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 
 from loguru import logger
@@ -6,10 +7,17 @@ from sqlmodel import Session, select
 from auth.management import get_management_token
 from auth0.client import Auth0Client
 from config import get_settings
-from db.models import Auth0Role, BiocommonsGroup, BiocommonsUser, GroupMembership
+from db.models import (
+    Auth0Role,
+    BiocommonsGroup,
+    BiocommonsUser,
+    GroupMembership,
+    Platform,
+)
 from db.setup import get_db_session
 from db.types import GROUP_NAMES, ApprovalStatusEnum, GroupEnum
 from scheduled_tasks.scheduler import SCHEDULER
+from schemas.auth0 import PLATFORM_ROLE_PATTERN, get_platform_id_from_role_name
 from schemas.biocommons import Auth0UserData
 
 
@@ -259,6 +267,35 @@ async def populate_db_groups():
                 )
                 db_group = BiocommonsGroup(group_id=group.value, name=name, short_name=short_name)
                 db_session.add(db_group)
+        db_session.commit()
+    finally:
+        db_session.close()
+
+
+async def populate_platforms_from_auth0():
+    """
+    Create platforms in the database based on Auth0 roles - any roles
+    matching the PLATFORM_ROLE_PATTERN will be considered platforms.
+    """
+    logger.info("Syncing Auth0 user-role assignments")
+    settings = get_settings()
+    token = get_management_token(settings=settings)
+    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
+    roles = auth0_client.get_all_roles()
+    db_session = next(get_db_session())
+    platform_roles = [role for role in roles if re.match(PLATFORM_ROLE_PATTERN, role.name) is not None]
+    try:
+        with db_session.begin():
+            for role in platform_roles:
+                db_role = Auth0Role.get_by_id(role.id, db_session)
+                platform_id = get_platform_id_from_role_name(role.name)
+                platform = Platform.get_by_id(platform_id=platform_id, session=db_session)
+                if platform is None:
+                    logger.info(f"  Creating platform {platform_id}")
+                    platform = Platform.create_from_auth0_role(db_role, db_session, commit=False)
+                else:
+                    logger.info(f"  Updating platform {platform_id} (if needed)")
+                    platform.update_from_auth0_role(db_role, db_session, commit=False)
         db_session.commit()
     finally:
         db_session.close()
