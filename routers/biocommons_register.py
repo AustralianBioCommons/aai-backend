@@ -43,7 +43,7 @@ class BiocommonsBundle(BaseModel):
             )
             session.add(platform_membership)
 
-    def create_user_record(self, auth0_user_data: Auth0UserData,auth0_client: Auth0Client, db_session: Session):
+    def create_user_record(self, auth0_user_data: Auth0UserData, auth0_client: Auth0Client, db_session: Session):
         """
         Create a user record for the bundle user.
         """
