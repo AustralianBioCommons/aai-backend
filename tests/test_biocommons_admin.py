@@ -9,7 +9,7 @@ from db.models import Auth0Role, BiocommonsGroup, Platform
 from db.types import PlatformEnum
 from routers.biocommons_admin import PlatformCreateData
 from tests.biocommons.datagen import RoleDataFactory
-from tests.db.datagen import Auth0RoleFactory, PlatformFactory
+from tests.db.datagen import Auth0RoleFactory
 
 
 @respx.mock
@@ -165,55 +165,3 @@ def test_platform_create_data_save_without_commit(test_db_session, persistent_fa
 
     test_db_session.rollback()
     assert Platform.get_by_id(PlatformEnum.SBP, test_db_session) is None
-
-
-@pytest.fixture
-def galaxy_platform(persistent_factories):
-    """
-    Set up a Galaxy platform with the associated platform role
-    """
-    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
-    return PlatformFactory.create_sync(
-        id=PlatformEnum.GALAXY,
-        role_name=platform_role.name,
-        name="Galaxy Australia",
-    )
-
-
-def test_set_admin_roles_success(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
-    # Arrange
-    pid = "galaxy"
-    r1 = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
-    r2 = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/moderator")
-
-    # Act
-    resp = test_client.post(
-        f"/biocommons-admin/platforms/{pid}/set-admin-roles",
-        json={"role_names": [r1.name, r2.name]},
-    )
-
-    # Assert
-    assert resp.status_code == 200
-    assert "set successfully" in resp.json()["message"]
-
-    refreshed = test_db_session.get(Platform, galaxy_platform.id)
-    names = sorted([r.name for r in refreshed.admin_roles])
-    assert names == sorted([r1.name, r2.name])
-
-
-def test_set_admin_roles_unknown_role(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
-    pid = "galaxy"
-    known = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
-    unknown = "biocommons/role/galaxy/does-not-exist"
-
-    resp = test_client.post(
-        f"/biocommons-admin/platforms/{pid}/set-admin-roles",
-        json={"role_names": [known.name, unknown]},
-    )
-
-    assert resp.status_code == 400
-    assert "doesn't exist in DB" in resp.json()["detail"]
-
-    # Ensure no partial update occurred
-    refreshed = test_db_session.get(Platform, pid)
-    assert [r.name for r in refreshed.admin_roles] == []

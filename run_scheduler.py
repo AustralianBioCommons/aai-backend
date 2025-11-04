@@ -14,7 +14,6 @@ from db.setup import get_engine
 from scheduled_tasks.scheduler import SCHEDULER
 from scheduled_tasks.tasks import (
     populate_db_groups,
-    populate_platforms_from_auth0,
     sync_auth0_roles,
     sync_auth0_user_roles,
     sync_auth0_users,
@@ -28,13 +27,6 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         populate_db_groups,
         trigger=DateTrigger(run_date=datetime.now(UTC)),
         id="populate_db_groups",
-        replace_existing=True
-    )
-    logger.info("Adding one-off job: populate platforms")
-    scheduler.add_job(
-        populate_platforms_from_auth0,
-        trigger=DateTrigger(run_date=datetime.now(UTC)),
-        id="populate_platforms_from_auth0",
         replace_existing=True
     )
     logger.info("Adding hourly job: sync_auth0_roles")
@@ -79,13 +71,6 @@ async def run_immediate():
         logger.info("Clearing existing jobs")
         clear_db_jobs()
         now_trigger = DateTrigger(run_date=datetime.now(UTC))
-        logger.info("Adding one-off job: sync_auth0_roles")
-        SCHEDULER.add_job(
-            sync_auth0_roles,
-            trigger=now_trigger,
-            id="sync_auth0_roles",
-            replace_existing=True
-        )
         logger.info("Adding one-off job: populate DB groups")
         SCHEDULER.add_job(
             populate_db_groups,
@@ -93,11 +78,11 @@ async def run_immediate():
             id="populate_db_groups",
             replace_existing=True
         )
-        logger.info("Adding one-off job: populate platforms")
+        logger.info("Adding one-off job: sync_auth0_roles")
         SCHEDULER.add_job(
-            populate_platforms_from_auth0,
+            sync_auth0_roles,
             trigger=now_trigger,
-            id="populate_platforms_from_auth0",
+            id="sync_auth0_roles",
             replace_existing=True
         )
         logger.info("Adding one-off job: sync_auth0_users")

@@ -10,7 +10,6 @@ from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     PlatformFactory,
-    PlatformMembershipFactory,
     _users_with_platform_membership,
 )
 
@@ -36,7 +35,7 @@ def test_user_query_params_missing_method(monkeypatch):
         UserQueryParams(email_verified=True)
 
 
-def test_user_query_multiple_filters(test_client, mock_auth0_client, as_admin_user, test_db_session, persistent_factories):
+def test_user_query_multiple_filters(test_client, as_admin_user, test_db_session, persistent_factories):
     """
     Test that multiple conditions can be combined correctly
     """
@@ -46,10 +45,10 @@ def test_user_query_multiple_filters(test_client, mock_auth0_client, as_admin_us
     users = BiocommonsUserFactory.create_batch_sync(size=100)
     for user in users:
         random_platform = random.choice(list(PlatformEnum))
-        PlatformMembershipFactory.create_sync(
-            platform_id=random_platform.value,
-            user=user,
-            approval_status=random.choice([ApprovalStatusEnum.APPROVED, ApprovalStatusEnum.PENDING])
+        user.add_platform_membership(
+            platform=random_platform.value,
+            db_session=test_db_session,
+            auto_approve=random.choice([True, False])
         )
     test_db_session.flush()
     test_db_session.commit()
