@@ -1,4 +1,3 @@
-
 import httpx
 import pytest
 from sqlmodel import select
@@ -16,6 +15,7 @@ from tests.datagen import (
     SBPRegistrationDataFactory,
     random_auth0_id,
 )
+from tests.db.datagen import Auth0RoleFactory, PlatformFactory
 
 
 @pytest.fixture
@@ -28,6 +28,19 @@ def valid_registration_data():
         reason="Need access to SBP resources",
         password="SecurePass123!",
     ).model_dump()
+
+
+@pytest.fixture
+def sbp_platform(persistent_factories):
+    """
+    Set up a Galaxy platform with the associated platform role
+    """
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
+    return PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        role_name=platform_role.name,
+        name="Galaxy Australia",
+    )
 
 
 def test_to_biocommons_register_data():
@@ -67,7 +80,7 @@ def test_validate_sbp_email_domain_function():
 
 
 def test_successful_registration(
-    test_client, valid_registration_data, mock_auth0_client, test_db_session
+    test_client, valid_registration_data, mock_auth0_client, sbp_platform, test_db_session
 ):
     user_id = random_auth0_id()
     mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(
