@@ -704,7 +704,7 @@ class GroupRoleLink(SoftDeleteModel, table=True):
 
 class Auth0Role(SoftDeleteModel, table=True):
     id: str = Field(primary_key=True, unique=True)
-    name: str = Field(unique=True)
+    name: str
     description: str = Field(default="")
     platform: Platform | None = Relationship(back_populates="platform_role")
     admin_groups: list["BiocommonsGroup"] = Relationship(
