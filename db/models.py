@@ -143,8 +143,8 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         db_platform = Platform.get_by_id(platform, db_session)
         if auto_approve:
-            logger.info(f"Adding role {db_platform.role_name} to user {self.id}")
-            self.add_role(role_name=db_platform.role_name, auth0_client=auth0_client, session=db_session)
+            logger.info(f"Adding role {db_platform.platform_role.name} to user {self.id}")
+            self.add_role(role_name=db_platform.platform_role.name, auth0_client=auth0_client, session=db_session)
         membership = PlatformMembership(
             platform_id=platform,
             user=self,
@@ -204,7 +204,7 @@ class PlatformRoleLink(SoftDeleteModel, table=True):
 class Platform(SoftDeleteModel, table=True):
     id: PlatformEnum = Field(primary_key=True, unique=True, sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
     # Role name in Auth0 for basic access to the platform
-    role_name: str | None = Field(foreign_key="auth0role.name", nullable=True)
+    role_id: str | None = Field(foreign_key="auth0role.id", ondelete="SET NULL", nullable=True)
     platform_role: "Auth0Role" = Relationship(back_populates="platform")
     # Human-readable name for the platform
     name: str = Field(unique=True)
@@ -221,7 +221,7 @@ class Platform(SoftDeleteModel, table=True):
             raise ValueError(f"Default admin role for platform {platform_id} not found in DB. ")
         platform = cls(
             id=platform_id,
-            role_name=role.name,
+            role_id=role.name,
             name=role.description,
             admin_roles=[default_admin_role],
         )
@@ -232,7 +232,8 @@ class Platform(SoftDeleteModel, table=True):
         return platform
 
     def update_from_auth0_role(self, role: "Auth0Role", session: Session, commit: bool = True) -> Self:
-        self.role_name = role.name
+        # May need to update the ID if a role has been deleted and recreated
+        self.role_id = role.id
         self.name = role.description
         session.add(self)
         if commit:

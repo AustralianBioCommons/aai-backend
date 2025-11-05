@@ -38,8 +38,8 @@ def sbp_platform(persistent_factories):
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
     return PlatformFactory.create_sync(
         id=PlatformEnum.GALAXY,
-        role_name=platform_role.name,
-        name="Galaxy Australia",
+        role_id=platform_role.id,
+        name="Structural Biology Platform",
     )
 
 

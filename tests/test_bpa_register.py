@@ -37,7 +37,7 @@ def bpa_platform(persistent_factories):
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/bpa_data_portal")
     return PlatformFactory.create_sync(
         id=PlatformEnum.BPA_DATA_PORTAL,
-        role_name=platform_role.name,
+        role_id=platform_role.id,
         name="BPA Data Portal",
     )
 
@@ -93,6 +93,7 @@ def test_successful_registration(
         called_data.user_metadata.bpa.registration_reason
         == valid_registration_data["reason"]
     )
+
 
 def test_registration_duplicate_user(
     test_client, valid_registration_data, mock_auth0_client

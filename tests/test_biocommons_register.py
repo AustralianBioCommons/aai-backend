@@ -20,7 +20,7 @@ def galaxy_platform(persistent_factories):
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
     return PlatformFactory.create_sync(
         id=PlatformEnum.GALAXY,
-        role_name=platform_role.name,
+        role_id=platform_role.id,
         name="Galaxy Australia",
     )
 
@@ -33,7 +33,7 @@ def bpa_platform(persistent_factories):
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/bpa_data_portal")
     return PlatformFactory.create_sync(
         id=PlatformEnum.BPA_DATA_PORTAL,
-        role_name=platform_role.name,
+        role_id=platform_role.id,
         name="BPA Data Portal",
     )
 
