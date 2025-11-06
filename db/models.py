@@ -382,7 +382,7 @@ class PlatformMembership(SoftDeleteModel, table=True):
             session.expunge(self)
         return self
 
-    def save_history(self, session: Session) -> "PlatformMembershipHistory":
+    def save_history(self, session: Session, commit: bool = False) -> "PlatformMembershipHistory":
         # Make sure this object is in the session before accessing relationships
         if self not in session:
             session.add(self)
@@ -397,6 +397,8 @@ class PlatformMembership(SoftDeleteModel, table=True):
             reason=self.revocation_reason,
         )
         session.add(history)
+        if commit:
+            session.commit()
         return history
 
     def get_data(self) -> PlatformMembershipData:
