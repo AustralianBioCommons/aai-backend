@@ -229,7 +229,7 @@ async def sync_group_memberships_for_role(role: RoleData, auth0_client: Auth0Cli
                 logger.info(f"    Restored membership for {db_user.id} -> {group.group_id}")
     # Soft delete memberships that are approved but no longer present
     session.flush()
-    all_memberships = session.exec(select(GroupMembership).execution_options(include_deleted=True)).all()
+    all_memberships = session.exec(select(GroupMembership).execution_options(include_deleted=True).where(GroupMembership.group_id == group.group_id)).all()
     all_in_auth0 = {user.user_id for user in role_users}
     for membership in all_memberships:
         if membership.is_deleted:
@@ -319,12 +319,10 @@ async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0
                 logger.info(f"    Restored membership for {db_user.id} -> {platform_id}")
     # Soft delete memberships that are approved but no longer present
     session.flush()
-    all_memberships = session.exec(select(PlatformMembership).execution_options(include_deleted=True)).all()
+    all_memberships = session.exec(select(PlatformMembership).execution_options(include_deleted=True).where(PlatformMembership.platform_id == platform_id)).all()
     all_in_auth0 = {user.user_id for user in role_users}
     for membership in all_memberships:
         if membership.is_deleted:
-            continue
-        if membership.platform_id != role.name:
             continue
         if membership.approval_status != ApprovalStatusEnum.APPROVED:
             continue
