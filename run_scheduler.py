@@ -138,7 +138,6 @@ async def run_immediate():
         logger.info("Resuming scheduler and waiting for jobs to complete...")
         SCHEDULER.resume()
         while SCHEDULER.get_jobs():
-            SCHEDULER.print_jobs()
             await asyncio.sleep(0.5)
     finally:
         logger.info("Stopping scheduler")
