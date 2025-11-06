@@ -2,10 +2,11 @@ import re
 from datetime import datetime, timezone
 
 from loguru import logger
+from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from auth.management import get_management_token
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, RoleData
 from config import get_settings
 from db.models import (
     Auth0Role,
@@ -13,11 +14,16 @@ from db.models import (
     BiocommonsUser,
     GroupMembership,
     Platform,
+    PlatformMembership,
 )
 from db.setup import get_db_session
 from db.types import GROUP_NAMES, ApprovalStatusEnum, GroupEnum
 from scheduled_tasks.scheduler import SCHEDULER
-from schemas.auth0 import PLATFORM_ROLE_PATTERN, get_platform_id_from_role_name
+from schemas.auth0 import (
+    GROUP_ROLE_PATTERN,
+    PLATFORM_ROLE_PATTERN,
+    get_platform_id_from_role_name,
+)
 from schemas.biocommons import Auth0UserData
 
 
@@ -46,7 +52,7 @@ def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple
     return user, created, restored
 
 
-def _get_membership_including_deleted(session: Session, user_id: str, group_id: str) -> GroupMembership | None:
+def _get_group_membership_including_deleted(session: Session, user_id: str, group_id: str) -> GroupMembership | None:
     stmt = (
         select(GroupMembership)
         .execution_options(include_deleted=True)
@@ -169,84 +175,180 @@ async def sync_auth0_roles():
         db_session.close()
 
 
-async def sync_auth0_user_roles():
-    logger.info("Syncing Auth0 user-role assignments")
+class MembershipSyncStatus(BaseModel):
+    created: bool
+    restored: bool
+    status_changed: bool
+
+    def is_changed(self) -> bool:
+        return self.created or self.restored or self.status_changed
+
+
+async def sync_group_memberships_for_role(role: RoleData, auth0_client: Auth0Client, session: Session):
+    """
+    Sync memberships and membership status for a role
+    """
+    logger.info(f"Syncing Auth0 role {role.name} memberships")
+    group = BiocommonsGroup.get_by_id(role.name, session)
+    if group is None:
+        logger.info(f"  Group {role.name} not found in DB, skipping")
+        return
+    role_users = auth0_client.get_all_role_users(role_id=role.id)
+    # Add or restore memberships that are in Auth0 but not in DB
+    for role_user in role_users:
+        sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
+        auth0_user = auth0_client.get_user(role_user.user_id)
+        db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
+        group_membership = _get_group_membership_including_deleted(session, db_user.id, role.name)
+        # No membership found in DB
+        if group_membership is None:
+            sync_status.created = True
+            group_membership = GroupMembership(
+                group_id=group.group_id,
+                user_id=db_user.id,
+                approval_status=ApprovalStatusEnum.APPROVED,
+                updated_by_id=None,
+            )
+            session.add(group_membership)
+            session.flush()
+        # Deleted membership that needs to be restored
+        elif group_membership.is_deleted:
+            sync_status.restored = True
+            group_membership.restore(session, commit=False)
+        # Status in DB doesn't reflect Auth0
+        if group_membership.approval_status != ApprovalStatusEnum.APPROVED:
+            sync_status.status_changed = True
+            group_membership.approval_status = ApprovalStatusEnum.APPROVED
+            group_membership.updated_at = datetime.now(timezone.utc)
+        session.add(group_membership)
+        if sync_status.is_changed():
+            group_membership.save_history(session, commit=False)
+            if sync_status.created:
+                logger.info(f"    Created membership for {db_user.id} -> {group.group_id}")
+            elif sync_status.restored:
+                logger.info(f"    Restored membership for {db_user.id} -> {group.group_id}")
+    # Soft delete memberships that are approved but no longer present
+    session.flush()
+    all_memberships = session.exec(select(GroupMembership).execution_options(include_deleted=True)).all()
+    all_in_auth0 = {user.user_id for user in role_users}
+    for membership in all_memberships:
+        if membership.is_deleted:
+            continue
+        if membership.group_id != role.name:
+            continue
+        if membership.approval_status != ApprovalStatusEnum.APPROVED:
+            continue
+        if membership.user_id not in all_in_auth0:
+            logger.info(
+                f"    Soft deleting membership {membership.user_id} -> {membership.group_id} absent from Auth0"
+            )
+            membership.delete(session, commit=False)
+    session.commit()
+
+
+async def sync_group_user_roles():
+    """
+    Sync group memberships for all roles matching the GROUP_ROLE_PATTERN.
+    """
+    logger.info("Syncing Auth0 user-role assignments for groups")
     settings = get_settings()
     token = get_management_token(settings=settings)
     auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    roles = auth0_client.get_all_roles()
-    db_session = next(get_db_session())
-    managed_groups = {
-        group.group_id: group for group in db_session.exec(select(BiocommonsGroup))
-    }
-    existing_memberships = {
-        (membership.user_id, membership.group_id): membership
-        for membership in db_session.exec(
-            select(GroupMembership).execution_options(include_deleted=True)
-        )
-    }
-    assignments_in_auth0: set[tuple[str, str]] = set()
-    try:
-        for role in roles:
-            group = managed_groups.get(role.name)
-            if group is None:
-                continue
-            logger.info(f"  Processing assignments for role {role.name}")
-            role_users = auth0_client.get_all_role_users(role_id=role.id)
-            for role_user in role_users:
-                assignments_in_auth0.add((role_user.user_id, group.group_id))
-                auth0_user = auth0_client.get_user(role_user.user_id)
-                db_user, _, _ = _ensure_user_from_auth0(db_session, auth0_user)
-                key = (db_user.id, group.group_id)
-                membership = existing_memberships.get(key)
-                created = False
-                restored = False
-                if membership is None:
-                    membership = _get_membership_including_deleted(db_session, db_user.id, group.group_id)
-                    if membership is None:
-                        created = True
-                        membership = GroupMembership(
-                            group_id=group.group_id,
-                            user_id=db_user.id,
-                            approval_status=ApprovalStatusEnum.APPROVED,
-                            updated_by_id=None,
-                        )
-                        db_session.add(membership)
-                        db_session.flush()
-                    existing_memberships[key] = membership
-                if membership.is_deleted:
-                    restored = True
-                    membership.restore(db_session, commit=False)
-                status_changed = False
-                if membership.approval_status != ApprovalStatusEnum.APPROVED:
-                    membership.approval_status = ApprovalStatusEnum.APPROVED
-                    status_changed = True
-                membership.updated_at = datetime.now(timezone.utc)
-                db_session.add(membership)
-                if created or restored or status_changed:
-                    membership.save_history(db_session, commit=False)
-                existing_memberships[key] = membership
-                if created:
-                    logger.info(f"    Created membership for {db_user.id} -> {group.group_id}")
-                elif restored:
-                    logger.info(f"    Restored membership for {db_user.id} -> {group.group_id}")
-        # Soft delete memberships that are approved but no longer present
-        db_session.flush()
-        for key, membership in list(existing_memberships.items()):
-            if membership.is_deleted:
-                continue
-            if membership.group_id not in managed_groups:
-                continue
-            if membership.approval_status != ApprovalStatusEnum.APPROVED:
-                continue
-            if key not in assignments_in_auth0:
-                logger.info(
-                    f"    Soft deleting membership {membership.user_id} -> {membership.group_id} absent from Auth0"
-                )
-                membership.delete(db_session, commit=False)
-        db_session.commit()
-    finally:
-        db_session.close()
+    roles = [role for role in auth0_client.get_all_roles()
+             if re.match(GROUP_ROLE_PATTERN, role.name)]
+    for role in roles:
+        db_session = next(get_db_session())
+        try:
+            await sync_group_memberships_for_role(role, auth0_client, db_session)
+        finally:
+            db_session.close()
+
+
+def _get_platform_membership_including_deleted(session: Session, user_id: str, platform_id: str) -> PlatformMembership | None:
+    stmt = (
+        select(PlatformMembership)
+        .execution_options(include_deleted=True)
+        .where(PlatformMembership.user_id == user_id, PlatformMembership.platform_id == platform_id)
+    )
+    return session.exec(stmt).one_or_none()
+
+
+async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0Client, session: Session):
+    """
+    Sync memberships and membership status for a given platform role
+    """
+    logger.info(f"Syncing Auth0 role {role.name} platform memberships")
+    platform_id = get_platform_id_from_role_name(role.name)
+    platform = Platform.get_by_id(platform_id=platform_id, session=session)
+    if platform is None:
+        logger.warning(f"  Platform {platform_id} for {role.name} not found in DB, skipping")
+        return
+    role_users = auth0_client.get_all_role_users(role_id=role.id)
+    # Add or restore memberships that are in Auth0 but not in DB
+    for role_user in role_users:
+        sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
+        auth0_user = auth0_client.get_user(role_user.user_id)
+        db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
+        platform_membership = _get_platform_membership_including_deleted(session, db_user.id, platform_id)
+        # No membership found in DB
+        if platform_membership is None:
+            sync_status.created = True
+            platform_membership = PlatformMembership(
+                platform_id=platform_id,
+                user_id=db_user.id,
+                approval_status=ApprovalStatusEnum.APPROVED,
+                updated_by_id=None,
+            )
+            session.add(platform_membership)
+            session.flush()
+        # Deleted membership that needs to be restored
+        elif platform_membership.is_deleted:
+            sync_status.restored = True
+            platform_membership.restore(session, commit=False)
+        # Status in DB doesn't reflect Auth0
+        if platform_membership.approval_status != ApprovalStatusEnum.APPROVED:
+            sync_status.status_changed = True
+            platform_membership.approval_status = ApprovalStatusEnum.APPROVED
+            platform_membership.updated_at = datetime.now(timezone.utc)
+        session.add(platform_membership)
+        if sync_status.is_changed():
+            platform_membership.save_history(session, commit=False)
+            if sync_status.created:
+                logger.info(f"    Created membership for {db_user.id} -> {platform_id}")
+            elif sync_status.restored:
+                logger.info(f"    Restored membership for {db_user.id} -> {platform_id}")
+    # Soft delete memberships that are approved but no longer present
+    session.flush()
+    all_memberships = session.exec(select(PlatformMembership).execution_options(include_deleted=True)).all()
+    all_in_auth0 = {user.user_id for user in role_users}
+    for membership in all_memberships:
+        if membership.is_deleted:
+            continue
+        if membership.platform_id != role.name:
+            continue
+        if membership.approval_status != ApprovalStatusEnum.APPROVED:
+            continue
+        if membership.user_id not in all_in_auth0:
+            logger.info(
+                f"    Soft deleting membership {membership.user_id} -> {membership.platform_id} absent from Auth0"
+            )
+            membership.delete(session, commit=False)
+    session.commit()
+
+
+async def sync_platform_user_roles():
+    logger.info("Syncing Auth0 user-role assignments for platforms")
+    settings = get_settings()
+    token = get_management_token(settings=settings)
+    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
+    roles = [role for role in auth0_client.get_all_roles()
+             if re.match(PLATFORM_ROLE_PATTERN, role.name)]
+    for role in roles:
+        db_session = next(get_db_session())
+        try:
+            await sync_platform_memberships_for_role(role, auth0_client, db_session)
+        finally:
+            db_session.close()
 
 
 async def populate_db_groups():
