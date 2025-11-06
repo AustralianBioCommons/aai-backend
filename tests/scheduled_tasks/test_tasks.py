@@ -9,11 +9,11 @@ from db.models import Auth0Role, BiocommonsUser, GroupMembership, GroupMembershi
 from db.types import ApprovalStatusEnum, GroupEnum
 from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
-    _get_membership_including_deleted,
+    _get_group_membership_including_deleted,
     populate_db_groups,
     sync_auth0_roles,
-    sync_auth0_user_roles,
     sync_auth0_users,
+    sync_group_user_roles,
     update_auth0_user,
 )
 from tests.datagen import (
@@ -223,7 +223,7 @@ def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, 
     membership_group_id = membership.group_id
     membership.delete(test_db_session, commit=True)
 
-    retrieved = _get_membership_including_deleted(test_db_session, membership_user_id, membership_group_id)
+    retrieved = _get_group_membership_including_deleted(test_db_session, membership_user_id, membership_group_id)
 
     assert retrieved is not None
     assert retrieved.is_deleted is True
@@ -346,7 +346,7 @@ async def test_sync_auth0_user_roles_syncs_assignments(mocker, test_db_session, 
         return_value=(test_db_session for _ in range(1)),
     )
 
-    await sync_auth0_user_roles()
+    await sync_group_user_roles()
 
     kept_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user_keep.id,
