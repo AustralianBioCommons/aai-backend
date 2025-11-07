@@ -392,7 +392,7 @@ async def populate_platforms_from_auth0():
                 platform = Platform.get_by_id(platform_id=platform_id, session=db_session)
                 if platform is None:
                     logger.info(f"  Creating platform {platform_id}")
-                    platform = Platform.create_from_auth0_role(db_role, db_session, commit=False)
+                    Platform.create_from_auth0_role(db_role, db_session, commit=False)
                 else:
                     logger.info(f"  Updating platform {platform_id} (if needed)")
                     platform.update_from_auth0_role(db_role, db_session, commit=False)
