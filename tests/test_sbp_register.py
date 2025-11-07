@@ -33,11 +33,11 @@ def valid_registration_data():
 @pytest.fixture
 def sbp_platform(persistent_factories):
     """
-    Set up a Galaxy platform with the associated platform role
+    Set up a SBP platform with the associated platform role
     """
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
     return PlatformFactory.create_sync(
-        id=PlatformEnum.GALAXY,
+        id=PlatformEnum.SBP,
         role_id=platform_role.id,
         name="Structural Biology Platform",
     )

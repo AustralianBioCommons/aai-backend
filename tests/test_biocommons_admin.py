@@ -100,7 +100,8 @@ def test_create_group_missing_role(test_client, as_admin_user, test_db_session):
 
 
 def test_create_platform(test_client, as_admin_user, test_db_session, persistent_factories):
-    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/bdp/admin")
+    Auth0RoleFactory.create_sync(name="biocommons/platform/bpa_data_portal")
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/bpa_data_portal/admin")
     resp = test_client.post(
         "/biocommons-admin/platforms/create",
         json={
@@ -120,6 +121,7 @@ def test_create_platform(test_client, as_admin_user, test_db_session, persistent
 
 
 def test_create_platform_duplicate_id(test_client, as_admin_user, test_db_session, persistent_factories):
+    Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
     payload = {
         "id": PlatformEnum.GALAXY.value,
@@ -149,7 +151,8 @@ def test_create_platform_missing_role(test_client, as_admin_user, test_db_sessio
 
 
 def test_platform_create_data_save_without_commit(test_db_session, persistent_factories):
-    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/local/admin")
+    Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/sbp/admin")
     create_data = PlatformCreateData(
         id=PlatformEnum.SBP,
         name="SBP Platform",
