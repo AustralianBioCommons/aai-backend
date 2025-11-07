@@ -377,7 +377,7 @@ async def populate_platforms_from_auth0():
     Create platforms in the database based on Auth0 roles - any roles
     matching the PLATFORM_ROLE_PATTERN will be considered platforms.
     """
-    logger.info("Syncing Auth0 user-role assignments")
+    logger.info("Populating platforms from Auth0 roles")
     settings = get_settings()
     token = get_management_token(settings=settings)
     auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
