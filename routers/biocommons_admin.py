@@ -69,9 +69,12 @@ class PlatformCreateData(BaseModel):
                     detail=f"Role {role} doesn't exist in DB - create roles first"
                 )
             db_roles.append(db_role)
+        platform_role = Auth0Role.get_by_name(f"biocommons/platform/{self.id.value}", db_session)
+        if platform_role is None:
+            raise HTTPException(status_code=404, detail=f"Role biocommons/platform/{self.id.value} not found")
         platform = Platform(
             id=self.id,
-            role_name=f"biocommons/platform/{self.id}",
+            role_id=platform_role.id,
             name=self.name,
             admin_roles=db_roles,
         )
