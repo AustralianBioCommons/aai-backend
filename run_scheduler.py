@@ -10,13 +10,15 @@ from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 from sqlalchemy import text
 
-from db.setup import get_engine
+from db.setup import get_db_config, get_engine
 from scheduled_tasks.scheduler import SCHEDULER
 from scheduled_tasks.tasks import (
     populate_db_groups,
+    populate_platforms_from_auth0,
     sync_auth0_roles,
-    sync_auth0_user_roles,
     sync_auth0_users,
+    sync_group_user_roles,
+    sync_platform_user_roles,
 )
 
 
@@ -27,6 +29,13 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         populate_db_groups,
         trigger=DateTrigger(run_date=datetime.now(UTC)),
         id="populate_db_groups",
+        replace_existing=True
+    )
+    logger.info("Adding one-off job: populate platforms")
+    scheduler.add_job(
+        populate_platforms_from_auth0,
+        trigger=DateTrigger(run_date=datetime.now(UTC)),
+        id="populate_platforms_from_auth0",
         replace_existing=True
     )
     logger.info("Adding hourly job: sync_auth0_roles")
@@ -45,13 +54,21 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=15)
     )
-    logger.info("Adding hourly job: sync_auth0_user_roles")
+    logger.info("Adding hourly job: sync_group_user_roles")
     scheduler.add_job(
-        sync_auth0_user_roles,
+        sync_group_user_roles,
         trigger=hourly_trigger,
-        id="sync_auth0_user_roles",
+        id="sync_group_user_roles",
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=30)
+    )
+    logger.info("Adding hourly job: sync_platform_user_roles")
+    scheduler.add_job(
+        sync_platform_user_roles,
+        trigger=hourly_trigger,
+        id="sync_platform_user_roles",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=45)
     )
 
 
@@ -64,45 +81,63 @@ def clear_db_jobs():
     logger.info("Database jobs cleared")
 
 
+def offset_trigger(offset: int):
+    return DateTrigger(run_date=datetime.now(UTC) + timedelta(seconds=offset))
+
+
 async def run_immediate():
     logger.info("Starting scheduler in paused mode to initialize job store")
     SCHEDULER.start(paused=True)
+    db_url, _ = get_db_config()
     try:
-        logger.info("Clearing existing jobs")
-        clear_db_jobs()
-        now_trigger = DateTrigger(run_date=datetime.now(UTC))
-        logger.info("Adding one-off job: populate DB groups")
-        SCHEDULER.add_job(
-            populate_db_groups,
-            trigger=now_trigger,
-            id="populate_db_groups",
-            replace_existing=True
-        )
+        if not db_url.startswith("sqlite://"):
+            logger.info("Clearing existing jobs")
+            clear_db_jobs()
         logger.info("Adding one-off job: sync_auth0_roles")
         SCHEDULER.add_job(
             sync_auth0_roles,
-            trigger=now_trigger,
+            trigger=offset_trigger(offset=0),
             id="sync_auth0_roles",
+            replace_existing=True
+        )
+        logger.info("Adding one-off job: populate DB groups")
+        SCHEDULER.add_job(
+            populate_db_groups,
+            trigger=offset_trigger(offset=5),
+            id="populate_db_groups",
+            replace_existing=True
+        )
+        logger.info("Adding one-off job: populate platforms")
+        SCHEDULER.add_job(
+            populate_platforms_from_auth0,
+            trigger=offset_trigger(offset=10),
+            id="populate_platforms_from_auth0",
             replace_existing=True
         )
         logger.info("Adding one-off job: sync_auth0_users")
         SCHEDULER.add_job(
             sync_auth0_users,
-            trigger=now_trigger,
+            trigger=offset_trigger(offset=15),
             id="sync_auth0_users",
             replace_existing=True
         )
-        logger.info("Adding one-off job: sync_auth0_user_roles")
+        logger.info("Adding one-off job: sync_group_user_roles")
         SCHEDULER.add_job(
-            sync_auth0_user_roles,
-            trigger=now_trigger,
-            id="sync_auth0_user_roles",
+            sync_group_user_roles,
+            trigger=offset_trigger(offset=20),
+            id="sync_group_user_roles",
+            replace_existing=True
+        )
+        logger.info("Adding one-off job: sync_platform_user_roles")
+        SCHEDULER.add_job(
+            sync_platform_user_roles,
+            trigger=offset_trigger(offset=25),
+            id="sync_platform_user_roles",
             replace_existing=True
         )
         logger.info("Resuming scheduler and waiting for jobs to complete...")
         SCHEDULER.resume()
         while SCHEDULER.get_jobs():
-            SCHEDULER.print_jobs()
             await asyncio.sleep(0.5)
     finally:
         logger.info("Stopping scheduler")

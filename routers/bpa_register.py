@@ -46,7 +46,7 @@ async def register_bpa_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        _create_bpa_user_record(auth0_user_data, db_session)
+        _create_bpa_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
 
         return {"message": "User registered successfully", "user": auth0_user_data.model_dump(mode="json")}
 
@@ -65,11 +65,12 @@ async def register_bpa_user(
         )
 
 
-def _create_bpa_user_record(auth0_user_data: Auth0UserData, session: Session) -> BiocommonsUser:
+def _create_bpa_user_record(auth0_user_data: Auth0UserData, auth0_client: Auth0Client, session: Session) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
     bpa_membership = db_user.add_platform_membership(
         platform=PlatformEnum.BPA_DATA_PORTAL,
         db_session=session,
+        auth0_client=auth0_client,
         auto_approve=True
     )
     session.add(db_user)

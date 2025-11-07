@@ -5,15 +5,23 @@ from unittest.mock import MagicMock
 import pytest
 from sqlmodel import select
 
-from db.models import Auth0Role, BiocommonsUser, GroupMembership, GroupMembershipHistory
+from db.models import (
+    Auth0Role,
+    BiocommonsUser,
+    GroupMembership,
+    GroupMembershipHistory,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
 from db.types import ApprovalStatusEnum, GroupEnum
 from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
-    _get_membership_including_deleted,
+    _get_group_membership_including_deleted,
     populate_db_groups,
     sync_auth0_roles,
-    sync_auth0_user_roles,
     sync_auth0_users,
+    sync_group_user_roles,
+    sync_platform_user_roles,
     update_auth0_user,
 )
 from tests.datagen import (
@@ -26,6 +34,8 @@ from tests.db.datagen import (
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
     GroupMembershipFactory,
+    PlatformFactory,
+    PlatformMembershipFactory,
 )
 
 
@@ -223,7 +233,7 @@ def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, 
     membership_group_id = membership.group_id
     membership.delete(test_db_session, commit=True)
 
-    retrieved = _get_membership_including_deleted(test_db_session, membership_user_id, membership_group_id)
+    retrieved = _get_group_membership_including_deleted(test_db_session, membership_user_id, membership_group_id)
 
     assert retrieved is not None
     assert retrieved.is_deleted is True
@@ -269,7 +279,7 @@ async def test_sync_auth0_roles_updates_and_soft_deletes(mocker, test_db_session
 
 
 @pytest.mark.asyncio
-async def test_sync_auth0_user_roles_syncs_assignments(mocker, test_db_session, mock_settings, persistent_factories):
+async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session, mock_settings, persistent_factories):
     """
     User-role assignments from Auth0 are mirrored in the database and stale assignments are soft deleted.
     """
@@ -346,7 +356,7 @@ async def test_sync_auth0_user_roles_syncs_assignments(mocker, test_db_session, 
         return_value=(test_db_session for _ in range(1)),
     )
 
-    await sync_auth0_user_roles()
+    await sync_group_user_roles()
 
     kept_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user_keep.id,
@@ -412,3 +422,124 @@ async def test_populate_db_groups_only_adds_missing(mocker, mock_settings):
     added_group = fake_session.add.call_args[0][0]
     assert added_group.group_id == GroupEnum.BPA_GALAXY.value
     fake_session.commit.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings, persistent_factories):
+    """
+    User-role assignments from Auth0 are mirrored in the database and stale assignments are soft deleted.
+    """
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
+    platform = PlatformFactory.create_sync(
+        id="galaxy",
+        name="Galaxy",
+        platform_role=platform_role,
+        admin_roles=[admin_role],
+    )
+    user_remove = BiocommonsUserFactory.create_sync()
+    PlatformMembershipFactory.create_sync(
+        platform=platform,
+        user=user_remove,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    user_pending = BiocommonsUserFactory.create_sync(
+        email="pending.user@example.com",
+        username="pending_user",
+    )
+    PlatformMembershipFactory.create_sync(
+        platform=platform,
+        user=user_pending,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    history_before = test_db_session.exec(
+        select(PlatformMembershipHistory).where(
+            PlatformMembershipHistory.user_id == user_pending.id,
+            PlatformMembershipHistory.platform_id == platform.id,
+            )
+    ).all()
+    user_keep = BiocommonsUserFactory.create_sync(
+        email="keep.user@example.com",
+        username="keep_user",
+    )
+    auth0_user_keep = Auth0UserDataFactory.build(
+        user_id=user_keep.id,
+        email="keep.user@example.com",
+        username="keep_user",
+    )
+    auth0_user_pending = Auth0UserDataFactory.build(
+        user_id=user_pending.id,
+        email="pending.user@example.com",
+        username="pending_user",
+    )
+    auth0_user_new = Auth0UserDataFactory.build(
+        email="new.assignment@example.com",
+        username="new_assignment",
+    )
+    role_user_keep = RoleUserDataFactory.build(user_id=auth0_user_keep.user_id)
+    role_user_pending = RoleUserDataFactory.build(user_id=auth0_user_pending.user_id)
+    role_user_new = RoleUserDataFactory.build(user_id=auth0_user_new.user_id)
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [
+        SimpleNamespace(id=platform_role.id, name=platform_role.name, description=platform_role.description)
+    ]
+    mock_auth0_client.get_all_role_users.return_value = [
+        role_user_keep,
+        role_user_pending,
+        role_user_new,
+    ]
+    mock_auth0_client.get_user.side_effect = [
+        auth0_user_keep,
+        auth0_user_pending,
+        auth0_user_new,
+    ]
+    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch.object(test_db_session, "close", return_value=None)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=(test_db_session for _ in range(1)),
+    )
+
+    await sync_platform_user_roles()
+
+    kept_membership = PlatformMembership.get_by_user_id_and_platform_id(
+        user_id=user_keep.id,
+        platform_id=platform.id,
+        session=test_db_session,
+    )
+    new_membership = PlatformMembership.get_by_user_id_and_platform_id(
+        user_id=auth0_user_new.user_id,
+        platform_id=platform.id,
+        session=test_db_session,
+    )
+    updated_pending_membership = PlatformMembership.get_by_user_id_and_platform_id(
+        user_id=user_pending.id,
+        platform_id=platform.id,
+        session=test_db_session,
+    )
+    removed_membership = test_db_session.exec(
+        select(PlatformMembership)
+        .execution_options(include_deleted=True)
+        .where(
+            PlatformMembership.user_id == user_remove.id,
+            PlatformMembership.platform_id == platform.id,
+            )
+    ).one()
+    created_user = test_db_session.get(BiocommonsUser, auth0_user_new.user_id)
+    history_entries = test_db_session.exec(
+        select(PlatformMembershipHistory).where(
+            PlatformMembershipHistory.user_id == user_pending.id,
+            PlatformMembershipHistory.platform_id == platform.id,
+            )
+    ).all()
+
+    assert kept_membership is not None
+    assert new_membership is not None
+    assert updated_pending_membership is not None
+    assert updated_pending_membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert removed_membership.is_deleted is True
+    assert created_user is not None
+    assert len(history_entries) > len(history_before)
