@@ -221,7 +221,7 @@ class Platform(SoftDeleteModel, table=True):
             raise ValueError(f"Default admin role for platform {platform_id} not found in DB. ")
         platform = cls(
             id=platform_id,
-            role_id=role.name,
+            role_id=role.id,
             name=role.description,
             admin_roles=[default_admin_role],
         )
