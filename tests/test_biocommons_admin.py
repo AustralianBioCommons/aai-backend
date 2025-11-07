@@ -175,7 +175,7 @@ def galaxy_platform(persistent_factories):
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
     return PlatformFactory.create_sync(
         id=PlatformEnum.GALAXY,
-        role_name=platform_role.name,
+        role_id=platform_role.id,
         name="Galaxy Australia",
     )
 
