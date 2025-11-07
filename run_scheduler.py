@@ -132,7 +132,7 @@ async def run_immediate():
         SCHEDULER.add_job(
             sync_platform_user_roles,
             trigger=offset_trigger(offset=25),
-            id="sync_group_user_roles",
+            id="sync_platform_user_roles",
             replace_existing=True
         )
         logger.info("Resuming scheduler and waiting for jobs to complete...")
