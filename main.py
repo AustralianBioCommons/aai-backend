@@ -15,8 +15,6 @@ from routers import (
     biocommons_admin,
     biocommons_groups,
     biocommons_register,
-    bpa_register,
-    galaxy_register,
     sbp_register,
     user,
     utils,
@@ -83,8 +81,6 @@ app.include_router(admin.router)
 app.include_router(biocommons_admin.router)
 app.include_router(user.router)
 app.include_router(biocommons_register.router)
-app.include_router(bpa_register.router)
-app.include_router(galaxy_register.router)
 app.include_router(sbp_register.router)
 app.include_router(utils.router)
 app.include_router(biocommons_groups.router)
