@@ -46,12 +46,10 @@ class GroupMembershipData(BaseModel):
 
 class GroupEnum(str, Enum):
     TSI = "biocommons/group/tsi"
-    BPA_GALAXY = "biocommons/group/bpa_galaxy"
 
 
 # Provide default group names so we can populate the DB easily
 #   - should use the DB values when looking them up though
 GROUP_NAMES: dict[GroupEnum, tuple[str, str]] = {
     GroupEnum.TSI: ("Threatened Species Initiative", "TSI"),
-    GroupEnum.BPA_GALAXY: ("Bioplatforms Australia Data Portal & Galaxy Australia", "BPA-GA"),
 }

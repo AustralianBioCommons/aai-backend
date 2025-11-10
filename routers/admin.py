@@ -48,7 +48,6 @@ PLATFORM_MAPPING = {
 
 GROUP_MAPPING = {
     "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative"},
-    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia"},
 }
 
 
