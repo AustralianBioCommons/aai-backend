@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from httpx import HTTPStatusError
@@ -7,13 +8,13 @@ from starlette.responses import JSONResponse
 
 from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
-from biocommons.bundles import BUNDLES
+from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
-from schemas.biocommons import BiocommonsRegisterData
+from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
 from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 
@@ -45,6 +46,32 @@ def send_approval_email(registration: BiocommonsRegistrationRequest, settings: S
     email_service.send(approver_email, subject, body_html)
 
 
+def create_user_in_db(user_data: Auth0UserData,
+                      bundle: Optional[BiocommonsBundle],
+                      session: Session, auth0_client: Auth0Client) -> BiocommonsUser:
+    db_user = BiocommonsUser.from_auth0_data(data=user_data)
+    session.add(db_user)
+    session.flush()
+    for platform in DEFAULT_PLATFORMS:
+        db_user.add_platform_membership(
+            platform=platform,
+            db_session=session,
+            auth0_client=auth0_client,
+            auto_approve=True
+        )
+
+    if bundle is not None:
+        logger.info(f"Adding group/platform memberships for bundle: {bundle}")
+        bundle.create_memberships(
+            user=db_user,
+            auth0_client=auth0_client,
+            db_session=session
+        )
+
+    session.commit()
+    return db_user
+
+
 @router.post(
     "/register",
     responses={
@@ -69,30 +96,17 @@ async def register_biocommons_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
-        db_session.add(db_user)
-        db_session.flush()
-        for platform in DEFAULT_PLATFORMS:
-            db_user.add_platform_membership(
-                platform=platform,
-                db_session=db_session,
-                auth0_client=auth0_client,
-                auto_approve=True
-            )
-
-        if bundle := BUNDLES.get(registration.bundle):
-            logger.info(f"Adding group/platform memberships for bundle: {bundle}")
-            bundle.create_memberships(
-                user=db_user,
-                auth0_client=auth0_client,
-                db_session=db_session
-            )
-
-            # Send approval email in the background
-            if not bundle.group_auto_approve:
-                if settings.send_email:
-                    background_tasks.add_task(send_approval_email, registration, settings)
-        db_session.commit()
+        bundle = BUNDLES.get(registration.bundle)
+        create_user_in_db(
+            user_data=auth0_user_data,
+            bundle=bundle,
+            session=db_session,
+            auth0_client=auth0_client
+        )
+        # Send approval email in the background
+        if not bundle.group_auto_approve:
+            if settings.send_email:
+                background_tasks.add_task(send_approval_email, registration, settings)
 
         logger.info(
             f"Successfully registered biocommons user: {auth0_user_data.user_id}"
