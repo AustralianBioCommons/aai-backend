@@ -108,6 +108,28 @@ and run the migrations:
 uv run alembic upgrade head
 ```
 
+## Populating the Database on your Local Machine
+1. Remove the exisiting database (if exists)
+```bash
+cd aai-backend
+rm database.db
+```
+
+2. Create the database once
+```bash
+uv run fastapi dev
+```
+
+3. Sync Auth0 to local database
+```bash
+uv run python run_scheduler.py --immediate
+```
+
+4. Start the database locally
+```bash
+uv run fastapi dev main.py
+```
+
 # Job scheduler
 
 We use the `apscheduler` library to schedule recurring jobs. Currently
