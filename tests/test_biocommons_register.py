@@ -1,8 +1,8 @@
 import pytest
 from starlette.exceptions import HTTPException
 
+from biocommons.bundles import BUNDLES
 from db.types import PlatformEnum
-from routers.biocommons_register import BUNDLES
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
 from tests.datagen import (
@@ -131,7 +131,7 @@ def test_create_biocommons_user_record_bpa_galaxy_bundle(test_db_session, galaxy
     )
     bundle = BUNDLES[registration.bundle]
 
-    user = bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
+    user = bundle.create_memberships(auth0_data, mock_auth0_client, test_db_session)
 
     assert user.username == "bpagalaxy"
     assert user.email == "bpa.galaxy@example.com"
@@ -180,7 +180,7 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
         user_id="auth0|tsiuser123",
     )
     bundle = BUNDLES[registration.bundle]
-    user = bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
+    user = bundle.create_memberships(auth0_data, mock_auth0_client, test_db_session)
 
     assert user.username == "tsiuser"
     assert user.email == "tsi.user@example.com"
@@ -217,7 +217,7 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
     with pytest.raises(
         HTTPException, match="404: Group biocommons/group/bpa_galaxy not found in database"
     ):
-        bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
+        bundle.create_memberships(auth0_data, mock_auth0_client, test_db_session)
 
 
 def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, galaxy_platform, bpa_platform, persistent_factories):
@@ -247,7 +247,7 @@ def test_biocommons_group_membership_with_existing_group(test_db_session, mock_a
         email="test.user@example.com", username="testuser", user_id="auth0|testuser123"
     )
 
-    user = bundle.create_user_record(auth0_data, mock_auth0_client, test_db_session)
+    user = bundle.create_memberships(auth0_data, mock_auth0_client, test_db_session)
 
     assert len(user.group_memberships) == 1
     assert user.group_memberships[0].group_id == "biocommons/group/bpa_galaxy"
