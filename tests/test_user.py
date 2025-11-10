@@ -230,10 +230,10 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
         name="Threatened Species Initiative",
         short_name="TSI",
     )
-    bpa_group = BiocommonsGroupFactory.create_sync(
-        group_id="biocommons/group/bpa_galaxy",
-        name="Bioplatforms Australia & Galaxy Australia",
-        short_name="BPA-GA",
+    other_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/other_group",
+        name="Research Group",
+        short_name="RG",
     )
 
     PlatformMembershipFactory.create_sync(
@@ -256,8 +256,8 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
     )
     GroupMembershipFactory.create_sync(
         user=db_user,
-        group=bpa_group,
-        group_id=bpa_group.group_id,
+        group=other_group,
+        group_id=other_group.group_id,
         approval_status=ApprovalStatusEnum.PENDING,
     )
     test_db_session.flush()
@@ -288,9 +288,9 @@ def test_get_profile_returns_user_profile(test_client, test_db_session, mocker, 
         assert group_map[tsi_group.group_id]["group_name"] == tsi_group.name
         assert group_map[tsi_group.group_id]["group_short_name"] == tsi_group.short_name
         assert group_map[tsi_group.group_id]["approval_status"] == ApprovalStatusEnum.APPROVED.value
-        assert group_map[bpa_group.group_id]["group_name"] == bpa_group.name
-        assert group_map[bpa_group.group_id]["group_short_name"] == bpa_group.short_name
-        assert group_map[bpa_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
+        assert group_map[other_group.group_id]["group_name"] == other_group.name
+        assert group_map[other_group.group_id]["group_short_name"] == other_group.short_name
+        assert group_map[other_group.group_id]["approval_status"] == ApprovalStatusEnum.PENDING.value
         assert auth0_route.called
 
 

@@ -1,4 +1,4 @@
-from contextlib import nullcontext
+from enum import Enum
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -7,13 +7,14 @@ from sqlmodel import select
 
 from db.models import (
     Auth0Role,
+    BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
     GroupMembershipHistory,
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from db.types import ApprovalStatusEnum, GroupEnum
+from db.types import ApprovalStatusEnum
 from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
@@ -399,29 +400,26 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
 
 
 @pytest.mark.asyncio
-async def test_populate_db_groups_only_adds_missing(mocker, mock_settings):
+async def test_populate_db_groups_only_adds_missing(test_db_session, mocker, mock_settings, persistent_factories):
     """
     Ensure existing groups are skipped and missing ones are inserted then committed.
     """
+    class TestGroups(Enum):
+        TSI = "biocommons/group/tsi"
+        TEST = "biocommons/group/test"
+
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
-    fake_session = MagicMock()
-    fake_session.begin.return_value = nullcontext()
-    fake_session.commit = MagicMock()
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=(fake_session for _ in range(1)),
-    )
-    mocker.patch(
-        "scheduled_tasks.tasks.BiocommonsGroup.get_by_id",
-        side_effect=[object(), None],
+        return_value=(test_db_session for _ in range(1)),
     )
 
-    await populate_db_groups()
+    BiocommonsGroupFactory.create_sync(group_id=TestGroups.TSI.value)
 
-    fake_session.add.assert_called_once()
-    added_group = fake_session.add.call_args[0][0]
-    assert added_group.group_id == GroupEnum.BPA_GALAXY.value
-    fake_session.commit.assert_called_once()
+    await populate_db_groups(groups=TestGroups)
+
+    added_group = test_db_session.get(BiocommonsGroup, TestGroups.TEST.value)
+    assert added_group is not None
 
 
 @pytest.mark.asyncio

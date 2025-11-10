@@ -349,12 +349,13 @@ async def sync_platform_user_roles():
             db_session.close()
 
 
-async def populate_db_groups():
+# Allow changing the groups argument for easy testing
+async def populate_db_groups(groups=GroupEnum):
     logger.info("Populating DB groups")
     db_session = next(get_db_session())
     try:
         with db_session.begin():
-            for group in GroupEnum:
+            for group in groups:
                 logger.info(f"  Group: {group.value}")
                 db_group = BiocommonsGroup.get_by_id(group.value, db_session)
                 if db_group is not None:

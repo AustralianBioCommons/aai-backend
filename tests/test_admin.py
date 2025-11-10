@@ -37,6 +37,14 @@ FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
 
 
 @pytest.fixture
+def mock_group_enum(mocker):
+    class GroupEnum:
+        TSI = "biocommons/group/tsi"
+        OTHER = "biocommons/group/other"
+    mocker.patch("routers.admin.GroupEnum", GroupEnum)
+
+
+@pytest.fixture
 def galaxy_platform(persistent_factories):
     """
     Set up a Galaxy platform with the admin role set to the Galaxy admin scope.
@@ -141,6 +149,7 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
 def test_get_users_platform_or_group_access(
     test_client,
     as_admin_user,
+    mock_group_enum,
     galaxy_platform,
     tsi_group,
     test_db_session,
@@ -151,7 +160,7 @@ def test_get_users_platform_or_group_access(
     they have access to.
     """
     other_platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
-    other_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.BPA_GALAXY)
+    other_group = BiocommonsGroupFactory.create_sync(group_id="other")
     test_db_session.commit()
     galaxy_users = _users_with_platform_membership(n=5, db_session=test_db_session, platform_id=galaxy_platform.id)
     other_platform_users = _users_with_platform_membership(n=3, db_session=test_db_session, platform_id=other_platform.id)
@@ -206,6 +215,7 @@ def test_get_users_filter_by_platform(test_client, as_admin_user,
     assert len(resp.json()) == 0
 
 
+
 def test_get_users_filter_by_group(test_client, as_admin_user, galaxy_platform, test_db_session):
     tsi_group = BiocommonsGroup(
         group_id=GroupEnum.TSI,
@@ -235,10 +245,6 @@ def test_get_users_filter_by_group(test_client, as_admin_user, galaxy_platform, 
     tsi_ids = [u["id"] for u in tsi_data]
     assert all(u.id in tsi_ids for u in tsi_users)
     assert all(u.id not in tsi_ids for u in other_users)
-
-    resp = test_client.get("/admin/users?filter_by=bpa_galaxy")
-    assert resp.status_code == 404
-    assert "Group 'bpa_galaxy' not found" in resp.json()["detail"]
 
 
 def test_get_users_invalid_filter(test_client, as_admin_user, test_db_session):
@@ -405,7 +411,7 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
 
     options = resp.json()
     assert isinstance(options, list)
-    assert len(options) == 5
+    assert len(options) == 4
 
     for option in options:
         assert "id" in option
@@ -414,7 +420,7 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
         assert isinstance(option["name"], str)
 
     option_ids = {opt["id"] for opt in options}
-    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "bpa_galaxy"}
+    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi"}
     assert option_ids == expected_ids
 
     option_dict = {opt["id"]: opt["name"] for opt in options}
@@ -422,7 +428,6 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
     assert option_dict["sbp"] == "Structural Biology Platform"
     assert option_dict["tsi"] == "Threatened Species Initiative"
-    assert option_dict["bpa_galaxy"] == "Bioplatforms Australia Data Portal & Galaxy Australia"
 
 
 def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):

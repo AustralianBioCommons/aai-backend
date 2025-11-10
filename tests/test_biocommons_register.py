@@ -335,7 +335,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
 
 
 def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, mock_auth0_client):
-    """Test database record creation for bpa_galaxy bundle"""
+    """Test database record creation when no bundle is selected"""
     registration = BiocommonsRegistrationRequest(
         first_name="No",
         last_name="Bundle",

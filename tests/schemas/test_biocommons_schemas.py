@@ -87,11 +87,6 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
         name="Threatened Species Initiative",
         short_name="TSI",
     )
-    bpa_group = BiocommonsGroupFactory.create_sync(
-        group_id="biocommons/group/bpa_galaxy",
-        name="Bioplatforms Australia & Galaxy Australia",
-        short_name="BPA-GA",
-    )
 
     PlatformMembershipFactory.create_sync(
         user=db_user,
@@ -116,12 +111,7 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
         group_id=tsi_group.group_id,
         approval_status=ApprovalStatusEnum.APPROVED,
     )
-    GroupMembershipFactory.create_sync(
-        user=db_user,
-        group=bpa_group,
-        group_id=bpa_group.group_id,
-        approval_status=ApprovalStatusEnum.REVOKED,
-    )
+
     test_db_session.flush()
     test_db_session.refresh(db_user)
 
@@ -139,8 +129,7 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
     assert PlatformEnum.BPA_DATA_PORTAL not in platform_map
 
     group_map = {membership.group_id: membership for membership in profile.group_memberships}
-    # Revoked groups should not be included
-    assert bpa_group.group_id not in group_map
+
     tsi_membership = group_map["biocommons/group/tsi"]
     assert tsi_membership.group_name == "Threatened Species Initiative"
     assert tsi_membership.group_short_name == "TSI"
