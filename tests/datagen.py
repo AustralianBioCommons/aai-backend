@@ -22,8 +22,6 @@ from schemas.biocommons import (
     BiocommonsRegisterData,
 )
 from schemas.biocommons_register import BiocommonsRegistrationRequest
-from schemas.bpa import BPARegistrationRequest
-from schemas.galaxy import GalaxyRegistrationData
 from schemas.sbp import SBPRegistrationRequest
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
@@ -101,25 +99,6 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
     def user_id(cls) -> str:
         return random_auth0_id()
 
-    username = BiocommonsProviders.biocommons_username
-
-
-class GalaxyRegistrationDataFactory(ModelFactory[GalaxyRegistrationData]):
-    @post_generated
-    @classmethod
-    def confirmPassword(cls, password: str) -> str:
-        """
-        Use the same value as password for confirmPassword.
-        """
-        return password
-
-    password = BiocommonsProviders.biocommons_password
-    username = BiocommonsProviders.biocommons_username
-
-class BPARegistrationDataFactory(ModelFactory[BPARegistrationRequest]):
-    """Factory for generating BPA registration test data."""
-
-    password = BiocommonsProviders.biocommons_password
     username = BiocommonsProviders.biocommons_username
 
 

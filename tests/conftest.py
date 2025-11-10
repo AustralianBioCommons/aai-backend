@@ -4,6 +4,7 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 from moto import mock_aws
 from moto.core import patch_client
@@ -303,6 +304,14 @@ def mock_email_service(aws_credentials):
         app.dependency_overrides[get_email_service] = lambda: email_service
         yield email_service
         app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def mock_background_tasks(mocker):
+    bg_tasks = mocker.MagicMock(autospec=BackgroundTasks)
+    app.dependency_overrides[BackgroundTasks] = lambda: bg_tasks
+    yield
+    app.dependency_overrides.clear()
 
 
 def now_freeze_aware(tz=None):

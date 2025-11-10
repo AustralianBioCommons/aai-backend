@@ -1,10 +1,9 @@
-from typing import Literal
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr
 
+from biocommons.bundles import BundleType
 from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
-
-BundleType = Literal["bpa_galaxy", "tsi"]
 
 
 class BiocommonsRegistrationRequest(BaseModel):
@@ -13,4 +12,4 @@ class BiocommonsRegistrationRequest(BaseModel):
     email: EmailStr
     username: BiocommonsUsername
     password: BiocommonsPassword
-    bundle: BundleType
+    bundle: Optional[BundleType] = None
