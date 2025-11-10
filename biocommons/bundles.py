@@ -54,6 +54,6 @@ BUNDLES: dict[BundleType, BiocommonsBundle] = {
         id="tsi",
         group_id=GroupEnum.TSI,
         group_auto_approve=False,
-        extra_platforms=[PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY],
+        extra_platforms=[],
     ),
 }
