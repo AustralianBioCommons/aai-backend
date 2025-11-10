@@ -109,23 +109,32 @@ uv run alembic upgrade head
 ```
 
 ## Populating the Database on your Local Machine
-1. Remove the exisiting database (if exists)
+
+You can populate your dev database with the users and memberships from the dev Auth0 tenant by running the sync tasks.
+
+1. Remove the exisiting database (if it exists)
+
 ```bash
 cd aai-backend
 rm database.db
 ```
 
-2. Create the database once
+2. Run the FastAPI app once to create the database
+   
 ```bash
 uv run fastapi dev
 ```
 
+then hit `Ctrl + C` to exit
+
 3. Sync Auth0 to local database
+
 ```bash
 uv run python run_scheduler.py --immediate
 ```
 
-4. Start the database locally
+4. Restart the backend service if needed
+
 ```bash
 uv run fastapi dev main.py
 ```
