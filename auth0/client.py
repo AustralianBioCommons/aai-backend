@@ -150,7 +150,7 @@ class Auth0Client:
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
-    def add_roles_to_user(self, user_id: str, role_id: str | list[str]):
+    def add_roles_to_user(self, user_id: str, role_id: str | list[str]) -> bool:
         """
         Add one or more roles to a user. The role(s) must already exist.
         """

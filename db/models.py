@@ -131,8 +131,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         role = Auth0Role.get_by_name(role_name, session)
         if role is None:
             raise ValueError(f"Role {role_name} not found in DB")
-        resp = auth0_client.add_roles_to_user(user_id=self.id, role_id=role.id)
-        resp.raise_for_status()
+        auth0_client.add_roles_to_user(user_id=self.id, role_id=role.id)
 
     def add_platform_membership(
         self, platform: PlatformEnum, db_session: Session, auth0_client: Auth0Client, auto_approve: bool = False
