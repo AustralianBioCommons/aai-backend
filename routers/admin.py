@@ -48,7 +48,6 @@ PLATFORM_MAPPING = {
 
 GROUP_MAPPING = {
     "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative"},
-    "bpa_galaxy": {"enum": GroupEnum.BPA_GALAXY, "name": "Bioplatforms Australia Data Portal & Galaxy Australia"},
 }
 
 
@@ -265,7 +264,7 @@ class UserQueryParams(BaseModel):
     email_verified: bool | None = Field(None, description="Filter by email verification status")
     filter_by: str | None = Field(
         None,
-        description="Filter users by group ('tsi', 'bpa_galaxy') or platform ('galaxy', 'bpa_data_portal')"
+        description="Filter users by group ('tsi',) or platform ('galaxy', 'bpa_data_portal')"
     )
     search: str | None = Field(None, description="Search users by username or email")
 
