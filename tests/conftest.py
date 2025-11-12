@@ -97,6 +97,9 @@ def ignore_env_file():
         return Settings(_env_file=None)
     def get_galaxy_settings_no_env_file():
         return GalaxySettings(_env_file=None)
+    def get_admin_settings_no_env_file():
+        from db.admin_config import AdminSettings
+        return AdminSettings(_env_file=None)
     app.dependency_overrides[get_settings] = get_settings_no_env_file
     app.dependency_overrides[get_galaxy_settings] = get_galaxy_settings_no_env_file
     # Make sure we always use in-memory DB for test DB
