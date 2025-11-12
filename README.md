@@ -80,7 +80,7 @@ we use a Postgres docker container to generate migrations against.
 At runtime the task receives database connection details through environment variables
 (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) sourced from AWS Secrets Manager.
 
-After making any changes to the database models, after ensuring that Docker is runnning on your local machine, 
+After making any changes to the database models, after ensuring that Docker is runnning on your local machine,
 run the `generate_migrations.py` script to create migrations:
 
 ```shell
@@ -120,7 +120,7 @@ rm database.db
 ```
 
 2. Run the FastAPI app once to create the database
-   
+
 ```bash
 uv run fastapi dev
 ```
@@ -138,6 +138,26 @@ uv run python run_scheduler.py --immediate
 ```bash
 uv run fastapi dev main.py
 ```
+
+# Admin dashboard
+
+We use [Starlette Admin](https://jowilf.github.io/starlette-admin/) to provide an admin
+dashboard for the database. You can access it at `<backend-url>/db-admin/`.
+Currently this is **view-only**, and only used to view the DB entries for debugging.
+
+The admin dashboard is **only enabled if additional variables are set in the environment (`.env` or environment variables)**:
+
+```
+ADMIN_CLIENT_ID
+ADMIN_CLIENT_SECRET
+AUTH0_CUSTOM_DOMAIN
+```
+
+These should be the client ID and secret for an Auth0 application that
+allows a callback at `<backend-url>/db-admin/auth/auth0`
+
+**⚠️ Currently, this does not work with the application used for
+the rest of the backend (not clear why) - it needs to be a separate Auth0 application.**
 
 # Job scheduler
 
