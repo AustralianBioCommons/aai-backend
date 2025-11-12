@@ -215,7 +215,7 @@ class Auth0AuthProvider(AuthProvider):
                 status_code=401, detail="You do not have permission to access this endpoint."
             )
         request.session.update({"user": token["userinfo"]})
-        return RedirectResponse(request.query_params.get("next"))
+        return RedirectResponse("/db-admin/")
 
     async def is_authenticated(self, request: Request) -> bool:
         if request.session.get("user", None) is not None:
@@ -228,7 +228,7 @@ class Auth0AuthProvider(AuthProvider):
         auth0 = self.oauth.create_client("auth0")
         redirect_uri = request.url_for(
             admin.route_name + ":authorize_auth0"
-        ).include_query_params(next=request.query_params.get("next"))
+        )
         return await auth0.authorize_redirect(request, str(redirect_uri))
 
     async def render_logout(self, request: Request, admin: BaseAdmin) -> Response:
