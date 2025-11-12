@@ -155,14 +155,14 @@ def setup_starlette_admin(app: FastAPI):
         auth_provider=Auth0AuthProvider(),
         middlewares=[Middleware(SessionMiddleware, secret_key=settings.jwt_secret_key)]
     )
-    admin.add_view(UserView(BiocommonsUser, identity="user"))
-    admin.add_view(PlatformView(Platform, identity="platform"))
-    admin.add_view(PlatformMembershipView(PlatformMembership, identity="platform_membership"))
-    admin.add_view(RoleView(Auth0Role, identity="role"))
-    admin.add_view(GroupView(BiocommonsGroup, identity="group"))
-    admin.add_view(GroupMembershipView(GroupMembership, identity="group_membership"))
-    admin.add_view(PlatformMembershipHistoryView(PlatformMembershipHistory, identity="platform_membership_history"))
-    admin.add_view(GroupMembershipHistoryView(GroupMembershipHistory, identity="group_membership_history"))
+    admin.add_view(UserView(BiocommonsUser, identity="user", icon="fa fa-user"))
+    admin.add_view(PlatformView(Platform, identity="platform", icon="fa fa-server"))
+    admin.add_view(PlatformMembershipView(PlatformMembership, identity="platform_membership", icon="fa fa-user-plus"))
+    admin.add_view(GroupView(BiocommonsGroup, identity="group", icon="fa fa-users"))
+    admin.add_view(GroupMembershipView(GroupMembership, identity="group_membership", icon="fa fa-user-plus"))
+    admin.add_view(RoleView(Auth0Role, identity="role", icon="fa fa-user-tie"))
+    admin.add_view(PlatformMembershipHistoryView(PlatformMembershipHistory, identity="platform_membership_history", icon="fa fa-clock-rotate-left"))
+    admin.add_view(GroupMembershipHistoryView(GroupMembershipHistory, identity="group_membership_history", icon="fa fa-clock-rotate-left"))
     admin.mount_to(app)
 
 
