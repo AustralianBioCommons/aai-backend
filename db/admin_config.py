@@ -5,6 +5,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class AdminSettings(BaseSettings):
+    """
+    Settings used by starlette-admin, which currently requires a separate
+    Auth0 app to that used by the main backend service
+    """
     auth0_custom_domain: Optional[str]
     admin_client_id: Optional[str]
     admin_client_secret: Optional[str]
@@ -15,3 +19,7 @@ class AdminSettings(BaseSettings):
         if isinstance(value, str):
             return value.rstrip("/")
         return value
+
+
+def get_admin_settings() -> AdminSettings:
+    return AdminSettings()

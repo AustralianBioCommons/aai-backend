@@ -18,7 +18,7 @@ from starlette_admin.contrib.sqlmodel import Admin, ModelView
 
 from auth.validator import verify_jwt
 from config import get_settings
-from db.admin_config import AdminSettings
+from db.admin_config import get_admin_settings
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
@@ -154,7 +154,7 @@ class GroupMembershipHistoryView(DefaultView):
 
 def setup_starlette_admin(app: FastAPI):
     settings = get_settings()
-    admin_settings = AdminSettings()
+    admin_settings = get_admin_settings()
     if admin_settings.admin_client_id is None:
         logger.info("Admin client ID not set, skipping admin setup")
         return
@@ -178,7 +178,7 @@ def setup_starlette_admin(app: FastAPI):
 
 
 def setup_oauth():
-    admin_settings = AdminSettings()
+    admin_settings = get_admin_settings()
     oauth = OAuth()
     oauth.register(
         name="auth0",
@@ -234,11 +234,11 @@ class Auth0AuthProvider(AuthProvider):
     async def render_logout(self, request: Request, admin: BaseAdmin) -> Response:
         """Override the default logout to implement custom logic"""
         request.session.clear()
-        settings = get_settings()
+        admin_settings = get_admin_settings()
         return RedirectResponse(
-            url=URL(f"https://{settings.auth0_domain}/v2/logout").include_query_params(
+            url=URL(f"{admin_settings.auth0_custom_domain}/v2/logout").include_query_params(
                 returnTo=request.url_for(admin.route_name + ":index"),
-                client_id=settings.auth0_client_id,
+                client_id=admin_settings.auth0_client_id,
             )
         )
 

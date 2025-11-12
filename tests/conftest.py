@@ -88,7 +88,7 @@ def test_db_session(session):
 
 
 @pytest.fixture(autouse=True)
-def ignore_env_file():
+def ignore_env_file(mocker):
     """
     Always ignore the .env file when running tests,
     so we get the same behaviour when the .env file is present or not.
@@ -100,6 +100,7 @@ def ignore_env_file():
     def get_admin_settings_no_env_file():
         from db.admin_config import AdminSettings
         return AdminSettings(_env_file=None)
+    mocker.patch("db.st_admin.get_admin_settings", new=get_admin_settings_no_env_file)
     app.dependency_overrides[get_settings] = get_settings_no_env_file
     app.dependency_overrides[get_galaxy_settings] = get_galaxy_settings_no_env_file
     # Make sure we always use in-memory DB for test DB
