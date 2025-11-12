@@ -436,6 +436,61 @@ def test_platform_membership_save_history_stores_reason(test_db_session, persist
     assert history.reason == "Policy violation"
 
 
+def test_platform_membership_revoke_auth0_role(mock_auth0_client, persistent_factories):
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    role = RoleDataFactory.build(name="biocommons/platform/galaxy")
+    mock_auth0_client.get_role_by_name.return_value = role
+
+    assert membership.revoke_auth0_role(mock_auth0_client) is True
+    mock_auth0_client.get_role_by_name.assert_called_once_with("biocommons/platform/galaxy")
+    mock_auth0_client.remove_roles_from_user.assert_called_once_with(
+        user_id=membership.user_id,
+        role_id=role.id,
+    )
+
+
+@pytest.mark.parametrize("status", [ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED])
+def test_platform_membership_revoke_auth0_role_not_approved(status, mock_auth0_client, persistent_factories):
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=status,
+    )
+
+    assert membership.revoke_auth0_role(mock_auth0_client) is False
+    mock_auth0_client.get_role_by_name.assert_not_called()
+    mock_auth0_client.remove_roles_from_user.assert_not_called()
+
+
+def test_platform_membership_revoke_updates_state(test_db_session, mock_auth0_client, persistent_factories):
+    admin = BiocommonsUserFactory.create_sync()
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    role = RoleDataFactory.build(name="biocommons/platform/galaxy")
+    mock_auth0_client.get_role_by_name.return_value = role
+
+    result = membership.revoke(
+        auth0_client=mock_auth0_client,
+        reason="No longer required",
+        updated_by=admin,
+        session=test_db_session,
+    )
+
+    assert result is True
+    mock_auth0_client.remove_roles_from_user.assert_called_once_with(
+        user_id=membership.user_id,
+        role_id=role.id,
+    )
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REVOKED
+    assert membership.revocation_reason == "No longer required"
+    assert membership.updated_by_id == admin.id
+
+
 def test_create_group_membership_no_updater(test_db_session, persistent_factories):
     """
     Test creating a group membership without an updated_by (for automatic approvals)

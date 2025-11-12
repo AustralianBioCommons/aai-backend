@@ -156,21 +156,26 @@ def _revoke_platform_membership(
     reason: str | None,
     admin_record: BiocommonsUser,
     db_session: Session,
+    client: Auth0Client,
 ) -> None:
     membership = PlatformMembership.get_by_user_id_and_platform_id_or_404(
         user_id=user_id,
         platform_id=platform,
         session=db_session,
     )
-    membership.approval_status = ApprovalStatusEnum.REVOKED
-    membership.revocation_reason = reason
-    membership.updated_at = datetime.now(timezone.utc)
-    membership.updated_by = admin_record
-    db_session.add(membership)
-    membership.save_history(db_session)
-    db_session.commit()
+    role_revoked = membership.revoke(
+        auth0_client=client,
+        reason=reason,
+        updated_by=admin_record,
+        session=db_session,
+    )
     db_session.refresh(membership)
-    logger.info("Revoked platform %s for user %s", platform.value, user_id)
+    logger.info(
+        "Revoked platform %s for user %s%s",
+        platform.value,
+        user_id,
+        "" if role_revoked else " (no Auth0 role assigned)",
+    )
 
 
 def _approve_group_membership(
@@ -592,6 +597,7 @@ def approve_platform_membership(user_id: Annotated[str, UserIdParam],
 def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
                                platform_id: Annotated[str, ServiceIdParam],
                                payload: RevokeServiceRequest,
+                               client: Annotated[Auth0Client, Depends(get_auth0_client)],
                                admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                                db_session: Annotated[Session, Depends(get_db_session)]):
     platform_record = Platform.get_by_id_or_404(platform_id, db_session)
@@ -601,6 +607,7 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
         reason=payload.reason,
         admin_record=admin_record,
         db_session=db_session,
+        client=client,
     )
     return _membership_response()
 
