@@ -35,14 +35,25 @@ from db.types import PlatformEnum
 logger = logging.getLogger('uvicorn.error')
 
 
-class UserView(ModelView):
+class DefaultView(ModelView):
+    def can_create(self, request: Request) -> bool:
+        return False
+
+    def can_delete(self, request: Request) -> bool:
+        return False
+
+    def can_edit(self, request: Request) -> bool:
+        return False
+
+
+class UserView(DefaultView):
     fields = ["email", "email_verified", "username", "created_at", "id"]
 
     async def repr(self, obj: Any, request: Request) -> str:
         return obj.email
 
 
-class PlatformView(ModelView):
+class PlatformView(DefaultView):
     fields = [
         EnumField(name="id", choices=[(e.value, e.value) for e in PlatformEnum]),
         HasOne("platform_role", identity="role"),
@@ -55,14 +66,14 @@ class PlatformView(ModelView):
         return obj.name
 
 
-class RoleView(ModelView):
+class RoleView(DefaultView):
     fields = ["id", "name", "description"]
 
     async def repr(self, obj: Any, request: Request) -> str:
         return obj.name
 
 
-class PlatformMembershipView(ModelView):
+class PlatformMembershipView(DefaultView):
     fields = [
         HasOne("platform", identity="platform"),
         HasOne("user", identity="user"),
@@ -74,7 +85,7 @@ class PlatformMembershipView(ModelView):
         return f"{obj.platform.name} ↔ {obj.user.email}"
 
 
-class GroupView(ModelView):
+class GroupView(DefaultView):
     fields = [
         "group_id",
         "name",
@@ -110,7 +121,7 @@ class GroupView(ModelView):
         return obj.name
 
 
-class GroupMembershipView(ModelView):
+class GroupMembershipView(DefaultView):
     fields = [
         HasOne("group", identity="group"),
         HasOne("user", identity="user"),
@@ -119,7 +130,7 @@ class GroupMembershipView(ModelView):
     ]
 
 
-class PlatformMembershipHistoryView(ModelView):
+class PlatformMembershipHistoryView(DefaultView):
     fields = [
         "platform_id",
         HasOne("user", identity="user"),
@@ -130,7 +141,7 @@ class PlatformMembershipHistoryView(ModelView):
     ]
 
 
-class GroupMembershipHistoryView(ModelView):
+class GroupMembershipHistoryView(DefaultView):
     fields = [
         "group_id",
         HasOne("user", identity="user"),
