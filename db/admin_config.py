@@ -9,9 +9,9 @@ class AdminSettings(BaseSettings):
     Settings used by starlette-admin, which currently requires a separate
     Auth0 app to that used by the main backend service
     """
-    auth0_custom_domain: Optional[str]
-    admin_client_id: Optional[str]
-    admin_client_secret: Optional[str]
+    auth0_custom_domain: Optional[str] = None
+    admin_client_id: Optional[str] = None
+    admin_client_secret: Optional[str] = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("auth0_custom_domain", mode="before")
