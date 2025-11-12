@@ -15,14 +15,13 @@ def test_metrics_endpoint_disabled(test_client):
 
 def test_metrics_endpoint_enabled(monkeypatch, mock_settings, mock_galaxy_settings):
     monkeypatch.setenv("ENABLE_PROMETHEUS_METRICS", "1")
+    monkeypatch.setattr("db.st_admin.setup_starlette_admin", lambda app: None)
     instrumented_main = importlib.reload(main_module)
     app = instrumented_main.app
 
     app.dependency_overrides[get_settings] = lambda: mock_settings
     app.dependency_overrides[get_galaxy_settings] = lambda: mock_galaxy_settings
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
-
-    monkeypatch.setattr("db.admin.DatabaseAdmin.setup", lambda *args, **kwargs: None)
 
     try:
         with TestClient(app) as client:

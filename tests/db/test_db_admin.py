@@ -1,13 +1,11 @@
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import HTTPException
 from itsdangerous import URLSafeSerializer
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
-
-from db.admin import AdminAuth, DatabaseAdmin
-from main import app
+from starlette.responses import RedirectResponse
 
 
 @pytest.fixture
@@ -15,7 +13,7 @@ def mock_request():
     """Create a mock request object"""
     request = Mock(spec=Request)
     request.session = {}
-    request.url_for = Mock(return_value="http://test.com/login")
+    request.url_for = Mock(return_value="http://test.com/star-admin/auth/auth0")
     return request
 
 
@@ -24,130 +22,122 @@ def create_signed_session_cookie(data: dict, secret_key: str) -> str:
     return serializer.dumps(data)
 
 
-@pytest.fixture
-def enable_db_admin(mocker, mock_settings):
-    mocker.patch("db.admin.get_settings", return_value=mock_settings)
-    dummy_oauth_client = mocker.Mock()
-    mocker.patch("db.admin.setup_oauth", return_value=dummy_oauth_client)
-    DatabaseAdmin.setup(app=app, secret_key="test-secret")
-    yield
+def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine, mocker):
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
+    mocker.patch("db.st_admin.get_engine", return_value=test_db_engine)
 
+    # Proper async-capable OAuth client
+    oauth_client = Mock()
+    oauth_client.authorize_redirect = AsyncMock(return_value=RedirectResponse("/db-admin/"))
+    oauth_client.authorize_access_token = AsyncMock(return_value={})
 
-def test_admin_auth_authenticate_with_admin_role_returns_true(mock_settings):
-    """Test that authenticate returns True when user has admin role"""
-    mock_auth0_client = Mock()
-    admin_auth = AdminAuth(secret_key="test-secret", auth0_client=mock_auth0_client)
+    oauth = Mock()
+    oauth.create_client = Mock(return_value=oauth_client)
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
 
-    mock_request = Mock()
-    mock_request.session = {"biocommons_roles": ["Admin"]}
+    async def authenticated(self, request):
+        # emulate a logged-in admin user
+        request.session.setdefault("user", {"name": "Admin", "picture": ""})
+        request.state.user = request.session["user"]
+        return True
 
-    with patch("db.admin.get_settings", return_value=mock_settings):
-        result = asyncio.run(admin_auth.authenticate(mock_request))
+    mocker.patch("db.st_admin.Auth0AuthProvider.is_authenticated", new=authenticated)
 
-    assert result is True
+    from db.st_admin import setup_starlette_admin
+    setup_starlette_admin(app=test_client.app)
 
+    resp = test_client.get("/db-admin/")
+    assert resp.status_code == 200
 
-def test_admin_auth_authenticate_no_roles_redirects_to_auth0(mock_settings):
-    """Test that authenticate redirects to Auth0 when no roles in session"""
-    mock_auth0_client = Mock()
-    mock_auth0_client.authorize_redirect = AsyncMock()
-    admin_auth = AdminAuth(secret_key="test-secret", auth0_client=mock_auth0_client)
-
-    mock_request = Mock()
-    mock_request.session = {}
-    mock_request.url_for = Mock(return_value="http://test.com/login")
-
-    with patch("db.admin.get_settings", return_value=mock_settings):
-        asyncio.run(admin_auth.authenticate(mock_request))
-
-    mock_auth0_client.authorize_redirect.assert_called_once_with(
-        mock_request, mock_request.url_for.return_value
-    )
-
-
-def test_admin_auth_authenticate_empty_roles_list_redirects(mock_settings):
-    """Test that authenticate redirects when roles list is empty"""
-    mock_auth0_client = Mock()
-    mock_auth0_client.authorize_redirect = AsyncMock(return_value="redirect_response")
-    admin_auth = AdminAuth(secret_key="test-secret", auth0_client=mock_auth0_client)
-
-    mock_request = Mock()
-    mock_request.session = {"biocommons_roles": []}
-    mock_request.url_for = Mock(return_value="http://test.com/login")
-
-    with patch("db.admin.get_settings", return_value=mock_settings):
-        result = asyncio.run(admin_auth.authenticate(mock_request))
-
-    mock_auth0_client.authorize_redirect.assert_called_once()
-    assert result == "redirect_response"
-
-
-def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine):
-    """Test that admin panel is accessible with valid admin session"""
-    with patch("db.admin.get_settings", return_value=mock_settings), \
-            patch("db.admin.setup_oauth") as mock_setup_oauth, \
-            patch("db.admin.get_engine", return_value=test_db_engine):
-        mock_oauth_client = Mock()
-        mock_oauth_client.authorize_redirect = AsyncMock()
-        mock_oauth_client.authorize_access_token = AsyncMock()
-        mock_setup_oauth.return_value = mock_oauth_client
-
-        DatabaseAdmin.setup(app=test_client.app, secret_key="test-secret")
-
-        roles_data = {"biocommons_roles": ["Admin"]}
-        cookie_value = create_signed_session_cookie(roles_data, "test-secret")
-        test_client.cookies.set("session", cookie_value)
-
-        resp = test_client.get('/db_admin/')
-        assert resp.status_code == 200
 
 
 @pytest.mark.asyncio
-async def test_login_auth0_missing_access_token_raises(mocker, mock_settings, mock_request):
-    db_admin = object.__new__(DatabaseAdmin)
-    auth0_client = AsyncMock()
-    auth0_client.authorize_access_token.return_value = {}
-    db_admin.auth0_client = auth0_client
-    mocker.patch("db.admin.get_settings", return_value=mock_settings)
+async def test_auth_callback_missing_access_token_raises(mocker, mock_settings, mock_request):
+    """Auth0 callback without access_token -> 401"""
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    # Enable admin
+    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
+    # OAuth client returning no token
+    oauth = Mock()
+    oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={}))
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
+
+    from db.st_admin import Auth0AuthProvider
+    provider = Auth0AuthProvider()
 
     with pytest.raises(HTTPException) as exc:
-        await db_admin.login_auth0(mock_request)
+        await provider.handle_auth_callback(mock_request)
 
     assert exc.value.status_code == 401
     assert exc.value.detail == "Could not get access token."
 
 
 @pytest.mark.asyncio
-async def test_login_auth0_invalid_jwt_raises(mocker, mock_settings, mock_request):
-    db_admin = object.__new__(DatabaseAdmin)
-    auth0_client = AsyncMock()
-    auth0_client.authorize_access_token.return_value = {"access_token": "token"}
-    db_admin.auth0_client = auth0_client
-    mocker.patch("db.admin.get_settings", return_value=mock_settings)
-    mocker.patch("db.admin.verify_jwt", return_value=None)
+async def test_auth_callback_invalid_jwt_raises(mocker, mock_settings, mock_request):
+    """Auth0 callback with invalid JWT -> 401"""
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
+    oauth = Mock()
+    oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={"access_token": "token"}))
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
+    mocker.patch("db.st_admin.verify_jwt", return_value=None)
+
+    from db.st_admin import Auth0AuthProvider
+    provider = Auth0AuthProvider()
 
     with pytest.raises(HTTPException) as exc:
-        await db_admin.login_auth0(mock_request)
+        await provider.handle_auth_callback(mock_request)
 
     assert exc.value.status_code == 401
     assert exc.value.detail == "Could not verify JWT."
 
 
 @pytest.mark.asyncio
-async def test_login_auth0_missing_admin_role_raises(mocker, mock_settings, mock_request):
-    db_admin = object.__new__(DatabaseAdmin)
-    auth0_client = AsyncMock()
-    auth0_client.authorize_access_token.return_value = {"access_token": "token"}
-    db_admin.auth0_client = auth0_client
+async def test_auth_callback_missing_admin_role_raises(mocker, mock_settings, mock_request):
+    """Auth0 callback when user lacks admin role -> 401"""
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
+    oauth = Mock()
+    oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={"access_token": "token"}))
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
+
     payload = Mock()
     payload.has_admin_role.return_value = False
-    payload.biocommons_roles = []
-    mocker.patch("db.admin.get_settings", return_value=mock_settings)
-    mocker.patch("db.admin.verify_jwt", return_value=payload)
+    mocker.patch("db.st_admin.verify_jwt", return_value=payload)
+
+    from db.st_admin import Auth0AuthProvider
+    provider = Auth0AuthProvider()
 
     with pytest.raises(HTTPException) as exc:
-        await db_admin.login_auth0(mock_request)
+        await provider.handle_auth_callback(mock_request)
 
     assert exc.value.status_code == 401
-    assert exc.value.detail == "User does not have admin role."
-    assert "biocommons_roles" not in mock_request.session
+    assert exc.value.detail == "You do not have permission to access this endpoint."
+    assert "user" not in mock_request.session
+
+
+@pytest.mark.asyncio
+async def test_auth_callback_success_sets_session_and_redirects(mocker, mock_settings, mock_request):
+    """Successful Auth0 callback stores user in session and redirects."""
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
+    oauth = Mock()
+    oauth.create_client.return_value = AsyncMock(
+        authorize_access_token=AsyncMock(return_value={"access_token": "token", "userinfo": {"name": "A", "picture": ""}})
+    )
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
+
+    payload = Mock()
+    payload.has_admin_role.return_value = True
+    mocker.patch("db.st_admin.verify_jwt", return_value=payload)
+
+    # emulate ?next=/db-admin/
+    mock_request.query_params = {"next": "/db-admin/"}
+
+    from db.st_admin import Auth0AuthProvider
+    provider = Auth0AuthProvider()
+    resp = await provider.handle_auth_callback(mock_request)
+
+    assert isinstance(resp, type(resp))  # RedirectResponse type
+    assert "user" in mock_request.session

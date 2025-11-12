@@ -9,7 +9,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 # This has to be imported even if unused
 from db import models  # noqa: F401
-from db.admin import DatabaseAdmin
+from db.st_admin import setup_starlette_admin
 from routers import (
     admin,
     biocommons_admin,
@@ -50,7 +50,9 @@ async def lifespan(app: FastAPI):
     from db.setup import create_db_and_tables
 
     create_db_and_tables()
-    DatabaseAdmin.setup(app=app, secret_key=SECRET_KEY)
+    # NOTE: starlette-admin is only set up if
+    # ADMIN_CLIENT_ID is set in the environment.
+    setup_starlette_admin(app=app)
     yield
 
 
