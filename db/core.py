@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from sqlalchemy import MetaData, event, select
+from sqlalchemy import MetaData, event, select, true
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as SASession
-from sqlalchemy.orm import with_loader_criteria
+from sqlalchemy.orm import class_mapper, with_loader_criteria
 from sqlalchemy.sql import expression
 from sqlmodel import Field, Session, SQLModel
 
@@ -137,12 +137,16 @@ def _identity_dict_from_instance(instance: SoftDeleteModel) -> dict[str, Any] | 
     return identity
 
 
-def _soft_delete_filter(cls) -> Any:
-    mapper = sa_inspect(cls, raiseerr=False)
-    if mapper is None:
-        return expression.true()
-    column = mapper.c.is_deleted
-    return column.is_(False)
+def _soft_delete_filter(entity_cls) -> Any:
+    try:
+        # ensure this is a mapped class and has the column
+        class_mapper(entity_cls)
+        col = getattr(entity_cls, "is_deleted", None)
+        if col is not None:
+            return col.is_(False)
+    except Exception:
+        pass
+    return true()
 
 
 @event.listens_for(SASession, "before_flush")
@@ -178,7 +182,7 @@ def _filter_soft_deleted(execute_state) -> None:
         execute_state.statement = execute_state.statement.options(
             with_loader_criteria(
                 SoftDeleteModel,
-                lambda cls: _soft_delete_filter(cls),
+                _soft_delete_filter,
                 include_aliases=True,
             )
         )
