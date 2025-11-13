@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 import respx
 from fastapi import HTTPException
 from httpx import Response
