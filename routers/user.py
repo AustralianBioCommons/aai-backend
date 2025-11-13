@@ -228,8 +228,8 @@ async def get_all_pending(
 
 
 async def _require_password_flow_settings(settings: Settings) -> tuple[str, str, str]:
-    client_id = settings.auth0_db_client_id or settings.auth0_management_id
-    client_secret = settings.auth0_db_client_secret or settings.auth0_management_secret
+    client_id = settings.auth0_management_id
+    client_secret = settings.auth0_management_secret
     connection = settings.auth0_db_connection
     if not client_id or not client_secret:
         raise HTTPException(

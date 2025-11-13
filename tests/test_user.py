@@ -508,8 +508,6 @@ def test_change_password_invalid_current_password(test_client, test_db_session, 
 
 def test_change_password_missing_configuration(test_client, mock_settings, mocker):
     """Service returns 503 when password change is not configured."""
-    mock_settings.auth0_db_client_id = None
-    mock_settings.auth0_db_client_secret = None
     mock_settings.auth0_management_id = None
     mock_settings.auth0_management_secret = None
     user = BiocommonsUserFactory.create_sync()
