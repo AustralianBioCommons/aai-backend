@@ -389,7 +389,7 @@ class PlatformMembership(SoftDeleteModel, table=True):
 
         history = PlatformMembershipHistory(
             platform_id=self.platform_id,
-            user=self.user,
+            user_id=self.user_id,
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,
@@ -399,6 +399,44 @@ class PlatformMembership(SoftDeleteModel, table=True):
         if commit:
             session.commit()
         return history
+
+    def revoke_auth0_role(self, auth0_client: Auth0Client) -> bool:
+        """
+        Remove the Auth0 role associated with this platform membership.
+        """
+        if self.approval_status != ApprovalStatusEnum.APPROVED:
+            return False
+        platform_value = self.platform_id.value if isinstance(self.platform_id, PlatformEnum) else self.platform_id
+        role_name = f"biocommons/platform/{platform_value}"
+        role = auth0_client.get_role_by_name(role_name)
+        auth0_client.remove_roles_from_user(user_id=self.user_id, role_id=role.id)
+        return True
+
+    def revoke(
+        self,
+        *,
+        auth0_client: Auth0Client,
+        reason: str | None,
+        updated_by: Optional["BiocommonsUser"],
+        session: Session,
+        commit: bool = True,
+    ) -> bool:
+        """
+        Revoke the membership by removing the Auth0 role (if present) and
+        persisting the revoked status in the database.
+
+        :return: True when an Auth0 role removal call was performed.
+        """
+        role_revoked = self.revoke_auth0_role(auth0_client)
+        self.approval_status = ApprovalStatusEnum.REVOKED
+        self.revocation_reason = reason
+        self.updated_at = datetime.now(timezone.utc)
+        self.updated_by = updated_by
+        session.add(self)
+        self.save_history(session, commit=False)
+        if commit:
+            session.commit()
+        return role_revoked
 
     def get_data(self) -> PlatformMembershipData:
         """

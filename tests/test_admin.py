@@ -50,10 +50,13 @@ def galaxy_platform(persistent_factories):
     Set up a Galaxy platform with the admin role set to the Galaxy admin scope.
     """
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
     return PlatformFactory.create_sync(
         id=PlatformEnum.GALAXY,
         name="Galaxy Australia",
         admin_roles=[admin_role],
+        role_id=platform_role.id,
+        platform_role=platform_role,
     )
 
 
@@ -72,10 +75,13 @@ def bpa_platform(persistent_factories):
     """
     Set up a BPA platform in the DB (no admin roles configured)
     """
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/bpa_data_portal")
     return PlatformFactory.create_sync(
         id=PlatformEnum.BPA_DATA_PORTAL,
         name="BPA Data Portal",
-        admin_roles=[]
+        admin_roles=[],
+        role_id=platform_role.id,
+        platform_role=platform_role,
     )
 
 
@@ -602,6 +608,7 @@ def test_revoke_platform_membership_records_reason(
     admin_user,
     galaxy_platform,
     persistent_factories,
+    mock_auth0_client,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembershipFactory.create_sync(
@@ -615,6 +622,9 @@ def test_revoke_platform_membership_records_reason(
         group_memberships=[],
     )
     test_db_session.commit()
+
+    mock_role = RoleDataFactory.build(name="biocommons/platform/galaxy")
+    mock_auth0_client.get_role_by_name.return_value = mock_role
 
     reason = "  No longer meets access requirements  "
     resp = test_client.post(
@@ -640,6 +650,11 @@ def test_revoke_platform_membership_records_reason(
     ).all()
     assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
     assert history_entries[-1].reason == reason.strip()
+    mock_auth0_client.get_role_by_name.assert_called_once_with("biocommons/platform/galaxy")
+    mock_auth0_client.remove_roles_from_user.assert_called_once_with(
+        user_id=user.id,
+        role_id=mock_role.id,
+    )
 
 
 def test_revoke_platform_membership_forbidden_without_platform_role(
@@ -647,6 +662,7 @@ def test_revoke_platform_membership_forbidden_without_platform_role(
     test_db_session,
     galaxy_platform,
     persistent_factories,
+    mock_auth0_client,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembershipFactory.create_sync(
@@ -682,6 +698,8 @@ def test_revoke_platform_membership_forbidden_without_platform_role(
 
     test_db_session.refresh(membership)
     assert membership.approval_status == original_status
+    mock_auth0_client.get_role_by_name.assert_not_called()
+    mock_auth0_client.remove_roles_from_user.assert_not_called()
     assert membership.revocation_reason == original_reason
 
 
