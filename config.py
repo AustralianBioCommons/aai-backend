@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # Optional: issuer may be different to the auth0_domain if
     #   a custom domain is used
     auth0_issuer: Optional[str] = None
+    auth0_db_client_id: Optional[str] = None
+    auth0_db_client_secret: Optional[str] = None
+    auth0_db_connection: str = "Username-Password-Authentication"
     jwt_secret_key: str
     auth0_algorithms: list[str] = ["RS256"]
     admin_roles: list[str] = []

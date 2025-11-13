@@ -205,6 +205,15 @@ class BiocommonsRegisterData(BaseModel):
         )
 
 
+class PasswordChangeRequest(BaseModel):
+    """
+    Request payload for changing a user's password.
+    """
+
+    current_password: Annotated[str, Field(min_length=1, max_length=256)]
+    new_password: BiocommonsPassword
+
+
 class Auth0Identity(BaseModel):
     connection: str
     provider: str

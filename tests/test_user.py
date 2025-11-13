@@ -1,11 +1,12 @@
 import pytest
+from unittest.mock import AsyncMock
 import respx
 from fastapi import HTTPException
 from httpx import Response
 
 from db.types import ApprovalStatusEnum, PlatformEnum
 from routers.user import get_user_data, update_user_metadata
-from schemas.biocommons import BiocommonsAppMetadata
+from schemas.biocommons import Auth0Identity, BiocommonsAppMetadata
 from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
@@ -428,3 +429,126 @@ def test_get_admin_platforms(test_client, test_db_session, mocker, persistent_fa
     assert data[0] == valid_platform.model_dump(mode="json")
     returned_ids = [p["id"] for p in data]
     assert invalid_platform.id not in returned_ids
+
+
+def _make_auth0_identity(connection: str, user_id: str) -> Auth0Identity:
+    return Auth0Identity(
+        connection=connection,
+        provider="auth0",
+        user_id=user_id,
+        isSocial=False,
+    )
+
+
+def _mock_password_change_user(mocker, db_user, connection: str = "Username-Password-Authentication"):
+    """
+    Helper to patch get_user_data and set the authenticated user context.
+    """
+    _act_as_user(mocker, db_user)
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=db_user.id,
+        email=db_user.email,
+        username=db_user.username,
+        identities=[_make_auth0_identity(connection=connection, user_id=db_user.id)],
+    )
+    mocker.patch("routers.user.get_user_data", new=AsyncMock(return_value=auth0_user))
+    mocker.patch("routers.user.get_management_token", return_value="mgmt-token")
+    return auth0_user
+
+
+def test_change_password_success(test_client, test_db_session, mocker):
+    """Password change succeeds when Auth0 accepts the new password."""
+    user = BiocommonsUserFactory.create_sync()
+    test_db_session.flush()
+    _mock_password_change_user(mocker, user)
+
+    with respx.mock:
+        respx.post("https://mock-domain/oauth/token").mock(
+            return_value=Response(200, json={"access_token": "access", "token_type": "Bearer"})
+        )
+        respx.patch(f"https://mock-domain/api/v2/users/{user.id}").mock(
+            return_value=Response(200, json={"user_id": user.id})
+        )
+
+        response = test_client.post(
+            "/me/password",
+            headers={"Authorization": "Bearer valid_token"},
+            json={
+                "current_password": "CurrentPass123!",
+                "new_password": "NewPass123!",
+            },
+        )
+
+    assert response.status_code == 204
+
+
+def test_change_password_invalid_current_password(test_client, test_db_session, mocker):
+    """Password change fails when the current password is wrong."""
+    user = BiocommonsUserFactory.create_sync()
+    test_db_session.flush()
+    _mock_password_change_user(mocker, user)
+
+    with respx.mock:
+        respx.post("https://mock-domain/oauth/token").mock(
+            return_value=Response(403, json={"error": "invalid_grant"})
+        )
+
+        response = test_client.post(
+            "/me/password",
+            headers={"Authorization": "Bearer valid_token"},
+            json={
+                "current_password": "WrongPass123!",
+                "new_password": "AnotherPass123!",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Current password is incorrect."
+
+
+def test_change_password_missing_configuration(test_client, mock_settings, mocker):
+    """Service returns 503 when password change is not configured."""
+    mock_settings.auth0_db_client_id = None
+    mock_settings.auth0_db_client_secret = None
+    mock_settings.auth0_management_id = None
+    mock_settings.auth0_management_secret = None
+    user = BiocommonsUserFactory.create_sync()
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/password",
+        headers={"Authorization": "Bearer valid_token"},
+        json={
+            "current_password": "CurrentPass123!",
+            "new_password": "BrandNew123!",
+        },
+    )
+
+    assert response.status_code == 503
+    assert "not configured" in response.json()["detail"]
+
+
+def test_change_password_disallows_external_identity(test_client, mocker):
+    """Accounts without the configured connection cannot change their password."""
+    user = BiocommonsUserFactory.create_sync()
+    _act_as_user(mocker, user)
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=user.email,
+        username=user.username,
+        identities=[_make_auth0_identity(connection="google-oauth2", user_id=user.id)],
+    )
+    mocker.patch("routers.user.get_user_data", new=AsyncMock(return_value=auth0_user))
+    mocker.patch("routers.user.get_management_token", return_value="mgmt-token")
+
+    response = test_client.post(
+        "/me/password",
+        headers={"Authorization": "Bearer valid_token"},
+        json={
+            "current_password": "CurrentPass123!",
+            "new_password": "BrandNew123!",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not supported" in response.json()["detail"]
