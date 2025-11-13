@@ -132,6 +132,7 @@ def mock_settings():
         auth0_management_id="mock-id",
         auth0_management_secret="mock-secret",
         auth0_audience="mock-audience",
+        auth0_db_connection="Username-Password-Authentication",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
         send_email=False,
