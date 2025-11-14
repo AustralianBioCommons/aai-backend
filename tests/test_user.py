@@ -428,3 +428,20 @@ def test_get_admin_platforms(test_client, test_db_session, mocker, persistent_fa
     assert data[0] == valid_platform.model_dump(mode="json")
     returned_ids = [p["id"] for p in data]
     assert invalid_platform.id not in returned_ids
+
+
+def test_update_username(test_client, test_db_session, mocker, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="old_username")
+    mock_data = Auth0UserDataFactory.build(sub=user.id, username="new_username")
+    mocker.patch("routers.user.Auth0Client.update_user", return_value=mock_data)
+    _act_as_user(mocker, user)
+    response = test_client.post(
+        "/me/profile/username/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"username": "new_username"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["username"] == "new_username"
+    test_db_session.refresh(user)
+    assert user.username == "new_username"
