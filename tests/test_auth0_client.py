@@ -3,8 +3,9 @@ import json
 import pytest
 import respx
 from httpx import Response
+from pydantic import ValidationError
 
-from auth0.client import RoleUserData, RoleUsersWithTotals
+from auth0.client import RoleUserData, RoleUsersWithTotals, UpdateUserData
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegisterDataFactory,
@@ -203,3 +204,8 @@ def test_resend_verification_email(test_auth0_client):
     call_data = json.loads(route.calls.last.request.content)
     assert call_data == {"user_id": user_id}
     assert resp == resp_data
+
+
+def test_update_user_data_requires_connection():
+    with pytest.raises(ValidationError, match="Must provide connection"):
+        UpdateUserData(username="username")
