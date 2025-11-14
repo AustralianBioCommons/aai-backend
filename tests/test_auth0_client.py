@@ -209,3 +209,14 @@ def test_resend_verification_email(test_auth0_client):
 def test_update_user_data_requires_connection():
     with pytest.raises(ValidationError, match="Must provide connection"):
         UpdateUserData(username="username")
+
+
+@respx.mock
+def test_update_user(test_auth0_client):
+    user_id = random_auth0_id()
+    returned_user = Auth0UserDataFactory.build(user_id=user_id, username="updated_username")
+    route = respx.patch(f"https://auth0.example.com/api/v2/users/{user_id}").respond(200, json=returned_user.model_dump(mode="json"))
+    update_data = UpdateUserData(username="username", connection="Username-Password-Authentication")
+    resp = test_auth0_client.update_user(user_id, update_data)
+    assert resp.username == "updated_username"
+    assert route.called
