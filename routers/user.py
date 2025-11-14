@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Dict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from httpx import AsyncClient
 from pydantic import AliasPath, Field
 from pydantic import BaseModel as PydanticBaseModel
@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
+from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
 from config import Settings, get_settings
 from db.models import (
@@ -18,7 +19,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
-from schemas.biocommons import Auth0UserData, UserProfileData
+from schemas.biocommons import Auth0UserData, BiocommonsUsername, UserProfileData
 from schemas.user import SessionUser
 
 router = APIRouter(
@@ -221,3 +222,23 @@ async def get_all_pending(
                                              approval_status=ApprovalStatusEnum.PENDING,
                                              session=db_session)
     return {"platforms": platforms, "groups": groups}
+
+
+@router.post("/profile/username/update",
+             response_model=Auth0UserData)
+async def update_username(
+    username: Annotated[BiocommonsUsername, Body(embed=True)],
+    user: Annotated[SessionUser, Depends(get_session_user)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)]
+):
+    """Update the username of the current user."""
+    # Update in Auth0 (need to include connection when updating username)
+    # TODO: update with connection from settings
+    update_data = UpdateUserData(username=username, connection="Username-Password-Authentication")
+    resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
+    db_user.username = username
+    db_session.add(db_user)
+    db_session.commit()
+    return resp
