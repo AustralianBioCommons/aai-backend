@@ -1,3 +1,4 @@
+from faker import Faker
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 from sqlmodel import Session
 
@@ -10,11 +11,21 @@ from db.models import (
     PlatformMembership,
 )
 from db.types import ApprovalStatusEnum, PlatformEnum
-from tests.datagen import random_auth0_id
+from tests.datagen import BiocommonsProviders, random_auth0_id
+
+fake = Faker()
 
 
 class BiocommonsUserFactory(SQLAlchemyFactory[BiocommonsUser]):
     __set_relationships__ = False
+
+    @classmethod
+    def username(cls) -> str:
+        return BiocommonsProviders.biocommons_username()
+
+    @classmethod
+    def email(cls) -> str:
+        return fake.email()
 
     @classmethod
     def id(cls) -> str:
