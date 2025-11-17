@@ -191,6 +191,30 @@ class Auth0Client:
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
+    def check_user_password(self, username: str, password: str, settings: Settings) -> bool:
+        """
+        Verify a user's password by using the password-realm grant type
+        """
+        url = f"https://{settings.auth0_domain}/oauth/token"
+        data = {
+            "grant_type": "http://auth0.com/oauth/grant-type/password-realm",
+            "username": username,
+            "password": password,
+            "audience": f"https://{settings.auth0_domain}/api/v2/",
+            "client_id": settings.auth0_management_id,
+            "client_secret": settings.auth0_management_secret,
+            "realm": settings.auth0_db_connection,
+            "scope": "openid",
+        }
+        # We don't want the management token here so not using self._client
+        resp = httpx.post(url, data=data)
+        if resp.status_code in {400, 403}:
+            error = resp.json().get("error")
+            if error == "invalid_grant":
+                return False
+        resp.raise_for_status()
+        return True
+
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]) -> bool:
         """
