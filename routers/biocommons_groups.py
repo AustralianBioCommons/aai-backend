@@ -90,6 +90,9 @@ def approve_group_access(
     approving_user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    background_tasks: BackgroundTasks = None,
+    settings: Annotated[Settings, Depends(get_settings)] = None,
+    email_service: Annotated[EmailService, Depends(get_email_service)] = None,
 ):
     group = BiocommonsGroup.get_by_id(data.group_id, db_session)
     is_admin = group.user_is_admin(approving_user)
@@ -108,11 +111,27 @@ def approve_group_access(
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail="No membership request found for this user"
-        )
+    )
     membership.approval_status = ApprovalStatusEnum.APPROVED
     membership.updated_by = approving_user_record
     membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=True)
+    if (
+        settings
+        and settings.send_email
+        and background_tasks is not None
+        and email_service is not None
+        and membership.user is not None
+        and membership.user.email
+    ):
+        background_tasks.add_task(
+            send_group_membership_approved_email,
+            membership.user.email,
+            group.name,
+            group.short_name,
+            settings,
+            email_service,
+        )
     return {"message": f"Group membership for {group.name} approved successfully."}
 
 
@@ -126,3 +145,29 @@ def send_group_approval_email(approver_email: str, request: GroupMembership, ema
     """
 
     email_service.send(approver_email, subject, body_html)
+
+
+def send_group_membership_approved_email(
+    recipient_email: str,
+    group_name: str,
+    group_short_name: str,
+    settings: Settings,
+    email_service: EmailService,
+):
+    """
+    Notify a user that their group/bundle access was approved.
+    """
+    if not recipient_email:
+        logger.warning("Skipping group approval email due to missing recipient email")
+        return
+
+    short_name = group_short_name or group_name
+    portal_url = settings.aai_portal_url.rstrip("/")
+    subject = f"Access approved for {short_name}"
+    body_html = f"""
+        <p>Hello,</p>
+        <p>Your request to join <strong>{group_name}</strong> ({short_name} bundle) has been approved.</p>
+        <p>You now have access to all services included with this bundle. Sign in to the <a href="{portal_url}">AAI Portal</a> to review the bundle details and launch its platforms.</p>
+        <p>If you have any questions, please reply to this email.</p>
+    """
+    email_service.send(recipient_email, subject, body_html)
