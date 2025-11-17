@@ -9,6 +9,7 @@ from sqlalchemy import func, or_
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
+from auth.ses import EmailService, get_email_service
 from auth.user_permissions import (
     get_db_user,
     get_session_user,
@@ -19,7 +20,7 @@ from auth.user_permissions import (
     user_is_general_admin,
 )
 from auth0.client import Auth0Client, get_auth0_client
-from auth.ses import EmailService, get_email_service
+from config import Settings, get_settings
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
@@ -36,10 +37,9 @@ from db.types import (
     GroupMembershipData,
     PlatformMembershipData,
 )
-from config import Settings, get_settings
+from routers.biocommons_groups import send_group_membership_approved_email
 from schemas.biocommons import Auth0UserDataWithMemberships, ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
-from routers.biocommons_groups import send_group_membership_approved_email
 
 logger = logging.getLogger('uvicorn.error')
 
