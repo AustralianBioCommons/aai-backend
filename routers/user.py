@@ -1,6 +1,6 @@
 from typing import Annotated, Any, Dict
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from httpx import AsyncClient
 from pydantic import AliasPath, Field
 from pydantic import BaseModel as PydanticBaseModel
@@ -19,7 +19,12 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
-from schemas.biocommons import Auth0UserData, BiocommonsUsername, UserProfileData
+from schemas.biocommons import (
+    Auth0UserData,
+    BiocommonsUsername,
+    PasswordChangeRequest,
+    UserProfileData,
+)
 from schemas.user import SessionUser
 
 router = APIRouter(
@@ -231,14 +236,42 @@ async def update_username(
     user: Annotated[SessionUser, Depends(get_session_user)],
     db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
-    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)]
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ):
     """Update the username of the current user."""
     # Update in Auth0 (need to include connection when updating username)
-    # TODO: update with connection from settings
-    update_data = UpdateUserData(username=username, connection="Username-Password-Authentication")
+    update_data = UpdateUserData(username=username, connection=settings.auth0_db_connection)
     resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
     db_user.username = username
     db_session.add(db_user)
     db_session.commit()
     return resp
+
+
+@router.post("/profile/password/update",)
+async def change_password(
+    payload: PasswordChangeRequest,
+    session_user: Annotated[SessionUser, Depends(get_session_user)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+):
+    """Allow a logged-in user to change their password."""
+    connection = settings.auth0_db_connection
+    auth0_user = await get_user_data(session_user, settings)
+
+    if not any(identity.connection == connection for identity in auth0_user.identities):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password changes are not supported for this account.",
+        )
+
+    current_password_ok = auth0_client.check_user_password(auth0_user.username, password=payload.current_password, settings=settings)
+    if not current_password_ok:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect.",
+        )
+    update_data = UpdateUserData(password=payload.new_password, connection=connection)
+    auth0_client.update_user(user_id=auth0_user.user_id, update_data=update_data)
+    return True
