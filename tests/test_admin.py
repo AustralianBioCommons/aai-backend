@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+from unittest.mock import ANY
 from urllib.parse import quote
 
 import pytest
@@ -741,6 +742,82 @@ def test_approve_group_membership_updates_db(
     assert membership.revocation_reason is None
     assert membership.updated_by_id == admin_db_user.id
     mock_auth0_client.add_roles_to_user.assert_called_once()
+
+
+def test_admin_group_approval_sends_email(
+    test_client_with_email,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    tsi_group,
+    mock_auth0_client,
+    persistent_factories,
+    mocker,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+
+    mock_role = mocker.Mock(id="role1")
+    mock_auth0_client.get_role_by_name.return_value = mock_role
+    mock_auth0_client.add_roles_to_user.return_value = True
+    mock_email = mocker.patch("routers.admin.send_group_membership_approved_email")
+
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client_with_email.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
+
+    assert resp.status_code == 200
+    mock_email.assert_called_once_with(
+        user.email,
+        tsi_group.name,
+        tsi_group.short_name,
+        ANY,
+        ANY,
+    )
+
+
+def test_admin_group_approval_no_email_when_already_approved(
+    test_client_with_email,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    tsi_group,
+    mock_auth0_client,
+    persistent_factories,
+    mocker,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+
+    mock_role = mocker.Mock(id="role1")
+    mock_auth0_client.get_role_by_name.return_value = mock_role
+    mock_auth0_client.add_roles_to_user.return_value = True
+    mock_email = mocker.patch("routers.admin.send_group_membership_approved_email")
+
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client_with_email.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
+
+    assert resp.status_code == 200
+    mock_email.assert_not_called()
 
 
 def test_approve_group_membership_forbidden_without_group_role(
