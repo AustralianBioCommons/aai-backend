@@ -18,7 +18,10 @@ fake = Faker()
 
 class BiocommonsUserFactory(SQLAlchemyFactory[BiocommonsUser]):
     __set_relationships__ = False
-    username = BiocommonsProviders.biocommons_username
+
+    @classmethod
+    def username(cls) -> str:
+        return BiocommonsProviders.biocommons_username()
 
     @classmethod
     def email(cls) -> str:
