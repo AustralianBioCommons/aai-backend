@@ -90,9 +90,9 @@ def approve_group_access(
     approving_user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
-    background_tasks: BackgroundTasks = None,
-    settings: Annotated[Settings, Depends(get_settings)] = None,
-    email_service: Annotated[EmailService, Depends(get_email_service)] = None,
+    background_tasks: BackgroundTasks,
+    settings: Annotated[Settings, Depends(get_settings)],
+    email_service: Annotated[EmailService, Depends(get_email_service)],
 ):
     group = BiocommonsGroup.get_by_id(data.group_id, db_session)
     is_admin = group.user_is_admin(approving_user)
@@ -116,14 +116,9 @@ def approve_group_access(
     membership.updated_by = approving_user_record
     membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=True)
-    if (
-        settings
-        and settings.send_email
-        and background_tasks is not None
-        and email_service is not None
-        and membership.user is not None
-        and membership.user.email
-    ):
+    if membership.user is None:
+        db_session.refresh(membership, attribute_names=["user"])
+    if settings.send_email and membership.user and membership.user.email:
         background_tasks.add_task(
             send_group_membership_approved_email,
             membership.user.email,

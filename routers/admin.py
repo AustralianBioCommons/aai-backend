@@ -202,6 +202,8 @@ def _approve_group_membership(
     membership.grant_auth0_role(auth0_client=client)
     membership.save(session=db_session, commit=True)
     db_session.refresh(membership)
+    if membership.user is None:
+        db_session.refresh(membership, attribute_names=["user"])
     logger.info("Approved group %s for user %s", group.group_id, user_id)
     return membership, status_changed
 
@@ -636,12 +638,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         client=client,
         db_session=db_session,
     )
-    if (
-        status_changed
-        and settings.send_email
-        and membership.user is not None
-        and membership.user.email
-    ):
+    if status_changed and settings.send_email and membership.user and membership.user.email:
         background_tasks.add_task(
             send_group_membership_approved_email,
             membership.user.email,
