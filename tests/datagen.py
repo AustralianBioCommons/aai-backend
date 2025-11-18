@@ -1,5 +1,6 @@
 import random
 import string
+import uuid
 from string import ascii_letters, digits
 
 from faker import Faker
@@ -33,7 +34,15 @@ class BiocommonsProviders:
     @staticmethod
     def biocommons_username() -> str:
         # Must pass regex ^[-_a-z0-9]+$ and length 3–128
-        return fake.slug()
+        # Generate with some uuid at the end to ensure randomness - was having issues
+        #   with tests intermittently failing
+        username = (
+                fake.first_name() +
+                random.choice(list('-_')) +
+                fake.last_name() + "-" +
+                uuid.uuid4().hex[:8]
+        )
+        return username.lower()
 
     @staticmethod
     def biocommons_password() -> str:
