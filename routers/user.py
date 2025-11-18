@@ -12,6 +12,7 @@ from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
 from config import Settings, get_settings
 from db.models import (
+    BiocommonsGroup,
     BiocommonsUser,
     GroupMembership,
     Platform,
@@ -52,6 +53,23 @@ class GroupMembershipData(PydanticBaseModel):
 class CombinedMembershipData(PydanticBaseModel):
     platforms: list[PlatformMembershipData]
     groups: list[GroupMembershipData]
+
+
+class PlatformAdminData(PydanticBaseModel):
+    """
+    Data model for platform admin response.
+    """
+    id: str
+    name: str
+
+
+class GroupAdminData(PydanticBaseModel):
+    """
+    Data model for group admin response.
+    """
+    id: str = Field(validation_alias="group_id")
+    name: str
+    short_name: str
 
 
 async def get_user_data(
@@ -155,6 +173,7 @@ async def get_pending_platforms(
 
 @router.get(
     "/platforms/admin-roles",
+    response_model=list[PlatformAdminData],
     description="Get platforms for which the current user has admin privileges.",
 )
 async def get_admin_platforms(
@@ -195,6 +214,20 @@ async def get_pending_groups(
     return GroupMembership.get_by_user_id(user_id=user.access_token.sub,
                                           approval_status=ApprovalStatusEnum.PENDING,
                                           session=db_session)
+
+
+@router.get(
+    "/groups/admin-roles",
+    response_model=list[GroupAdminData],
+    description="Get groups for which the current user has admin privileges.",
+)
+async def get_admin_groups(
+    user: Annotated[SessionUser, Depends(get_session_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Get groups for which the current user has admin privileges."""
+    user_roles = user.access_token.biocommons_roles
+    return BiocommonsGroup.get_for_admin_roles(role_names=user_roles, session=db_session)
 
 
 @router.get("/is-general-admin")
