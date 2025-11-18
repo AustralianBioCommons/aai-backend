@@ -428,3 +428,35 @@ def test_get_admin_platforms(test_client, test_db_session, mocker, persistent_fa
     assert data[0] == valid_platform.model_dump(mode="json")
     returned_ids = [p["id"] for p in data]
     assert invalid_platform.id not in returned_ids
+
+
+def test_get_admin_groups(test_client, test_db_session, mocker, persistent_factories):
+    """Test that endpoint returns list of groups the user is an admin for"""
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/test_group/admin")
+    other_group_role = Auth0RoleFactory.create_sync(name="Other Group Role")
+    user = BiocommonsUserFactory.create_sync()
+    valid_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/test_group",
+        name="Test Group",
+        short_name="testgrp",
+        admin_roles=[admin_role]
+    )
+    invalid_group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/other",
+        name="Other Group",
+        short_name="other",
+        admin_roles=[other_group_role]
+    )
+    test_db_session.flush()
+    _act_as_user(mocker, user, roles=[admin_role.name])
+    response = test_client.get("/me/groups/admin-roles", headers={"Authorization": "Bearer valid_token"})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == valid_group.group_id
+    assert data[0]["name"] == valid_group.name
+    assert data[0]["short_name"] == valid_group.short_name
+    assert "admin_roles" not in data[0]
+    assert "members" not in data[0]
+    returned_ids = [g["id"] for g in data]
+    assert invalid_group.group_id not in returned_ids
