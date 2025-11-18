@@ -1,4 +1,5 @@
 from http import HTTPStatus
+from unittest.mock import ANY
 
 import respx
 from moto.core import DEFAULT_ACCOUNT_ID
@@ -105,6 +106,45 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     assert membership_request.approval_status == "approved"
     assert membership_request.updated_by == group_admin_db
     assert membership_request.updated_by.email == group_admin.access_token.email
+
+
+@respx.mock
+def test_group_admin_approval_sends_user_email(
+    test_client_with_email,
+    persistent_factories,
+    test_auth0_client,
+    mocker,
+):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
+    access_token = AccessTokenPayloadFactory.build(biocommons_roles=[admin_role.name])
+    group_admin = SessionUserFactory.build(access_token=access_token)
+    BiocommonsUserFactory.create_sync(id=group_admin.access_token.sub, email=group_admin.access_token.email)
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(group=group, user=user, approval_status="pending")
+    app.dependency_overrides[get_session_user] = lambda: group_admin
+    respx.get(
+        f"https://{test_auth0_client.domain}/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(
+        200,
+        json=[RoleDataFactory.build(name=group.group_id).model_dump(mode="json")]
+    )
+    respx.post(f"https://{test_auth0_client.domain}/api/v2/users/{user.id}/roles").respond(204)
+    mock_email = mocker.patch("routers.biocommons_groups.send_group_membership_approved_email")
+
+    resp = test_client_with_email.post(
+        "/biocommons/groups/approve",
+        json={"group_id": group.group_id, "user_id": user.id},
+    )
+    assert resp.status_code == 200
+    mock_email.assert_called_once_with(
+        user.email,
+        group.name,
+        group.short_name,
+        ANY,
+        ANY,
+    )
 
 
 def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories, test_auth0_client):

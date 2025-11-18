@@ -4,11 +4,11 @@ from typing import Optional, Type, TypeVar
 
 import httpx
 from fastapi import Depends
-from pydantic import BaseModel, EmailStr, HttpUrl
+from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
 
 from auth.management import get_management_token
 from config import Settings, get_settings
-from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
+from schemas.biocommons import Auth0UserData, BiocommonsPassword, BiocommonsRegisterData
 
 
 class RoleData(BaseModel):
@@ -92,6 +92,36 @@ class EmailVerificationRequest(BaseModel):
     organization_id: Optional[str] = None
 
 
+class UpdateUserData(BaseModel):
+    """
+    Data sent to PATCH /api/v2/users/{user_id} to update user data.
+    Only include the fields you want to update.
+    """
+    _connection_required_fields = ["email", "email_verified", "password", "username"]
+    # NOTE: not including user_metadata or app_metadata here,
+    # they work differently in the update so not including
+    # them unless necessary.
+    blocked: Optional[bool] = None
+    email: Optional[EmailStr] = None
+    email_verified: Optional[bool] = None
+    family_name: Optional[str] = None
+    given_name: Optional[str] = None
+    name: Optional[str] = None
+    nickname: Optional[str] = None
+    password: Optional[BiocommonsPassword] = None
+    picture: Optional[HttpUrl] = None
+    username: Optional[str] = None
+    connection: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_connection_required(self):
+        needs_connection = any(getattr(self, field) is not None
+                               for field in self._connection_required_fields)
+        if needs_connection and self.connection is None:
+            raise ValueError("Must provide connection when updating any of the connection-related fields.")
+        return self
+
+
 class Auth0Client:
     """
     Implements the Auth0 management API.
@@ -149,6 +179,42 @@ class Auth0Client:
         resp = self._client.post(url, json=user.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
+
+    def update_user(self, user_id: str, update_data: UpdateUserData) -> Auth0UserData:
+        """
+        Send a PATCH request to the /users/{user_id} endpoint to update the included fields.
+        """
+        url = f"https://{self.domain}/api/v2/users/{user_id}"
+        # Make sure we exclude None to not update fields with null values.
+        data = update_data.model_dump(mode="json", exclude_none=True)
+        resp = self._client.patch(url, json=data)
+        resp.raise_for_status()
+        return Auth0UserData(**resp.json())
+
+    def check_user_password(self, username: str, password: str, settings: Settings) -> bool:
+        """
+        Verify a user's password by using the password-realm grant type
+        """
+        url = f"https://{settings.auth0_domain}/oauth/token"
+        data = {
+            "grant_type": "http://auth0.com/oauth/grant-type/password-realm",
+            "username": username,
+            "password": password,
+            "audience": f"https://{settings.auth0_domain}/api/v2/",
+            "client_id": settings.auth0_management_id,
+            "client_secret": settings.auth0_management_secret,
+            "realm": settings.auth0_db_connection,
+            "scope": "openid",
+        }
+        # We don't want the management token here so not using self._client
+        resp = httpx.post(url, data=data)
+        if resp.status_code in {400, 403}:
+            error = resp.json().get("error")
+            if error == "invalid_grant":
+                return False
+        resp.raise_for_status()
+        return True
+
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]) -> bool:
         """
