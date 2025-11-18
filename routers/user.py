@@ -55,6 +55,14 @@ class CombinedMembershipData(PydanticBaseModel):
     groups: list[GroupMembershipData]
 
 
+class PlatformAdminData(PydanticBaseModel):
+    """
+    Data model for platform admin response.
+    """
+    id: str
+    name: str
+
+
 class GroupAdminData(PydanticBaseModel):
     """
     Data model for group admin response.
@@ -165,6 +173,7 @@ async def get_pending_platforms(
 
 @router.get(
     "/platforms/admin-roles",
+    response_model=list[PlatformAdminData],
     description="Get platforms for which the current user has admin privileges.",
 )
 async def get_admin_platforms(

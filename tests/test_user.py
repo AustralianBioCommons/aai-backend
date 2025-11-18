@@ -427,7 +427,12 @@ def test_get_admin_platforms(test_client, test_db_session, mocker, persistent_fa
     response = test_client.get("/me/platforms/admin-roles", headers={"Authorization": "Bearer valid_token"})
     assert response.status_code == 200
     data = response.json()
-    assert data[0] == valid_platform.model_dump(mode="json")
+    assert len(data) == 1
+    assert data[0]["id"] == valid_platform.id
+    assert data[0]["name"] == valid_platform.name
+    # Should not include relationships or other fields
+    assert "admin_roles" not in data[0]
+    assert "platform_role" not in data[0]
     returned_ids = [p["id"] for p in data]
     assert invalid_platform.id not in returned_ids
 
