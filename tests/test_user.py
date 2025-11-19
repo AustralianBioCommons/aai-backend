@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 import pytest
 import respx
 from fastapi import HTTPException
-from httpx import Response
+from httpx import HTTPStatusError, Request, Response
 
 from db.types import ApprovalStatusEnum, PlatformEnum
 from routers.user import get_user_data, update_user_metadata
@@ -484,6 +484,36 @@ def test_update_username(test_client, test_db_session, mocker, persistent_factor
     assert data["username"] == "new_username"
     test_db_session.refresh(user)
     assert user.username == "new_username"
+
+
+def test_update_username_auth0_error(test_client, test_db_session, mocker, persistent_factories):
+    """Test that update_username handles 400 error from Auth0 correctly."""
+
+    user = BiocommonsUserFactory.create_sync(username="old_username")
+
+    # Mock the Auth0 client to raise a 400 error
+    error_response = Response(400, json={"message": "Username already exists"})
+    mock_error = HTTPStatusError(
+        message="400 Bad Request",
+        request=Request("PATCH", "url"),
+        response=error_response
+    )
+    mocker.patch("routers.user.Auth0Client.update_user", side_effect=mock_error)
+
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/profile/username/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"username": "duplicate_username"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Username already exists"
+
+    # Verify DB user was not updated
+    test_db_session.refresh(user)
+    assert user.username == "old_username"
 
 
 def _make_auth0_identity(connection: str, user_id: str) -> Auth0Identity:
