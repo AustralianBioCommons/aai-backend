@@ -9,7 +9,7 @@ from db.models import Auth0Role, BiocommonsGroup, Platform
 from db.types import PlatformEnum
 from routers.biocommons_admin import PlatformCreateData
 from tests.biocommons.datagen import RoleDataFactory
-from tests.db.datagen import Auth0RoleFactory, PlatformFactory
+from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory, PlatformFactory
 
 
 @respx.mock
@@ -183,7 +183,18 @@ def galaxy_platform(persistent_factories):
     )
 
 
-def test_set_admin_roles_success(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+@pytest.fixture
+def tsi_group(persistent_factories):
+    group_role = Auth0RoleFactory.create_sync(name="biocommons/group/tsi")
+    return BiocommonsGroupFactory.create_sync(
+        group_id=group_role.name,
+        name="Threatened Species Initiative",
+        short_name="TSI",
+        admin_roles=[]
+    )
+
+
+def test_set_platform_admin_roles_success(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
     # Arrange
     pid = "galaxy"
     r1 = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
@@ -204,7 +215,7 @@ def test_set_admin_roles_success(test_client, test_db_session, as_admin_user, ga
     assert names == sorted([r1.name, r2.name])
 
 
-def test_set_admin_roles_unknown_role(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
+def test_set_platform_admin_roles_unknown_role(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
     pid = "galaxy"
     known = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
     unknown = "biocommons/role/galaxy/does-not-exist"
@@ -220,3 +231,37 @@ def test_set_admin_roles_unknown_role(test_client, test_db_session, as_admin_use
     # Ensure no partial update occurred
     refreshed = test_db_session.get(Platform, pid)
     assert [r.name for r in refreshed.admin_roles] == []
+
+
+def test_set_group_admin_roles_success(test_client, test_db_session, tsi_group, as_admin_user, persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+
+    resp = test_client.post(
+        "/biocommons-admin/groups/tsi/set-admin-roles",
+        json={"role_names": [admin_role.name]},
+    )
+
+    assert resp.status_code == 200
+    assert "set successfully" in resp.json()["message"]
+
+    refreshed = test_db_session.get(BiocommonsGroup, tsi_group.group_id)
+    names = sorted([r.name for r in refreshed.admin_roles])
+    assert admin_role.name in names
+
+
+def test_set_group_admin_roles_unknown_role(test_client, test_db_session, tsi_group, as_admin_user, persistent_factories):
+    """
+    Test all roles must exist in the DB for roles to be set
+    """
+    known_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    resp = test_client.post(
+        "/biocommons-admin/groups/tsi/set-admin-roles",
+        json={"role_names": [known_role.name, "biocommons/role/tsi/unknown"]},
+    )
+
+    assert resp.status_code == 400
+    assert "doesn't exist in DB" in resp.json()["detail"]
+
+    # Ensure no update occurred
+    refreshed = test_db_session.get(BiocommonsGroup, tsi_group.group_id)
+    assert refreshed.admin_roles == []
