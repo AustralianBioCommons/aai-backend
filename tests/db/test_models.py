@@ -464,6 +464,35 @@ def test_platform_membership_revoke_auth0_role_not_approved(status, mock_auth0_c
     mock_auth0_client.remove_roles_from_user.assert_not_called()
 
 
+def test_platform_membership_grant_auth0_role(mock_auth0_client, persistent_factories):
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    role = RoleDataFactory.build(name="biocommons/platform/galaxy")
+    mock_auth0_client.get_role_by_name.return_value = role
+
+    assert membership.grant_auth0_role(mock_auth0_client) is True
+    mock_auth0_client.get_role_by_name.assert_called_once_with("biocommons/platform/galaxy")
+    mock_auth0_client.add_roles_to_user.assert_called_once_with(
+        user_id=membership.user_id,
+        role_id=role.id,
+    )
+
+
+@pytest.mark.parametrize("status", [ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED])
+def test_platform_membership_grant_auth0_role_requires_approval(status, mock_auth0_client, persistent_factories):
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        approval_status=status,
+    )
+
+    with pytest.raises(ValueError):
+        membership.grant_auth0_role(mock_auth0_client)
+    mock_auth0_client.get_role_by_name.assert_not_called()
+    mock_auth0_client.add_roles_to_user.assert_not_called()
+
+
 def test_platform_membership_revoke_updates_state(test_db_session, mock_auth0_client, persistent_factories):
     admin = BiocommonsUserFactory.create_sync()
     membership = PlatformMembershipFactory.create_sync(

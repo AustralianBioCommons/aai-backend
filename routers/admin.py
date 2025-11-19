@@ -135,16 +135,20 @@ def _approve_platform_membership(
     platform: PlatformEnum,
     admin_record: BiocommonsUser,
     db_session: Session,
+    client: Auth0Client,
 ) -> None:
     membership = PlatformMembership.get_by_user_id_and_platform_id_or_404(
         user_id=user_id,
         platform_id=platform,
         session=db_session,
     )
+    status_changed = membership.approval_status != ApprovalStatusEnum.APPROVED
     membership.approval_status = ApprovalStatusEnum.APPROVED
     membership.revocation_reason = None
     membership.updated_at = datetime.now(timezone.utc)
     membership.updated_by = admin_record
+    if status_changed:
+        membership.grant_auth0_role(auth0_client=client)
     db_session.add(membership)
     membership.save_history(db_session)
     db_session.commit()
@@ -587,6 +591,7 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
              dependencies=[Depends(require_admin_permission_for_platform)])
 def approve_platform_membership(user_id: Annotated[str, UserIdParam],
                                 platform_id: Annotated[str, ServiceIdParam],
+                                client: Annotated[Auth0Client, Depends(get_auth0_client)],
                                 admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                                 db_session: Annotated[Session, Depends(get_db_session)]):
     platform_record = Platform.get_by_id_or_404(platform_id, db_session)
@@ -595,6 +600,7 @@ def approve_platform_membership(user_id: Annotated[str, UserIdParam],
         platform=platform_record.id,
         admin_record=admin_record,
         db_session=db_session,
+        client=client,
     )
     return _membership_response()
 

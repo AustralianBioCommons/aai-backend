@@ -532,6 +532,7 @@ def test_approve_platform_membership_updates_db(
     admin_user,
     galaxy_platform,
     persistent_factories,
+    mock_auth0_client,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembershipFactory.create_sync(
@@ -543,6 +544,9 @@ def test_approve_platform_membership_updates_db(
         id=admin_user.access_token.sub,
     )
     test_db_session.commit()
+
+    mock_role = RoleDataFactory.build(name="biocommons/platform/galaxy")
+    mock_auth0_client.get_role_by_name.return_value = mock_role
 
     resp = test_client.post(f"/admin/users/{user.id}/platforms/galaxy/approve")
 
@@ -564,6 +568,11 @@ def test_approve_platform_membership_updates_db(
     ).all()
     assert history_entries[-1].approval_status == ApprovalStatusEnum.APPROVED
     assert history_entries[-1].reason is None
+    mock_auth0_client.get_role_by_name.assert_called_once_with("biocommons/platform/galaxy")
+    mock_auth0_client.add_roles_to_user.assert_called_once_with(
+        user_id=user.id,
+        role_id=mock_role.id,
+    )
 
 
 def test_approve_platform_membership_forbidden_without_platform_role(
@@ -571,6 +580,7 @@ def test_approve_platform_membership_forbidden_without_platform_role(
     test_db_session,
     galaxy_platform,
     persistent_factories,
+    mock_auth0_client,
 ):
     user = BiocommonsUserFactory.create_sync(platform_memberships=[])
     membership = PlatformMembershipFactory.create_sync(
