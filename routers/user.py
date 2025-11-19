@@ -1,7 +1,9 @@
+import http
+import logging
 from typing import Annotated, Any, Dict
 
 from fastapi import APIRouter, Body, Depends, HTTPException, status
-from httpx import AsyncClient
+from httpx import AsyncClient, HTTPStatusError
 from pydantic import AliasPath, Field
 from pydantic import BaseModel as PydanticBaseModel
 from sqlmodel import Session
@@ -27,6 +29,8 @@ from schemas.biocommons import (
     UserProfileData,
 )
 from schemas.user import SessionUser
+
+logger = logging.getLogger('uvicorn.error')
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
@@ -275,7 +279,19 @@ async def update_username(
     """Update the username of the current user."""
     # Update in Auth0 (need to include connection when updating username)
     update_data = UpdateUserData(username=username, connection=settings.auth0_db_connection)
-    resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
+    try:
+        resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
+    except HTTPStatusError as e:
+        logger.error(f"Error updating username: {e}")
+        if e.response.status_code == 400:
+            error_details = e.response.json()
+            raise HTTPException(status_code=http.HTTPStatus.BAD_REQUEST, detail=error_details["message"])
+        if e.response.status_code in (401, 403):
+            raise HTTPException(
+                status_code=http.HTTPStatus.UNAUTHORIZED,
+                detail="You do not have permission to update your username. Please try logging in again."
+            )
+        raise HTTPException(status_code=http.HTTPStatus.INTERNAL_SERVER_ERROR, detail="Unknown error.")
     db_user.username = username
     db_session.add(db_user)
     db_session.commit()
