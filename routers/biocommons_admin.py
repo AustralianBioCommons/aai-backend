@@ -14,7 +14,7 @@ from biocommons.groups import (
     GroupId,
     RoleId,
 )
-from db.models import Auth0Role, Platform
+from db.models import Auth0Role, BiocommonsGroup, Platform
 from db.setup import get_db_session
 from db.types import PlatformEnum
 
@@ -111,11 +111,9 @@ class SetRolesData(BaseModel):
     role_names: list[str]
 
 
-@router.post("/platforms/{platform_id}/set-admin-roles")
-def set_platform_admin_roles(platform_id: PlatformEnum, data: SetRolesData, db_session: Annotated[Session, Depends(get_db_session)]):
-    platform = Platform.get_by_id(platform_id, db_session)
+def _check_roles_exist(role_names: list[str], db_session: Session) -> list[Auth0Role]:
     db_roles = []
-    for role_name in data.role_names:
+    for role_name in role_names:
         role = Auth0Role.get_by_name(role_name, db_session)
         if role is None:
             raise HTTPException(
@@ -123,10 +121,26 @@ def set_platform_admin_roles(platform_id: PlatformEnum, data: SetRolesData, db_s
                 detail=f"Role {role_name} doesn't exist in DB - create roles first"
             )
         db_roles.append(role)
+    return db_roles
+
+@router.post("/platforms/{platform_id}/set-admin-roles")
+def set_platform_admin_roles(platform_id: PlatformEnum, data: SetRolesData, db_session: Annotated[Session, Depends(get_db_session)]):
+    platform = Platform.get_by_id(platform_id, db_session)
+    db_roles = _check_roles_exist(data.role_names, db_session)
     platform.admin_roles = db_roles
     db_session.add(platform)
     db_session.commit()
     return {"message": f"Admin roles for platform {platform_id} set successfully."}
+
+
+@router.post("/groups/{group_id}/set-admin-roles")
+def set_group_admin_roles(group_id: str, data: SetRolesData, db_session: Annotated[Session, Depends(get_db_session)]):
+    group = BiocommonsGroup.get_by_id(f"biocommons/group/{group_id}", db_session)
+    db_roles = _check_roles_exist(data.role_names, db_session)
+    group.admin_roles = db_roles
+    db_session.add(group)
+    db_session.commit()
+    return {"message": f"Admin roles for group {group_id} set successfully."}
 
 
 class CreateRoleData(BaseModel):
