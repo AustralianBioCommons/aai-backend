@@ -135,7 +135,6 @@ def mock_settings():
         auth0_db_connection="Username-Password-Authentication",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
-        send_email=False,
         admin_roles=["Admin"],
         auth0_algorithms=["RS256"]
     )
@@ -174,7 +173,6 @@ def test_client_with_email(mock_settings, mock_galaxy_settings):
     """
     Create a test client with email sending enabled.
     """
-    mock_settings.send_email = True
     # Define override
     def override_settings():
         return mock_settings

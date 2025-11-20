@@ -638,7 +638,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         client=client,
         db_session=db_session,
     )
-    if status_changed and settings.send_email and membership.user and membership.user.email:
+    if status_changed and membership.user and membership.user.email:
         background_tasks.add_task(
             send_group_membership_approved_email,
             membership.user.email,

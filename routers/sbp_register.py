@@ -97,9 +97,8 @@ async def register_sbp_user(
         _create_sbp_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
 
         # Send approval email in the background
-        if settings.send_email:
-            background_tasks.add_task(send_approval_email, registration, settings)
-            logger.info("Approval email queued for sending")
+        background_tasks.add_task(send_approval_email, registration, settings)
+        logger.info("Bundle approval email queued for sending")
 
         return {"message": "User registered successfully. Approval pending.", "user": auth0_user_data.model_dump(mode="json")}
 

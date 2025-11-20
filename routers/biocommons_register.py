@@ -104,9 +104,8 @@ async def register_biocommons_user(
             auth0_client=auth0_client
         )
         # Send approval email in the background
-        if bundle is not None:
-            if settings.send_email and not bundle.group_auto_approve:
-                background_tasks.add_task(send_approval_email, registration, settings)
+        if bundle is not None and not bundle.group_auto_approve:
+            background_tasks.add_task(send_approval_email, registration, settings)
 
         logger.info(
             f"Successfully registered biocommons user: {auth0_user_data.user_id}"

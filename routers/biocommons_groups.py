@@ -70,12 +70,16 @@ def request_group_access(
         updated_by=None
     )
     membership.save(session=db_session, commit=True)
-    if settings.send_email:
-        logger.info("Sending emails to group admins for approval")
-        admin_emails = membership.group.get_admins(auth0_client=auth0_client)
-        for email in admin_emails:
-            background_tasks.add_task(send_group_approval_email,
-                                      approver_email=email, request=membership, email_service=email_service, settings=settings)
+    logger.info("Sending emails to group admins for approval")
+    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
+    for email in admin_emails:
+        background_tasks.add_task(
+            send_group_approval_email,
+            approver_email=email,
+            request=membership,
+            email_service=email_service,
+            settings=settings,
+        )
     return {"message": f"Group membership for {group_id} requested successfully."}
 
 
@@ -118,7 +122,7 @@ def approve_group_access(
     membership.save(session=db_session, commit=True)
     if membership.user is None:
         db_session.refresh(membership, attribute_names=["user"])
-    if settings.send_email and membership.user and membership.user.email:
+    if membership.user and membership.user.email:
         background_tasks.add_task(
             send_group_membership_approved_email,
             membership.user.email,
