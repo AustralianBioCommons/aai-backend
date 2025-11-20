@@ -25,7 +25,7 @@ class BiocommonsUserFactory(SQLAlchemyFactory[BiocommonsUser]):
 
     @classmethod
     def email(cls) -> str:
-        return fake.email()
+        return fake.unique.email()
 
     @classmethod
     def id(cls) -> str:

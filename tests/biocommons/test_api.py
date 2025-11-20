@@ -1,15 +1,15 @@
 from http import HTTPStatus
-from unittest.mock import ANY
 
 import respx
-from moto.core import DEFAULT_ACCOUNT_ID
-from moto.ses import ses_backends
+from sqlmodel import select
 
 from auth.user_permissions import get_session_user
 from db.models import (
+    EmailNotification,
     GroupMembership,
     GroupMembershipHistory,
 )
+from db.types import EmailStatusEnum
 from main import app
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
@@ -27,7 +27,7 @@ from tests.db.datagen import (
 
 
 @respx.mock
-def test_request_group_membership(test_client_with_email, normal_user, as_normal_user, mock_auth0_client, test_db_session, persistent_factories, mock_email_service, mocker):
+def test_request_group_membership(test_client_with_email, normal_user, as_normal_user, mock_auth0_client, test_db_session, persistent_factories, mocker):
     """
     Test the full process of requesting group membership - request membership for a user
     and send approval email to the relevant admins.
@@ -57,11 +57,11 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert len(history) == 1
     assert history[0].approval_status == "pending"
     assert membership.user == user
-    # Check approval email is sent to admins
-    ses_backend = ses_backends[DEFAULT_ACCOUNT_ID]["us-east-1"]
-    assert len(ses_backend.sent_messages) == 1
-    to_addresses = ses_backend.sent_messages[0].destinations['ToAddresses']
-    assert admin_info.email in to_addresses
+    # Check approval email is queued for admin review
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == admin_info.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 @respx.mock
@@ -111,6 +111,7 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
 @respx.mock
 def test_group_admin_approval_sends_user_email(
     test_client_with_email,
+    test_db_session,
     persistent_factories,
     test_auth0_client,
     mocker,
@@ -131,20 +132,15 @@ def test_group_admin_approval_sends_user_email(
         json=[RoleDataFactory.build(name=group.group_id).model_dump(mode="json")]
     )
     respx.post(f"https://{test_auth0_client.domain}/api/v2/users/{user.id}/roles").respond(204)
-    mock_email = mocker.patch("routers.biocommons_groups.send_group_membership_approved_email")
-
     resp = test_client_with_email.post(
         "/biocommons/groups/approve",
         json={"group_id": group.group_id, "user_id": user.id},
     )
     assert resp.status_code == 200
-    mock_email.assert_called_once_with(
-        user.email,
-        group.name,
-        group.short_name,
-        ANY,
-        ANY,
-    )
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 def test_approve_group_membership_invalid_role(test_client, test_db_session, persistent_factories, test_auth0_client):

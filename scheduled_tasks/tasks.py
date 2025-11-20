@@ -1,23 +1,27 @@
 import re
 from datetime import datetime, timezone
+from uuid import UUID
 
 from loguru import logger
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlmodel import Session, select
 
 from auth.management import get_management_token
+from auth.ses import get_email_service
 from auth0.client import Auth0Client, RoleData
 from config import get_settings
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    EmailNotification,
     GroupMembership,
     Platform,
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import GROUP_NAMES, ApprovalStatusEnum, GroupEnum
+from db.types import GROUP_NAMES, ApprovalStatusEnum, EmailStatusEnum, GroupEnum
 from scheduled_tasks.scheduler import SCHEDULER
 from schemas.auth0 import (
     GROUP_ROLE_PATTERN,
@@ -25,6 +29,10 @@ from schemas.auth0 import (
     get_platform_id_from_role_name,
 )
 from schemas.biocommons import Auth0UserData
+
+EMAIL_QUEUE_BATCH_SIZE = 25
+EMAIL_RETRY_DELAY_SECONDS = 300
+EMAIL_JOB_ID_PREFIX = "email_notification_"
 
 
 def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple[BiocommonsUser, bool, bool]:
@@ -59,6 +67,93 @@ def _get_group_membership_including_deleted(session: Session, user_id: str, grou
         .where(GroupMembership.user_id == user_id, GroupMembership.group_id == group_id)
     )
     return session.exec(stmt).one_or_none()
+
+
+async def process_email_queue(
+    batch_size: int = EMAIL_QUEUE_BATCH_SIZE,
+    retry_delay_seconds: int = EMAIL_RETRY_DELAY_SECONDS,
+) -> int:
+    """
+    Schedule pending email notifications for delivery.
+    """
+    logger.info("Processing email notification queue")
+    session = next(get_db_session())
+    try:
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(EmailNotification)
+            .where(
+                EmailNotification.status.in_(
+                    [EmailStatusEnum.PENDING, EmailStatusEnum.FAILED]
+                ),
+                or_(
+                    EmailNotification.send_after.is_(None),
+                    EmailNotification.send_after <= now,
+                ),
+            )
+            .order_by(EmailNotification.created_at)
+            .limit(batch_size)
+        )
+        notifications = session.exec(stmt).all()
+        if not notifications:
+            logger.info("No email notifications ready for delivery")
+            return 0
+        scheduled = 0
+        for notification in notifications:
+            notification.mark_sending()
+            session.add(notification)
+            session.flush()
+            job_id = f"{EMAIL_JOB_ID_PREFIX}{notification.id}"
+            SCHEDULER.add_job(
+                send_email_notification,
+                args=[notification.id],
+                id=job_id,
+                replace_existing=True,
+                kwargs={"retry_delay_seconds": retry_delay_seconds},
+            )
+            scheduled += 1
+        session.commit()
+        logger.info("Queued %d email notifications for delivery", scheduled)
+        return scheduled
+    finally:
+        session.close()
+
+
+async def send_email_notification(
+    notification_id: UUID,
+    retry_delay_seconds: int = EMAIL_RETRY_DELAY_SECONDS,
+) -> bool:
+    """
+    Deliver a single queued email notification.
+    """
+    session = next(get_db_session())
+    try:
+        notification = session.get(EmailNotification, notification_id)
+        if notification is None:
+            logger.warning("Email notification %s not found", notification_id)
+            return False
+        email_service = get_email_service()
+        try:
+            email_service.send(
+                notification.to_address,
+                notification.subject,
+                notification.body_html,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to send email %s: %s", notification.id, exc
+            )
+            notification.mark_failed(str(exc), retry_delay_seconds)
+            session.add(notification)
+            session.commit()
+            return False
+        else:
+            notification.mark_sent()
+            session.add(notification)
+            session.commit()
+            return True
+    finally:
+        session.close()
 
 
 async def sync_auth0_users():

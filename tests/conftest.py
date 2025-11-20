@@ -4,15 +4,12 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
-from moto import mock_aws
-from moto.core import patch_client
 from polyfactory import BaseFactory
 from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
-from auth.ses import EmailService, get_email_service
+from auth.ses import get_email_service
 from auth.user_permissions import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
@@ -123,6 +120,35 @@ def disable_db_setup(mocker):
     mocker.patch("db.setup.get_engine", return_value=None)
 
 
+class _DummyEmailService:
+    """No-op email service used to prevent real SES calls in tests."""
+    def send(self, *args, **kwargs):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def disable_real_email_sending():
+    """
+    Provide a default no-op EmailService override so tests don't call AWS SES.
+    Tests that need to inspect emails should override get_email_service themselves.
+    """
+    if get_email_service in app.dependency_overrides:
+        yield
+        return
+
+    dummy_service = _DummyEmailService()
+
+    def override():
+        return dummy_service
+
+    app.dependency_overrides[get_email_service] = override
+    try:
+        yield
+    finally:
+        if app.dependency_overrides.get(get_email_service) is override:
+            app.dependency_overrides.pop(get_email_service, None)
+
+
 @pytest.fixture
 def mock_settings():
     """Fixture that returns mocked Settings object."""
@@ -135,7 +161,6 @@ def mock_settings():
         auth0_db_connection="Username-Password-Authentication",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
-        send_email=False,
         admin_roles=["Admin"],
         auth0_algorithms=["RS256"]
     )
@@ -174,7 +199,6 @@ def test_client_with_email(mock_settings, mock_galaxy_settings):
     """
     Create a test client with email sending enabled.
     """
-    mock_settings.send_email = True
     # Define override
     def override_settings():
         return mock_settings
@@ -298,25 +322,6 @@ def aws_credentials():
     os.environ["AWS_SECURITY_TOKEN"] = "testing"
     os.environ["AWS_SESSION_TOKEN"] = "testing"
     os.environ["AWS_DEFAULT_REGION"] = "ap-southeast-2"
-
-
-@pytest.fixture(scope="function")
-def mock_email_service(aws_credentials):
-    with mock_aws():
-        email_service = EmailService(region_name="us-east-1")
-        patch_client(email_service.client)
-        email_service.client.verify_email_identity(EmailAddress="amanda@biocommons.org.au")
-        app.dependency_overrides[get_email_service] = lambda: email_service
-        yield email_service
-        app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def mock_background_tasks(mocker):
-    bg_tasks = mocker.MagicMock(autospec=BackgroundTasks)
-    app.dependency_overrides[BackgroundTasks] = lambda: bg_tasks
-    yield
-    app.dependency_overrides.clear()
 
 
 def now_freeze_aware(tz=None):

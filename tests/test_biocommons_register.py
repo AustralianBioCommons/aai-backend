@@ -1,16 +1,18 @@
 import pytest
+from sqlmodel import select
 from starlette.exceptions import HTTPException
 
 from biocommons.bundles import BUNDLES
 from biocommons.default import DEFAULT_PLATFORMS
-from db.models import BiocommonsUser
-from db.types import PlatformEnum
+from db.models import BiocommonsUser, EmailNotification
+from db.types import EmailStatusEnum, PlatformEnum
 from routers.biocommons_register import create_user_in_db
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegistrationRequestFactory,
+    RoleUserDataFactory,
 )
 from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory, PlatformFactory
 
@@ -247,13 +249,22 @@ def test_biocommons_registration_name_formatting():
 
 
 def test_successful_biocommons_registration_endpoint(
-    test_client_with_email, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, test_db_session, mocker,
-        mock_background_tasks
+    test_client_with_email,
+    mock_auth0_client,
+    tsi_group,
+    galaxy_platform,
+    bpa_platform,
+    test_db_session,
 ):
     """Test successful biocommons registration via HTTP endpoint"""
     auth0_data = Auth0UserDataFactory.build()
     mock_auth0_client.create_user.return_value = auth0_data
-    mock_send_email = mocker.patch("routers.biocommons_register.send_approval_email")
+    admin_stub = RoleUserDataFactory.build(email="tsi.admin@example.com")
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=admin_stub.user_id,
+        email=admin_stub.email,
+    )
 
     registration_data = {
         "first_name": "Test",
@@ -284,8 +295,11 @@ def test_successful_biocommons_registration_endpoint(
     assert PlatformEnum.BPA_DATA_PORTAL in platform_ids
     assert PlatformEnum.GALAXY in platform_ids
 
-    assert mock_send_email.called
-    assert mock_send_email.call_count == 1
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    email = queued_emails[0]
+    assert email.to_address == admin_stub.email
+    assert email.status == EmailStatusEnum.PENDING
 
 
 def test_biocommons_registration_auth0_conflict_error(

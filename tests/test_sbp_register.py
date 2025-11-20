@@ -4,10 +4,12 @@ from sqlmodel import select
 
 from db.models import (
     BiocommonsUser,
+    EmailNotification,
     PlatformEnum,
     PlatformMembership,
     PlatformMembershipHistory,
 )
+from db.types import EmailStatusEnum
 from routers.sbp_register import validate_sbp_email_domain
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
@@ -120,6 +122,10 @@ def test_successful_registration(
     called_data = mock_auth0_client.create_user.call_args[0][0]
     assert called_data.user_metadata.sbp.registration_reason == valid_registration_data["reason"]
     assert called_data.app_metadata.registration_from == "sbp"
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == "aai-dev@biocommons.org.au"
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 def test_registration_duplicate_user(

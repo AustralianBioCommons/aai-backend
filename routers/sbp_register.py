@@ -1,12 +1,11 @@
 import logging
 
 from email_validator import EmailNotValidError, validate_email
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
 from starlette.responses import JSONResponse
 
-from auth.ses import EmailService
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser, PlatformEnum
@@ -15,6 +14,7 @@ from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.responses import RegistrationErrorResponse, RegistrationResponse
 from schemas.sbp import SBPRegistrationRequest
+from services.email_queue import enqueue_email
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,8 @@ def validate_sbp_email_domain(email: str, settings: Settings) -> bool:
         return False
 
 
-def send_approval_email(registration: SBPRegistrationRequest, settings: Settings):
-    """Send email notification about new SBP registration."""
-    email_service = EmailService()
-    approver_email = "aai-dev@biocommons.org.au"
+def compose_sbp_registration_email(registration: SBPRegistrationRequest, settings: Settings) -> tuple[str, str]:
+    """Compose the approval email for SBP admins."""
     subject = "New Structural Biology Platform User Registration"
 
     body_html = f"""
@@ -49,11 +47,7 @@ def send_approval_email(registration: SBPRegistrationRequest, settings: Settings
         <p>Please <a href='{settings.aai_portal_url}/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
-    email_service.send_email(
-        to_email=approver_email,
-        subject=subject,
-        body_html=body_html
-    )
+    return subject, body_html
 
 
 @router.post(
@@ -65,10 +59,9 @@ def send_approval_email(registration: SBPRegistrationRequest, settings: Settings
 )
 async def register_sbp_user(
     registration: SBPRegistrationRequest,
-    background_tasks: BackgroundTasks,
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
-    settings: Settings = Depends(get_settings)
+    settings: Settings = Depends(get_settings),
 ):
     """Register a new SBP user."""
 
@@ -96,10 +89,16 @@ async def register_sbp_user(
         logger.info("Adding user to DB")
         _create_sbp_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
 
-        # Send approval email in the background
-        if settings.send_email:
-            background_tasks.add_task(send_approval_email, registration, settings)
-            logger.info("Approval email queued for sending")
+        # Queue approval email for admins
+        subject, body_html = compose_sbp_registration_email(registration, settings)
+        enqueue_email(
+            db_session,
+            # TODO: update to send email to SBP admin instead
+            to_address="aai-dev@biocommons.org.au",
+            subject=subject,
+            body_html=body_html,
+        )
+        db_session.commit()
 
         return {"message": "User registered successfully. Approval pending.", "user": auth0_user_data.model_dump(mode="json")}
 
@@ -128,5 +127,5 @@ def _create_sbp_user_record(auth0_user_data: Auth0UserData, auth0_client: Auth0C
     )
     session.add(db_user)
     session.add(sbp_membership)
-    session.commit()
+    session.flush()
     return db_user
