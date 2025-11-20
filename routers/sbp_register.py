@@ -93,6 +93,7 @@ async def register_sbp_user(
         subject, body_html = compose_sbp_registration_email(registration, settings)
         enqueue_email(
             db_session,
+            # TODO: update to send email to SBP admin instead
             to_address="aai-dev@biocommons.org.au",
             subject=subject,
             body_html=body_html,
