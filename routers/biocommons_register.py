@@ -10,7 +10,7 @@ from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
 from config import Settings, get_settings
-from db.models import BiocommonsUser
+from db.models import BiocommonsGroup, BiocommonsUser
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
@@ -105,15 +105,26 @@ async def register_biocommons_user(
             session=db_session,
             auth0_client=auth0_client
         )
-        # Queue approval email for manual bundles
+        # Queue approval email(s) for manual bundles
         if bundle is not None and not bundle.group_auto_approve:
+            admin_emails: set[str] = set()
+            group_record = BiocommonsGroup.get_by_id(bundle.group_id.value, db_session)
+            if group_record is not None:
+                admin_emails = group_record.get_admins(auth0_client=auth0_client)
+            if not admin_emails:
+                logger.warning(
+                    "No admins found for bundle %s, notifying ops inbox",
+                    bundle.group_id.value,
+                )
+                admin_emails.add("aai-dev@biocommons.org.au")
             subject, body_html = compose_biocommons_registration_email(registration, settings)
-            enqueue_email(
-                db_session,
-                to_address="aai-dev@biocommons.org.au",
-                subject=subject,
-                body_html=body_html,
-            )
+            for email in admin_emails:
+                enqueue_email(
+                    db_session,
+                    to_address=email,
+                    subject=subject,
+                    body_html=body_html,
+                )
 
         db_session.commit()
 

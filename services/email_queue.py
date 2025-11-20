@@ -15,6 +15,8 @@ def enqueue_email(
 ) -> EmailNotification:
     """
     Persist an outbound email so the scheduler can deliver it later.
+
+    Note: the caller is responsible for committing the session after enqueueing.
     """
     notification = EmailNotification(
         to_address=to_address,
