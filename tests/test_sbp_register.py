@@ -21,12 +21,13 @@ from tests.db.datagen import Auth0RoleFactory, PlatformFactory
 
 
 @pytest.fixture
-def valid_registration_data():
+def valid_registration_data(mock_settings):
+    allowed_domain = mock_settings.sbp_allowed_email_domains[0]
     return SBPRegistrationDataFactory.build(
         username="testuser",
         first_name="Test",
         last_name="User",
-        email="test@unsw.edu.au",
+        email=f"testuser@{allowed_domain}",
         reason="Need access to SBP resources",
         password="SecurePass123!",
     ).model_dump()
@@ -188,7 +189,7 @@ def test_registration_email_format(test_client, valid_registration_data):
 
 def test_registration_rejected_email_domains(test_client, valid_registration_data, mock_auth0_client):
     data = valid_registration_data.copy()
-    data["email"] = "user@gmail.com"
+    data["email"] = "user@unapproved-domain.com"
 
     response = test_client.post("/sbp/register", json=data)
 

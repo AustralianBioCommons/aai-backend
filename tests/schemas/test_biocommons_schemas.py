@@ -24,7 +24,7 @@ from tests.db.datagen import (
    "V6Zs^B8E",
    "k$M2FZa@",
    "6*@s&#5Z",
-   "Jd9sugcfjgWXY@Dzje^83!mcfM@A$YZ8be^bUhrBZ8s$KjbbNwAHr*bdiEhmLyMPyPowFU@rX4k8h5KCh#qm9bYS5RUmtjaLmVds",
+   "A" * 69 + "a1!",
    *[f"Password1{x}" for x in ALLOWED_SPECIAL_CHARS]
 ])
 def test_valid_password(password: str):
@@ -38,8 +38,8 @@ def test_valid_password(password: str):
     ("aB1!", "Password must be at least 8 characters."),
     ("Abc12!", "Password must be at least 8 characters."),
     ("", "Password must be at least 8 characters."),
-    # Too long (more than 128 characters)
-    ("A" * 129 + "bc123!", "Password must be 128 characters or less."),
+    # Too long (more than 72 characters)
+    ("A" * 70 + "a1!", "Password must be 72 characters or less."),
     # Missing uppercase letter
     ("abcd1234!", PASSWORD_FORMAT_MESSAGE),
     # Missing lowercase letter
