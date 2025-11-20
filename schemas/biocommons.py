@@ -10,6 +10,7 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, List, Literal, Optional, Self
 
+from email_validator import EmailNotValidError, validate_email
 from fastapi import Path
 from pydantic import (
     AfterValidator,
@@ -78,11 +79,51 @@ BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[-_
     "max_length": "Username must be 128 characters or less.",
     "pattern": "Username must only contain lowercase letters, numbers, hyphens and underscores."
 })
-BiocommonsPassword = ValidatedString(min_length=8, max_length=128, pattern=VALID_PASSWORD_REGEX, messages={
+BiocommonsPassword = ValidatedString(min_length=8, max_length=72, pattern=VALID_PASSWORD_REGEX, messages={
     "min_length": "Password must be at least 8 characters.",
-    "max_length": "Password must be 128 characters or less.",
+    "max_length": "Password must be 72 characters or less.",
     "pattern": PASSWORD_FORMAT_MESSAGE
 })
+BiocommonsFullName = ValidatedString(min_length=1,max_length=255,
+    messages={
+        "min_length": "Full name must be at least 1 character.",
+        "max_length": "Full name must be 255 characters or less.",
+    },
+)
+
+
+def _validate_biocommons_email(email: str) -> str:
+    try:
+        validated = validate_email(email, allow_smtputf8=False)
+    except EmailNotValidError as exc:
+        raise PydanticCustomError("value_error.email", str(exc))
+
+    local_part = validated.local_part
+    domain = validated.domain
+    ascii_domain = validated.ascii_domain
+
+    if domain != ascii_domain:
+        raise PydanticCustomError(
+            "value_error.domain_ascii",
+            "Email domain must be ASCII and already transcoded.",
+        )
+
+    if len(local_part) > 64:
+        raise PydanticCustomError(
+            "value_error.local_too_long",
+            "Email local part must be 64 characters or less.",
+        )
+
+    if len(ascii_domain) > 254:
+        raise PydanticCustomError(
+            "value_error.domain_too_long",
+            "Email domain must be 254 characters or less.",
+        )
+
+    return validated.email
+
+
+BiocommonsEmail = Annotated[EmailStr, AfterValidator(_validate_biocommons_email)]
 
 
 class BPAMetadata(BaseModel):
@@ -103,6 +144,11 @@ class BiocommonsUserMetadata(BaseModel):
     sbp: Optional[SBPMetadata] = None
 
 
+class OldEmailRecord(BaseModel):
+    old_email: str
+    until_datetime: datetime
+
+
 class BiocommonsAppMetadata(BaseModel):
     """
     app_metadata we use to store Auth0-specific info
@@ -110,6 +156,7 @@ class BiocommonsAppMetadata(BaseModel):
     (if not empty).
     """
     registration_from: Optional[AppId] = None
+    old_emails: Optional[list[OldEmailRecord]] = None
 
     model_config = {
         "extra": "ignore"

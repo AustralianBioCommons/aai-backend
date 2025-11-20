@@ -772,7 +772,7 @@ class Auth0Role(SoftDeleteModel, table=True):
             id=role_data.id, name=role_data.name, description=role_data.description
         )
         session.add(role)
-        session.commit()
+        session.flush()
         return role
 
     @classmethod
@@ -928,6 +928,21 @@ class EmailNotification(BaseModel, table=True):
             self.send_after = now + timedelta(seconds=retry_delay_seconds)
 
 
+class EmailChangeOtp(BaseModel, table=True):
+    __tablename__ = "email_change_otps"
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)
+    user_id: str = Field(foreign_key="biocommons_user.id")
+    target_email: str
+    otp_hash: str
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    )
+    expires_at: datetime = Field(sa_type=DateTime)
+    is_active: bool = Field(default=True)
+    total_attempts: int = Field(default=0)
+
+
 # Update all model references
 BiocommonsUser.model_rebuild()
 Platform.model_rebuild()
@@ -936,3 +951,4 @@ PlatformMembershipHistory.model_rebuild()
 GroupMembership.model_rebuild()
 GroupMembershipHistory.model_rebuild()
 EmailNotification.model_rebuild()
+EmailChangeOtp.model_rebuild()

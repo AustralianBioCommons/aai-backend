@@ -5,6 +5,7 @@ from db.types import ApprovalStatusEnum, PlatformEnum
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     PASSWORD_FORMAT_MESSAGE,
+    BiocommonsEmail,
     BiocommonsPassword,
     BiocommonsUsername,
     UserProfileData,
@@ -168,4 +169,36 @@ def test_invalid_username(username: str, expected_error: str):
         username_adapter.validate_python(username)
 
     # Check that the error message contains our custom message
+    assert expected_error in str(exc_info.value)
+
+
+@pytest.mark.parametrize("email", [
+    "user@example.com",
+    "first.last+label@mail.co",
+    "user.name@subdomain.example.com",
+])
+def test_valid_email(email: str):
+    email_adapter = TypeAdapter(BiocommonsEmail)
+    result = email_adapter.validate_python(email)
+    assert result == email
+
+
+@pytest.mark.parametrize("email,expected_error", [
+    (
+        "a" * 65 + "@example.com",
+        "Email local part must be 64 characters or less.",
+    ),
+    (
+        "user@" + "a" * 251 + ".com",
+        "Email domain must be 254 characters or less.",
+    ),
+    (
+        "user@bücher.de",
+        "Email domain must be ASCII and already transcoded.",
+    ),
+])
+def test_invalid_email(email: str, expected_error: str):
+    email_adapter = TypeAdapter(BiocommonsEmail)
+    with pytest.raises(ValueError) as exc_info:
+        email_adapter.validate_python(email)
     assert expected_error in str(exc_info.value)

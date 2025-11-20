@@ -16,6 +16,7 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     EmailNotification,
+    EmailChangeOtp,
     GroupMembership,
     Platform,
     PlatformMembership,
@@ -484,6 +485,8 @@ async def populate_platforms_from_auth0():
         with db_session.begin():
             for role in platform_roles:
                 db_role = Auth0Role.get_by_id(role.id, db_session)
+                if db_role is None:
+                    db_role = Auth0Role.get_or_create_by_id(role.id, db_session, auth0_client)
                 platform_id = get_platform_id_from_role_name(role.name)
                 platform = Platform.get_by_id(platform_id=platform_id, session=db_session)
                 if platform is None:
@@ -492,6 +495,25 @@ async def populate_platforms_from_auth0():
                 else:
                     logger.info(f"  Updating platform {platform_id} (if needed)")
                     platform.update_from_auth0_role(db_role, db_session, commit=False)
+    finally:
+        db_session.close()
+
+
+async def cleanup_email_otps():
+    """Purge expired or used email change OTPs."""
+    logger.info("Cleaning up expired email change OTPs")
+    db_session = next(get_db_session())
+    try:
+        now = datetime.now(timezone.utc)
+        expired = db_session.exec(
+            select(EmailChangeOtp).where(
+                (EmailChangeOtp.expires_at <= now) | (EmailChangeOtp.is_active.is_(False))
+            )
+        ).all()
+        if not expired:
+            return
+        for otp in expired:
+            db_session.delete(otp)
         db_session.commit()
     finally:
         db_session.close()
