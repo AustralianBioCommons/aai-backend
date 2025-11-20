@@ -1,19 +1,20 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from logging import getLogger
 from typing import Optional, Self
 
 from pydantic import AwareDatetime
-from sqlalchemy import Column, String, UniqueConstraint
+from sqlalchemy import Column, String, Text, UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
 
 import schemas
 from auth0.client import Auth0Client
-from db.core import SoftDeleteModel
+from db.core import BaseModel, SoftDeleteModel
 from db.types import (
     ApprovalStatusEnum,
+    EmailStatusEnum,
     GroupMembershipData,
     PlatformEnum,
     PlatformMembershipData,
@@ -877,6 +878,56 @@ class BiocommonsGroup(SoftDeleteModel, table=True):
         ).all()
 
 
+class EmailNotification(BaseModel, table=True):
+    """
+    Stores pending outbound emails for asynchronous processing.
+    """
+    __tablename__ = "emailnotification"
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    to_address: str = Field(index=True)
+    subject: str = Field()
+    body_html: str = Field(sa_column=Column(Text(), nullable=False))
+    status: EmailStatusEnum = Field(
+        default=EmailStatusEnum.PENDING,
+        sa_type=DbEnum(EmailStatusEnum, name="EmailStatusEnum"),
+        nullable=False,
+        index=True,
+    )
+    attempts: int = Field(default=0, nullable=False)
+    last_error: str | None = Field(default=None, sa_column=Column(String(1024), nullable=True))
+    send_after: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    sent_at: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    created_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+    )
+    updated_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+    )
+
+    def mark_sending(self) -> None:
+        self.status = EmailStatusEnum.SENDING
+        self.attempts += 1
+        self.updated_at = datetime.now(timezone.utc)
+
+    def mark_sent(self) -> None:
+        now = datetime.now(timezone.utc)
+        self.status = EmailStatusEnum.SENT
+        self.sent_at = now
+        self.updated_at = now
+        self.last_error = None
+
+    def mark_failed(self, error: str, retry_delay_seconds: int | None = None) -> None:
+        now = datetime.now(timezone.utc)
+        self.status = EmailStatusEnum.FAILED
+        self.last_error = error[:1024]
+        self.updated_at = now
+        if retry_delay_seconds:
+            self.send_after = now + timedelta(seconds=retry_delay_seconds)
+
+
 # Update all model references
 BiocommonsUser.model_rebuild()
 Platform.model_rebuild()
@@ -884,3 +935,4 @@ PlatformMembership.model_rebuild()
 PlatformMembershipHistory.model_rebuild()
 GroupMembership.model_rebuild()
 GroupMembershipHistory.model_rebuild()
+EmailNotification.model_rebuild()

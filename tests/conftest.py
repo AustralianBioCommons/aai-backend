@@ -4,7 +4,6 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
-from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 from moto import mock_aws
 from moto.core import patch_client
@@ -325,25 +324,6 @@ def aws_credentials():
     os.environ["AWS_SECURITY_TOKEN"] = "testing"
     os.environ["AWS_SESSION_TOKEN"] = "testing"
     os.environ["AWS_DEFAULT_REGION"] = "ap-southeast-2"
-
-
-@pytest.fixture(scope="function")
-def mock_email_service(aws_credentials):
-    with mock_aws():
-        email_service = EmailService(region_name="us-east-1")
-        patch_client(email_service.client)
-        email_service.client.verify_email_identity(EmailAddress="amanda@biocommons.org.au")
-        app.dependency_overrides[get_email_service] = lambda: email_service
-        yield email_service
-        app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def mock_background_tasks(mocker):
-    bg_tasks = mocker.MagicMock(autospec=BackgroundTasks)
-    app.dependency_overrides[BackgroundTasks] = lambda: bg_tasks
-    yield
-    app.dependency_overrides.clear()
 
 
 def now_freeze_aware(tz=None):

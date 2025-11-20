@@ -1,6 +1,5 @@
 import asyncio
 from datetime import datetime
-from unittest.mock import ANY
 from urllib.parse import quote
 
 import pytest
@@ -11,8 +10,12 @@ from sqlmodel import select
 from auth.management import get_management_token
 from auth.user_permissions import get_session_user, user_is_general_admin
 from auth0.client import Auth0Client
-from db.models import BiocommonsGroup, PlatformMembershipHistory
-from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
+from db.models import (
+    BiocommonsGroup,
+    EmailNotification,
+    PlatformMembershipHistory,
+)
+from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams
 from tests.biocommons.datagen import RoleDataFactory
@@ -742,6 +745,10 @@ def test_approve_group_membership_updates_db(
     assert membership.revocation_reason is None
     assert membership.updated_by_id == admin_db_user.id
     mock_auth0_client.add_roles_to_user.assert_called_once()
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 def test_admin_group_approval_sends_email(
@@ -770,19 +777,15 @@ def test_admin_group_approval_sends_email(
     mock_role = mocker.Mock(id="role1")
     mock_auth0_client.get_role_by_name.return_value = mock_role
     mock_auth0_client.add_roles_to_user.return_value = True
-    mock_email = mocker.patch("routers.admin.send_group_membership_approved_email")
 
     group_url = quote(tsi_group.group_id, safe='')
     resp = test_client_with_email.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
 
     assert resp.status_code == 200
-    mock_email.assert_called_once_with(
-        user.email,
-        tsi_group.name,
-        tsi_group.short_name,
-        ANY,
-        ANY,
-    )
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 def test_admin_group_approval_no_email_when_already_approved(
@@ -811,13 +814,13 @@ def test_admin_group_approval_no_email_when_already_approved(
     mock_role = mocker.Mock(id="role1")
     mock_auth0_client.get_role_by_name.return_value = mock_role
     mock_auth0_client.add_roles_to_user.return_value = True
-    mock_email = mocker.patch("routers.admin.send_group_membership_approved_email")
 
     group_url = quote(tsi_group.group_id, safe='')
     resp = test_client_with_email.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
 
     assert resp.status_code == 200
-    mock_email.assert_not_called()
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 0
 
 
 def test_approve_group_membership_forbidden_without_group_role(

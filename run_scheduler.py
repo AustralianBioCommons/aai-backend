@@ -15,6 +15,7 @@ from scheduled_tasks.scheduler import SCHEDULER
 from scheduled_tasks.tasks import (
     populate_db_groups,
     populate_platforms_from_auth0,
+    process_email_queue,
     sync_auth0_roles,
     sync_auth0_users,
     sync_group_user_roles,
@@ -24,6 +25,7 @@ from scheduled_tasks.tasks import (
 
 def schedule_jobs(scheduler: AsyncIOScheduler):
     hourly_trigger = IntervalTrigger(minutes=60)
+    email_trigger = IntervalTrigger(minutes=1)
     logger.info("Adding one-off job: populate DB groups")
     scheduler.add_job(
         populate_db_groups,
@@ -69,6 +71,14 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         id="sync_platform_user_roles",
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=45)
+    )
+    logger.info("Adding frequent job: process_email_queue")
+    scheduler.add_job(
+        process_email_queue,
+        trigger=email_trigger,
+        id="process_email_queue",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=30),
     )
 
 
@@ -134,6 +144,13 @@ async def run_immediate():
             trigger=offset_trigger(offset=25),
             id="sync_platform_user_roles",
             replace_existing=True
+        )
+        logger.info("Adding one-off job: process_email_queue")
+        SCHEDULER.add_job(
+            process_email_queue,
+            trigger=offset_trigger(offset=30),
+            id="process_email_queue",
+            replace_existing=True,
         )
         logger.info("Resuming scheduler and waiting for jobs to complete...")
         SCHEDULER.resume()

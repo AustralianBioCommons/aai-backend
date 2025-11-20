@@ -9,16 +9,18 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    EmailNotification,
     GroupMembership,
     GroupMembershipHistory,
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from db.types import ApprovalStatusEnum
+from db.types import ApprovalStatusEnum, EmailStatusEnum
 from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
     populate_db_groups,
+    process_email_queue,
     sync_auth0_roles,
     sync_auth0_users,
     sync_group_user_roles,
@@ -541,3 +543,57 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
     assert removed_membership.is_deleted is True
     assert created_user is not None
     assert len(history_entries) > len(history_before)
+
+
+@pytest.mark.asyncio
+async def test_process_email_queue_sends_notifications(test_db_session, mocker):
+    notification = EmailNotification(
+        to_address="user@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+    )
+    test_db_session.add(notification)
+    test_db_session.commit()
+    notification_id = notification.id
+
+    mock_service = mocker.Mock()
+    mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=(test_db_session for _ in range(1)),
+    )
+
+    sent = await process_email_queue()
+
+    assert sent == 1
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.SENT
+    assert mock_service.send.called
+
+
+@pytest.mark.asyncio
+async def test_process_email_queue_retries_failed_notifications(test_db_session, mocker):
+    notification = EmailNotification(
+        to_address="user@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+    )
+    test_db_session.add(notification)
+    test_db_session.commit()
+    notification_id = notification.id
+
+    mock_service = mocker.Mock()
+    mock_service.send.side_effect = RuntimeError("boom")
+    mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=(test_db_session for _ in range(1)),
+    )
+
+    sent = await process_email_queue()
+
+    assert sent == 0
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.FAILED
+    assert updated.last_error is not None
+    assert updated.send_after is not None

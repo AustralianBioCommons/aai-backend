@@ -16,6 +16,13 @@ class ApprovalStatusEnum(str, Enum):
     REVOKED = "revoked"
 
 
+class EmailStatusEnum(str, Enum):
+    PENDING = "pending"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED = "failed"
+
+
 class PlatformEnum(str, Enum):
     GALAXY = "galaxy"
     BPA_DATA_PORTAL = "bpa_data_portal"

@@ -2,14 +2,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
-from auth.ses import EmailService, get_email_service
 from auth.user_permissions import (
     get_db_user,
     get_session_user,
@@ -37,7 +36,8 @@ from db.types import (
     GroupMembershipData,
     PlatformMembershipData,
 )
-from routers.biocommons_groups import send_group_membership_approved_email
+from routers.biocommons_groups import compose_group_membership_approved_email
+from services.email_queue import enqueue_email
 from schemas.biocommons import Auth0UserDataWithMemberships, ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
 
@@ -200,7 +200,7 @@ def _approve_group_membership(
     membership.updated_at = datetime.now(timezone.utc)
     membership.updated_by = admin_record
     membership.grant_auth0_role(auth0_client=client)
-    membership.save(session=db_session, commit=True)
+    membership.save(session=db_session, commit=False)
     db_session.refresh(membership)
     if membership.user is None:
         db_session.refresh(membership, attribute_names=["user"])
@@ -627,9 +627,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
                              client: Annotated[Auth0Client, Depends(get_auth0_client)],
                              admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                              db_session: Annotated[Session, Depends(get_db_session)],
-                             background_tasks: BackgroundTasks,
-                             settings: Annotated[Settings, Depends(get_settings)],
-                             email_service: Annotated[EmailService, Depends(get_email_service)]):
+                             settings: Annotated[Settings, Depends(get_settings)]):
     group_record = BiocommonsGroup.get_by_id_or_404(group_id, db_session)
     membership, status_changed = _approve_group_membership(
         user_id=user_id,
@@ -639,14 +637,18 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
     )
     if status_changed and membership.user and membership.user.email:
-        background_tasks.add_task(
-            send_group_membership_approved_email,
-            membership.user.email,
-            group_record.name,
-            group_record.short_name,
-            settings,
-            email_service,
+        subject, body_html = compose_group_membership_approved_email(
+            group_name=group_record.name,
+            group_short_name=group_record.short_name,
+            settings=settings,
         )
+        enqueue_email(
+            db_session,
+            to_address=membership.user.email,
+            subject=subject,
+            body_html=body_html,
+        )
+    db_session.commit()
     return _membership_response()
 
 

@@ -37,7 +37,13 @@ class BiocommonsBundle(BaseModel):
             )
             session.add(platform_membership)
 
-    def create_memberships(self, user: BiocommonsUser, auth0_client: Auth0Client, db_session: Session):
+    def create_memberships(
+        self,
+        user: BiocommonsUser,
+        auth0_client: Auth0Client,
+        db_session: Session,
+        commit: bool = False,
+    ):
         """
         Create group and platform memberships for the bundle user
         """
@@ -45,7 +51,9 @@ class BiocommonsBundle(BaseModel):
         self._add_group_membership(user=user, session=db_session)
         # Add extra platform memberships based on bundle configuration
         self._add_platform_memberships(user=user, session=db_session, auth0_client=auth0_client)
-        db_session.commit()
+        db_session.flush()
+        if commit:
+            db_session.commit()
         return user
 
 

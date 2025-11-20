@@ -1,12 +1,11 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
 from starlette.responses import JSONResponse
 
-from auth.ses import EmailService, get_email_service
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
@@ -17,6 +16,7 @@ from routers.errors import RegistrationRoute
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
 from schemas.responses import RegistrationErrorResponse, RegistrationResponse
+from services.email_queue import enqueue_email
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +28,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], route_class=RegistrationRoute)
 
 
-def send_approval_email(registration: BiocommonsRegistrationRequest, settings: Settings, email_service: EmailService):
-    """Send email notification about new biocommons registration."""
-    approver_email = "aai-dev@biocommons.org.au"
+def compose_biocommons_registration_email(
+    registration: BiocommonsRegistrationRequest, settings: Settings
+) -> tuple[str, str]:
+    """Create the approval email content for bundle registrations."""
     subject = "New BioCommons User Registration"
-
     body_html = f"""
         <p>A new user has registered for the BioCommons platform.</p>
         <p><strong>User:</strong> {registration.first_name} {registration.last_name} ({registration.email})</p>
@@ -41,13 +41,14 @@ def send_approval_email(registration: BiocommonsRegistrationRequest, settings: S
         <p><strong>Requested Access:</strong> BPA Data Portal & Galaxy Australia</p>
         <p>Please <a href='{settings.aai_portal_url}/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
-
-    email_service.send(approver_email, subject, body_html)
+    return subject, body_html
 
 
 def create_user_in_db(user_data: Auth0UserData,
                       bundle: Optional[BiocommonsBundle],
-                      session: Session, auth0_client: Auth0Client) -> BiocommonsUser:
+                      session: Session,
+                      auth0_client: Auth0Client,
+                      commit: bool = False) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=user_data)
     session.add(db_user)
     session.flush()
@@ -64,10 +65,13 @@ def create_user_in_db(user_data: Auth0UserData,
         bundle.create_memberships(
             user=db_user,
             auth0_client=auth0_client,
-            db_session=session
+            db_session=session,
+            commit=False,
         )
 
-    session.commit()
+    session.flush()
+    if commit:
+        session.commit()
     return db_user
 
 
@@ -80,11 +84,9 @@ def create_user_in_db(user_data: Auth0UserData,
 )
 async def register_biocommons_user(
     registration: BiocommonsRegistrationRequest,
-    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
-    email_service: EmailService = Depends(get_email_service),
 ):
     """Register a new BioCommons user."""
 
@@ -103,9 +105,17 @@ async def register_biocommons_user(
             session=db_session,
             auth0_client=auth0_client
         )
-        # Send approval email in the background
+        # Queue approval email for manual bundles
         if bundle is not None and not bundle.group_auto_approve:
-            background_tasks.add_task(send_approval_email, registration, settings, email_service)
+            subject, body_html = compose_biocommons_registration_email(registration, settings)
+            enqueue_email(
+                db_session,
+                to_address="aai-dev@biocommons.org.au",
+                subject=subject,
+                body_html=body_html,
+            )
+
+        db_session.commit()
 
         logger.info(
             f"Successfully registered biocommons user: {auth0_user_data.user_id}"
