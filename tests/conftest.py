@@ -5,13 +5,11 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-from moto import mock_aws
-from moto.core import patch_client
 from polyfactory import BaseFactory
 from sqlmodel import Session, StaticPool, create_engine
 
 from auth.management import get_management_token
-from auth.ses import EmailService, get_email_service
+from auth.ses import get_email_service
 from auth.user_permissions import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings

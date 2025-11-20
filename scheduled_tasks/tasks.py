@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from loguru import logger
 from pydantic import BaseModel
@@ -20,7 +20,7 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, GROUP_NAMES
+from db.types import GROUP_NAMES, ApprovalStatusEnum, EmailStatusEnum, GroupEnum
 from scheduled_tasks.scheduler import SCHEDULER
 from schemas.auth0 import (
     GROUP_ROLE_PATTERN,

@@ -19,8 +19,8 @@ from db.models import (
     GroupMembership,
 )
 from db.setup import get_db_session
-from services.email_queue import enqueue_email
 from schemas.user import SessionUser
+from services.email_queue import enqueue_email
 
 logger = logging.getLogger('uvicorn.error')
 

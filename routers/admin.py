@@ -37,9 +37,9 @@ from db.types import (
     PlatformMembershipData,
 )
 from routers.biocommons_groups import compose_group_membership_approved_email
-from services.email_queue import enqueue_email
 from schemas.biocommons import Auth0UserDataWithMemberships, ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
+from services.email_queue import enqueue_email
 
 logger = logging.getLogger('uvicorn.error')
 

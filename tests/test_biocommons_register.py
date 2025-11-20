@@ -1,4 +1,5 @@
 import pytest
+from sqlmodel import select
 from starlette.exceptions import HTTPException
 
 from biocommons.bundles import BUNDLES
@@ -13,7 +14,6 @@ from tests.datagen import (
     BiocommonsRegistrationRequestFactory,
 )
 from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory, PlatformFactory
-from sqlmodel import select
 
 
 @pytest.fixture
