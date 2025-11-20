@@ -1,6 +1,6 @@
-import http
 import hashlib
 import hmac
+import http
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict
@@ -448,29 +448,18 @@ async def continue_email_update(
         )
 
     if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
+        otp_entry.is_active = False
+        db_session.add(otp_entry)
+        db_session.commit()
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many verification attempts. Try again later.",
         )
-
-    window_start = otp_entry.window_start
-    if window_start is not None:
-        window_start = _ensure_datetime_is_aware(window_start)
-    window_elapsed = (now - window_start).total_seconds() if window_start else None
-    if window_elapsed is None or window_elapsed > OTP_WINDOW_SECONDS:
-        otp_entry.window_start = now
-        otp_entry.attempts_in_window = 0
-
-    if otp_entry.attempts_in_window >= MAX_WINDOW_ATTEMPTS:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many verification attempts. Try again later.",
-        )
-
     provided_hash = _hash_otp(payload.otp)
     if not hmac.compare_digest(otp_entry.otp_hash, provided_hash):
-        otp_entry.attempts_in_window += 1
         otp_entry.total_attempts += 1
+        if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
+            otp_entry.is_active = False
         db_session.add(otp_entry)
         db_session.commit()
         raise HTTPException(
@@ -492,7 +481,6 @@ async def continue_email_update(
         )
 
     otp_entry.is_active = False
-    otp_entry.attempts_in_window += 1
     otp_entry.total_attempts += 1
     db_session.add(otp_entry)
     db_session.commit()
