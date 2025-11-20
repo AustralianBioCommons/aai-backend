@@ -93,19 +93,6 @@ BiocommonsFullName = ValidatedString(min_length=1, max_length=255,
 
 
 def _validate_biocommons_email(email: str) -> str:
-    if "@" in email:
-        local_part, domain_part = email.rsplit("@", 1)
-        if len(local_part) > 64:
-            raise PydanticCustomError(
-                "value_error.local_too_long",
-                "Email local part must be 64 characters or less.",
-            )
-        if len(domain_part) > 254:
-            raise PydanticCustomError(
-                "value_error.domain_too_long",
-                "Email domain must be 254 characters or less.",
-            )
-
     try:
         validated = validate_email(
             email,
