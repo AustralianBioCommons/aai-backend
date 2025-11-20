@@ -123,6 +123,35 @@ def disable_db_setup(mocker):
     mocker.patch("db.setup.get_engine", return_value=None)
 
 
+class _DummyEmailService:
+    """No-op email service used to prevent real SES calls in tests."""
+    def send(self, *args, **kwargs):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def disable_real_email_sending():
+    """
+    Provide a default no-op EmailService override so tests don't call AWS SES.
+    Tests that need to inspect emails should override get_email_service themselves.
+    """
+    if get_email_service in app.dependency_overrides:
+        yield
+        return
+
+    dummy_service = _DummyEmailService()
+
+    def override():
+        return dummy_service
+
+    app.dependency_overrides[get_email_service] = override
+    try:
+        yield
+    finally:
+        if app.dependency_overrides.get(get_email_service) is override:
+            app.dependency_overrides.pop(get_email_service, None)
+
+
 @pytest.fixture
 def mock_settings():
     """Fixture that returns mocked Settings object."""

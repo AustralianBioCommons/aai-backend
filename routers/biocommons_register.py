@@ -6,7 +6,7 @@ from httpx import HTTPStatusError
 from sqlmodel import Session
 from starlette.responses import JSONResponse
 
-from auth.ses import EmailService
+from auth.ses import EmailService, get_email_service
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
@@ -28,9 +28,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], route_class=RegistrationRoute)
 
 
-def send_approval_email(registration: BiocommonsRegistrationRequest, settings: Settings):
+def send_approval_email(registration: BiocommonsRegistrationRequest, settings: Settings, email_service: EmailService):
     """Send email notification about new biocommons registration."""
-    email_service = EmailService()
     approver_email = "aai-dev@biocommons.org.au"
     subject = "New BioCommons User Registration"
 
@@ -85,6 +84,7 @@ async def register_biocommons_user(
     settings: Settings = Depends(get_settings),
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
+    email_service: EmailService = Depends(get_email_service),
 ):
     """Register a new BioCommons user."""
 
@@ -105,7 +105,7 @@ async def register_biocommons_user(
         )
         # Send approval email in the background
         if bundle is not None and not bundle.group_auto_approve:
-            background_tasks.add_task(send_approval_email, registration, settings)
+            background_tasks.add_task(send_approval_email, registration, settings, email_service)
 
         logger.info(
             f"Successfully registered biocommons user: {auth0_user_data.user_id}"

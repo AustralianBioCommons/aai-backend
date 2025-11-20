@@ -6,7 +6,7 @@ from httpx import HTTPStatusError
 from sqlmodel import Session
 from starlette.responses import JSONResponse
 
-from auth.ses import EmailService
+from auth.ses import EmailService, get_email_service
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser, PlatformEnum
@@ -35,9 +35,8 @@ def validate_sbp_email_domain(email: str, settings: Settings) -> bool:
         return False
 
 
-def send_approval_email(registration: SBPRegistrationRequest, settings: Settings):
+def send_approval_email(registration: SBPRegistrationRequest, settings: Settings, email_service: EmailService):
     """Send email notification about new SBP registration."""
-    email_service = EmailService()
     approver_email = "aai-dev@biocommons.org.au"
     subject = "New Structural Biology Platform User Registration"
 
@@ -49,10 +48,10 @@ def send_approval_email(registration: SBPRegistrationRequest, settings: Settings
         <p>Please <a href='{settings.aai_portal_url}/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
-    email_service.send_email(
-        to_email=approver_email,
-        subject=subject,
-        body_html=body_html
+    email_service.send(
+        approver_email,
+        subject,
+        body_html,
     )
 
 
@@ -68,7 +67,8 @@ async def register_sbp_user(
     background_tasks: BackgroundTasks,
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
-    settings: Settings = Depends(get_settings)
+    settings: Settings = Depends(get_settings),
+    email_service: EmailService = Depends(get_email_service),
 ):
     """Register a new SBP user."""
 
@@ -97,7 +97,7 @@ async def register_sbp_user(
         _create_sbp_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
 
         # Send approval email in the background
-        background_tasks.add_task(send_approval_email, registration, settings)
+        background_tasks.add_task(send_approval_email, registration, settings, email_service)
         logger.info("Bundle approval email queued for sending")
 
         return {"message": "User registered successfully. Approval pending.", "user": auth0_user_data.model_dump(mode="json")}
