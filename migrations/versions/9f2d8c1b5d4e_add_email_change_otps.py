@@ -29,6 +29,8 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("total_attempts", sa.Integer(), nullable=False, server_default="0"),
+        sa.ForeignKeyConstraint(['user_id'], ['biocommons_user.id'], name=op.f('fk_email_change_otps_user_id_biocommons_user')),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_email_change_otps'))
     )
 
 

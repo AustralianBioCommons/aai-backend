@@ -11,6 +11,7 @@ from httpx import AsyncClient, HTTPStatusError
 from loguru import logger
 from pydantic import AliasPath, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from auth.management import get_management_token
@@ -379,15 +380,17 @@ async def update_email(
             detail="Email is already in use by another user.",
         )
     now = datetime.now(timezone.utc)
-    active_otps = db_session.exec(
-        select(EmailChangeOtp).where(
+    # Clear existing OTPs
+    db_session.exec(
+        update(EmailChangeOtp)
+        .where(
             EmailChangeOtp.user_id == user.access_token.sub,
             EmailChangeOtp.is_active.is_(True),
         )
-    ).all()
-    for otp in active_otps:
-        otp.is_active = False
-        db_session.add(otp)
+    .values(is_active=False)
+    )
+
+    db_session.commit()
 
     code = _generate_otp_code()
     otp_entry = EmailChangeOtp(

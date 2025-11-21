@@ -120,6 +120,25 @@ def disable_db_setup(mocker):
     mocker.patch("db.setup.get_engine", return_value=None)
 
 
+@pytest.fixture
+def mock_email_service(mocker):
+    """Mock get_email_service so tests don't hit AWS."""
+    class DummyEmailService:
+        def send(self, *args, **kwargs):
+            return None
+
+    service = DummyEmailService()
+    mocker.patch("auth.ses.get_email_service", return_value=service)
+    mocker.patch("routers.user.get_email_service", return_value=service)
+    def get_email_service_override():
+        return service
+    app.dependency_overrides[get_email_service] = get_email_service_override
+    try:
+        yield service
+    finally:
+        app.dependency_overrides.pop(get_email_service, None)
+
+
 class _DummyEmailService:
     """No-op email service used to prevent real SES calls in tests."""
     def send(self, *args, **kwargs):
