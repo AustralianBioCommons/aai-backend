@@ -5,6 +5,7 @@ from db.types import ApprovalStatusEnum, PlatformEnum
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     PASSWORD_FORMAT_MESSAGE,
+    BiocommonsEmail,
     BiocommonsPassword,
     BiocommonsUsername,
     UserProfileData,
@@ -23,7 +24,7 @@ from tests.db.datagen import (
    "V6Zs^B8E",
    "k$M2FZa@",
    "6*@s&#5Z",
-   "Jd9sugcfjgWXY@Dzje^83!mcfM@A$YZ8be^bUhrBZ8s$KjbbNwAHr*bdiEhmLyMPyPowFU@rX4k8h5KCh#qm9bYS5RUmtjaLmVds",
+   "A" * 69 + "a1!",
    *[f"Password1{x}" for x in ALLOWED_SPECIAL_CHARS]
 ])
 def test_valid_password(password: str):
@@ -37,8 +38,8 @@ def test_valid_password(password: str):
     ("aB1!", "Password must be at least 8 characters."),
     ("Abc12!", "Password must be at least 8 characters."),
     ("", "Password must be at least 8 characters."),
-    # Too long (more than 128 characters)
-    ("A" * 129 + "bc123!", "Password must be 128 characters or less."),
+    # Too long (more than 72 characters)
+    ("A" * 70 + "a1!", "Password must be 72 characters or less."),
     # Missing uppercase letter
     ("abcd1234!", PASSWORD_FORMAT_MESSAGE),
     # Missing lowercase letter
@@ -169,3 +170,48 @@ def test_invalid_username(username: str, expected_error: str):
 
     # Check that the error message contains our custom message
     assert expected_error in str(exc_info.value)
+
+
+@pytest.mark.parametrize("email", [
+    "user@example.com",
+    "first.last+label@mail.co",
+    "user.name@subdomain.example.com",
+])
+def test_valid_email(email: str):
+    email_adapter = TypeAdapter(BiocommonsEmail)
+    result = email_adapter.validate_python(email)
+    assert result == email
+
+
+@pytest.mark.parametrize("email,expected_error", [
+    (
+        "a" * 65 + "@example.com",
+        "Email local part must be 64 characters or less.",
+    ),
+    (
+        "user@" + "a" * 251 + ".com",
+        "Email domain must be 254 characters or less.",
+    ),
+    (
+        "user@bücher.de",
+        "Email domain must be ASCII and already transcoded.",
+    ),
+])
+def test_invalid_email(email: str, expected_error: str):
+    email_adapter = TypeAdapter(BiocommonsEmail)
+    with pytest.raises(ValueError) as exc_info:
+        email_adapter.validate_python(email)
+    detail = str(exc_info.value)
+    if expected_error == "Email local part must be 64 characters or less.":
+        allowed = [
+            expected_error,
+            "The email address is too long before the @-sign",
+        ]
+    elif expected_error == "Email domain must be 254 characters or less.":
+        allowed = [
+            expected_error,
+            "The email address is too long after the @-sign",
+        ]
+    else:
+        allowed = [expected_error]
+    assert any(token in detail for token in allowed)

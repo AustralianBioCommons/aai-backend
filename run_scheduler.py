@@ -1,4 +1,5 @@
 import asyncio
+import os
 import signal
 import sys
 from datetime import UTC, datetime, timedelta
@@ -10,9 +11,10 @@ from apscheduler.triggers.interval import IntervalTrigger
 from loguru import logger
 from sqlalchemy import text
 
-from db.setup import get_db_config, get_engine
+from db.setup import create_db_and_tables, get_db_config, get_engine
 from scheduled_tasks.scheduler import SCHEDULER
 from scheduled_tasks.tasks import (
+    cleanup_email_otps,
     populate_db_groups,
     populate_platforms_from_auth0,
     process_email_queue,
@@ -79,6 +81,15 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         id="process_email_queue",
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(seconds=30),
+    )
+    logger.info("Adding recurring cleanup job: cleanup_email_otps")
+    cleanup_trigger = IntervalTrigger(minutes=15)
+    scheduler.add_job(
+        cleanup_email_otps,
+        trigger=cleanup_trigger,
+        id="cleanup_email_otps",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC),
     )
 
 
@@ -152,6 +163,13 @@ async def run_immediate():
             id="process_email_queue",
             replace_existing=True,
         )
+        logger.info("Adding one-off job: cleanup_email_otps")
+        SCHEDULER.add_job(
+            cleanup_email_otps,
+            trigger=offset_trigger(offset=35),
+            id="cleanup_email_otps",
+            replace_existing=True,
+        )
         logger.info("Resuming scheduler and waiting for jobs to complete...")
         SCHEDULER.resume()
         while SCHEDULER.get_jobs():
@@ -191,4 +209,8 @@ if __name__ == "__main__":
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green>\t<level>{level}</level>\t{message}\t<blue>{name}</blue>\t<cyan>{extra}</cyan>",
         level="INFO"
     )
+    if (
+        create_tables_on_start := os.getenv("SCHEDULER_CREATE_TABLES", "true").lower()
+    ) in {"1", "true", "yes"}:
+        create_db_and_tables()
     typer.run(main)

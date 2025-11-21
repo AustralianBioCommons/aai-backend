@@ -1,10 +1,14 @@
+import hashlib
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
 import respx
 from fastapi import HTTPException
 from httpx import HTTPStatusError, Request, Response
+from sqlmodel import select
 
+from db.models import EmailChangeOtp
 from db.types import ApprovalStatusEnum, PlatformEnum
 from routers.user import get_user_data, update_user_metadata
 from schemas.biocommons import Auth0Identity, BiocommonsAppMetadata
@@ -514,6 +518,112 @@ def test_update_username_auth0_error(test_client, test_db_session, mocker, persi
     # Verify DB user was not updated
     test_db_session.refresh(user)
     assert user.username == "old_username"
+
+
+def test_update_full_name(test_client, mocker, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    mock_data = Auth0UserDataFactory.build(sub=user.id, name="New Name")
+    mocker.patch("routers.user.Auth0Client.update_user", return_value=mock_data)
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/profile/full-name/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"full_name": "New Name"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "New Name"
+
+
+def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
+    user = BiocommonsUserFactory.create_sync(email="old@example.com", email_verified=True)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+
+    spy = mocker.spy(mock_email_service, "send")
+    response = test_client.post(
+        "/me/profile/email/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"email": "new@example.com"},
+    )
+
+    assert response.status_code == 200
+    entry = test_db_session.exec(
+        select(EmailChangeOtp).where(
+            EmailChangeOtp.user_id == user.id,
+            EmailChangeOtp.is_active.is_(True),
+        )
+    ).one_or_none()
+    assert entry is not None
+    assert entry.target_email == "new@example.com"
+    assert spy.call_count == 1
+
+
+def test_email_continue_updates_user(test_client, test_db_session, mocker, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(email="old@example.com", email_verified=True)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+
+    code = "123456"
+    hashed = hashlib.sha256(code.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    otp_entry = EmailChangeOtp(
+        user_id=user.id,
+        target_email="new@example.com",
+        otp_hash=hashed,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        window_start=now,
+    )
+    test_db_session.add(otp_entry)
+    test_db_session.commit()
+
+    updated_user = Auth0UserDataFactory.build(
+        sub=user.id,
+        email="new@example.com",
+        email_verified=True,
+        app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+    )
+    current_auth0_user = Auth0UserDataFactory.build(
+        sub=user.id,
+        email=user.email,
+        app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+    )
+    mocker.patch("routers.user.Auth0Client.update_user", return_value=updated_user)
+    mocker.patch("routers.user.Auth0Client.get_user", return_value=current_auth0_user)
+    metadata_updates = []
+
+    async def fake_metadata_update(user_id, token, metadata):
+        metadata_updates.append(metadata)
+        return metadata
+
+    mocker.patch("routers.user.update_user_metadata", side_effect=fake_metadata_update)
+    mocker.patch("routers.user.get_management_token", return_value="mgmt-token")
+
+    response = test_client.post(
+        "/me/profile/email/continue",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"otp": code},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == "new@example.com"
+
+    test_db_session.refresh(user)
+    assert user.email == "new@example.com"
+    assert user.email_verified
+    assert metadata_updates
+    assert metadata_updates[0]["old_emails"][0]["old_email"] == "old@example.com"
+    remaining_active = test_db_session.exec(
+        select(EmailChangeOtp).where(
+            EmailChangeOtp.user_id == user.id,
+            EmailChangeOtp.is_active.is_(True),
+        )
+    ).one_or_none()
+    assert remaining_active is None
 
 
 def _make_auth0_identity(connection: str, user_id: str) -> Auth0Identity:
