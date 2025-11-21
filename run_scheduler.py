@@ -91,7 +91,6 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         replace_existing=True,
         next_run_time=datetime.now(UTC),
     )
-    )
 
 
 def clear_db_jobs():
@@ -170,7 +169,6 @@ async def run_immediate():
             trigger=offset_trigger(offset=35),
             id="cleanup_email_otps",
             replace_existing=True,
-        )
         )
         logger.info("Resuming scheduler and waiting for jobs to complete...")
         SCHEDULER.resume()

@@ -935,17 +935,11 @@ class EmailChangeOtp(BaseModel, table=True):
     user_id: str = Field(foreign_key="biocommons_user.id")
     target_email: str
     otp_hash: str
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+    created_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
     )
-    expires_at: datetime = Field(sa_type=DateTime)
-    is_active: bool = Field(default=True)
-    total_attempts: int = Field(default=0)
-
-    created_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
-    )
-    expires_at: datetime = Field(sa_type=DateTime)
+    expires_at: AwareDatetime = Field(sa_type=DateTime(timezone=True))
     is_active: bool = Field(default=True)
     total_attempts: int = Field(default=0)
 
