@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     auth0_domain: str
+    auth0_custom_domain: Optional[str] = None
     auth0_management_id: str
     auth0_management_secret: str
     auth0_audience: str
@@ -16,6 +17,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     auth0_algorithms: list[str] = ["RS256"]
     admin_roles: list[str] = []
+    enable_admin_dashboard: bool = False
     # Note we process this separately in app startup as it needs
     #   to be available before the app starts
     cors_allowed_origins: str
