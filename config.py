@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +43,12 @@ class Settings(BaseSettings):
     ]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator('auth0_custom_domain', mode="after")
+    def strip_trailing_slash(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.rstrip("/")
 
 
 @lru_cache()
