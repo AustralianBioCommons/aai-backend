@@ -18,7 +18,6 @@ from starlette_admin.contrib.sqlmodel import Admin, ModelView
 
 from auth.validator import verify_jwt
 from config import get_settings
-from db.admin_config import get_admin_settings
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
@@ -154,9 +153,8 @@ class GroupMembershipHistoryView(DefaultView):
 
 def setup_starlette_admin(app: FastAPI):
     settings = get_settings()
-    admin_settings = get_admin_settings()
-    if admin_settings.admin_client_id is None:
-        logger.info("Admin client ID not set, skipping admin setup")
+    if not settings.enable_admin_dashboard:
+        logger.info("Admin dashboard not enabled, skipping admin setup")
         return
     engine = get_engine()
     admin = Admin(
@@ -178,13 +176,13 @@ def setup_starlette_admin(app: FastAPI):
 
 
 def setup_oauth():
-    admin_settings = get_admin_settings()
+    settings = get_settings()
     oauth = OAuth()
     oauth.register(
         name="auth0",
-        client_id=admin_settings.admin_client_id,
-        client_secret=admin_settings.admin_client_secret,
-        server_metadata_url=f"{admin_settings.auth0_custom_domain}/.well-known/openid-configuration",
+        client_id=settings.auth0_management_id,
+        client_secret=settings.auth0_management_secret,
+        server_metadata_url=f"{settings.auth0_custom_domain}/.well-known/openid-configuration",
         client_kwargs={
             "scope": "openid profile email",
         },
@@ -233,12 +231,12 @@ class Auth0AuthProvider(AuthProvider):
 
     async def render_logout(self, request: Request, admin: BaseAdmin) -> Response:
         """Override the default logout to implement custom logic"""
+        settings = get_settings()
         request.session.clear()
-        admin_settings = get_admin_settings()
         return RedirectResponse(
-            url=URL(f"{admin_settings.auth0_custom_domain}/v2/logout").include_query_params(
+            url=URL(f"{settings.auth0_custom_domain}/v2/logout").include_query_params(
                 returnTo=request.url_for(admin.route_name + ":index"),
-                client_id=admin_settings.auth0_client_id,
+                client_id=settings.auth0_management_id,
             )
         )
 

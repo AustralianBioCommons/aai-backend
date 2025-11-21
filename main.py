@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
 
     create_db_and_tables()
     # NOTE: starlette-admin is only set up if
-    # ADMIN_CLIENT_ID is set in the environment.
+    # ENABLE_ADMIN_DASHBOARD is set in the environment.
     setup_starlette_admin(app=app)
     yield
 
