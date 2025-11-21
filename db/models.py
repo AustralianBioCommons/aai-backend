@@ -419,9 +419,9 @@ class PlatformMembership(SoftDeleteModel, table=True):
         """
         if self.approval_status != ApprovalStatusEnum.APPROVED:
             raise ValueError("User is not approved")
-        platform_value = self.platform_id.value if isinstance(self.platform_id, PlatformEnum) else self.platform_id
-        role_name = f"biocommons/platform/{platform_value}"
-        role = auth0_client.get_role_by_name(role_name)
+        if self.platform is None or self.platform.platform_role is None:
+            raise ValueError("Platform role is not configured")
+        role = self.platform.platform_role
         auth0_client.add_roles_to_user(user_id=self.user_id, role_id=role.id)
         return True
 

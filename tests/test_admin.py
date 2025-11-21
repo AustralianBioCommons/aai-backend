@@ -545,9 +545,6 @@ def test_approve_platform_membership_updates_db(
     )
     test_db_session.commit()
 
-    mock_role = RoleDataFactory.build(name="biocommons/platform/galaxy")
-    mock_auth0_client.get_role_by_name.return_value = mock_role
-
     resp = test_client.post(f"/admin/users/{user.id}/platforms/galaxy/approve")
 
     assert resp.status_code == 200
@@ -568,10 +565,10 @@ def test_approve_platform_membership_updates_db(
     ).all()
     assert history_entries[-1].approval_status == ApprovalStatusEnum.APPROVED
     assert history_entries[-1].reason is None
-    mock_auth0_client.get_role_by_name.assert_called_once_with("biocommons/platform/galaxy")
+    mock_auth0_client.get_role_by_name.assert_not_called()
     mock_auth0_client.add_roles_to_user.assert_called_once_with(
         user_id=user.id,
-        role_id=mock_role.id,
+        role_id=galaxy_platform.platform_role.id,
     )
 
 
@@ -613,6 +610,8 @@ def test_approve_platform_membership_forbidden_without_platform_role(
 
     test_db_session.refresh(membership)
     assert membership.approval_status == original_status
+    mock_auth0_client.get_role_by_name.assert_not_called()
+    mock_auth0_client.add_roles_to_user.assert_not_called()
 
 
 def test_revoke_platform_membership_records_reason(
