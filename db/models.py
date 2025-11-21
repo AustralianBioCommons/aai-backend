@@ -413,6 +413,18 @@ class PlatformMembership(SoftDeleteModel, table=True):
         auth0_client.remove_roles_from_user(user_id=self.user_id, role_id=role.id)
         return True
 
+    def grant_auth0_role(self, auth0_client: Auth0Client) -> bool:
+        """
+        Assign the Auth0 role backing this platform membership when access is granted.
+        """
+        if self.approval_status != ApprovalStatusEnum.APPROVED:
+            raise ValueError("User is not approved")
+        if self.platform is None or self.platform.platform_role is None:
+            raise ValueError("Platform role is not configured")
+        role = self.platform.platform_role
+        auth0_client.add_roles_to_user(user_id=self.user_id, role_id=role.id)
+        return True
+
     def revoke(
         self,
         *,
