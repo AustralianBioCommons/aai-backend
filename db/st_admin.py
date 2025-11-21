@@ -22,6 +22,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    EmailChangeOtp,
     GroupMembership,
     GroupMembershipHistory,
     Platform,
@@ -151,6 +152,13 @@ class GroupMembershipHistoryView(DefaultView):
     ]
 
 
+class EmailChangeOtpView(DefaultView):
+    fields = ["target_email", "created_at", "expires_at", "is_active", "total_attempts"]
+    fields_default_sort = [("created_at", True)]
+    searchable_fields = ["target_email", "is_active"]
+
+
+
 def setup_starlette_admin(app: FastAPI):
     settings = get_settings()
     if not settings.enable_admin_dashboard:
@@ -172,6 +180,7 @@ def setup_starlette_admin(app: FastAPI):
     admin.add_view(RoleView(Auth0Role, identity="role", icon="fa fa-user-tie"))
     admin.add_view(PlatformMembershipHistoryView(PlatformMembershipHistory, identity="platform_membership_history", icon="fa fa-clock-rotate-left"))
     admin.add_view(GroupMembershipHistoryView(GroupMembershipHistory, identity="group_membership_history", icon="fa fa-clock-rotate-left"))
+    admin.add_view(EmailChangeOtpView(EmailChangeOtp, identity="email_change_otp", icon="fa fa-envelope"))
     admin.mount_to(app)
 
 
