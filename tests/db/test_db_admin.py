@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -23,8 +22,8 @@ def create_signed_session_cookie(data: dict, secret_key: str) -> str:
 
 
 def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine, mocker):
+    mock_settings.enable_admin_dashboard = True
     mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
-    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
     mocker.patch("db.st_admin.get_engine", return_value=test_db_engine)
 
     # Proper async-capable OAuth client
@@ -55,9 +54,9 @@ def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings,
 @pytest.mark.asyncio
 async def test_auth_callback_missing_access_token_raises(mocker, mock_settings, mock_request):
     """Auth0 callback without access_token -> 401"""
+    mock_settings.enable_admin_dashboard = True
     mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
     # Enable admin
-    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
     # OAuth client returning no token
     oauth = Mock()
     oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={}))
@@ -76,8 +75,8 @@ async def test_auth_callback_missing_access_token_raises(mocker, mock_settings, 
 @pytest.mark.asyncio
 async def test_auth_callback_invalid_jwt_raises(mocker, mock_settings, mock_request):
     """Auth0 callback with invalid JWT -> 401"""
+    mock_settings.enable_admin_dashboard = True
     mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
-    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
     oauth = Mock()
     oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={"access_token": "token"}))
     mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
@@ -96,8 +95,8 @@ async def test_auth_callback_invalid_jwt_raises(mocker, mock_settings, mock_requ
 @pytest.mark.asyncio
 async def test_auth_callback_missing_admin_role_raises(mocker, mock_settings, mock_request):
     """Auth0 callback when user lacks admin role -> 401"""
+    mock_settings.enable_admin_dashboard = True
     mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
-    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
     oauth = Mock()
     oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={"access_token": "token"}))
     mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
@@ -120,8 +119,8 @@ async def test_auth_callback_missing_admin_role_raises(mocker, mock_settings, mo
 @pytest.mark.asyncio
 async def test_auth_callback_success_sets_session_and_redirects(mocker, mock_settings, mock_request):
     """Successful Auth0 callback stores user in session and redirects."""
+    mock_settings.enable_admin_dashboard = True
     mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
-    mocker.patch("db.st_admin.get_admin_settings", return_value=SimpleNamespace(admin_client_id="test_client"))
     oauth = Mock()
     oauth.create_client.return_value = AsyncMock(
         authorize_access_token=AsyncMock(return_value={"access_token": "token", "userinfo": {"name": "A", "picture": ""}})
