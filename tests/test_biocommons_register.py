@@ -314,6 +314,9 @@ def test_biocommons_registration_auth0_conflict_error(
         "User already exists", request=request, response=response
     )
 
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username="existinguser")]
+    mock_auth0_client.search_users_by_email.return_value = []
+
     registration_data = {
         "first_name": "Test",
         "last_name": "User",
@@ -326,7 +329,67 @@ def test_biocommons_registration_auth0_conflict_error(
     response = test_client.post("/biocommons/register", json=registration_data)
 
     assert response.status_code == 400
-    assert response.json()["message"] == "Username or email already in use"
+    assert response.json()["message"] == "Username is already taken"
+
+
+def test_biocommons_registration_email_conflict_error(
+    test_client, tsi_group, mock_auth0_client, test_db_session
+):
+    """Test handling of Auth0 conflict error when email exists"""
+    from httpx import HTTPStatusError, Request, Response
+
+    response = Response(409, json={"error": "user_exists"})
+    request = Request("POST", "https://example.com")
+    mock_auth0_client.create_user.side_effect = HTTPStatusError(
+        "User already exists", request=request, response=response
+    )
+
+    mock_auth0_client.get_users.return_value = []
+    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build()]
+
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "existing@example.com",
+        "username": "newuser",
+        "password": "StrongPass1!",
+        "bundle": "tsi",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Email is already taken"
+
+
+def test_biocommons_registration_both_conflict_error(
+    test_client, tsi_group, mock_auth0_client, test_db_session
+):
+    """Test handling of Auth0 conflict error when both username and email exist"""
+    from httpx import HTTPStatusError, Request, Response
+
+    response = Response(409, json={"error": "user_exists"})
+    request = Request("POST", "https://example.com")
+    mock_auth0_client.create_user.side_effect = HTTPStatusError(
+        "User already exists", request=request, response=response
+    )
+
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username="existinguser")]
+    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build(email="existing@example.com")]
+
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "existing@example.com",
+        "username": "existinguser",
+        "password": "StrongPass1!",
+        "bundle": "tsi",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username and email are already taken"
 
 
 def test_biocommons_registration_missing_group_error(test_client, mock_auth0_client):

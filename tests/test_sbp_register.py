@@ -139,10 +139,53 @@ def test_registration_duplicate_user(
     )
     mock_auth0_client.create_user.side_effect = error
 
+    mock_auth0_client.get_users.return_value = []
+    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build()]
+
     response = test_client.post("/sbp/register", json=valid_registration_data)
 
     assert response.status_code == 400
-    assert response.json()["message"] == "Username or email already in use"
+    assert response.json()["message"] == "Email is already taken"
+
+
+def test_registration_duplicate_username(
+    test_client, valid_registration_data, mock_auth0_client
+):
+    """Test that duplicate username returns specific error message"""
+    error = httpx.HTTPStatusError(
+        "User already exists",
+        request=httpx.Request("POST", "https://api.example.com/data"),
+        response=httpx.Response(409, text="User already exists"),
+    )
+    mock_auth0_client.create_user.side_effect = error
+
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username=valid_registration_data["username"])]
+    mock_auth0_client.search_users_by_email.return_value = []
+
+    response = test_client.post("/sbp/register", json=valid_registration_data)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username is already taken"
+
+
+def test_registration_duplicate_both(
+    test_client, valid_registration_data, mock_auth0_client
+):
+    """Test that duplicate username and email returns specific error message"""
+    error = httpx.HTTPStatusError(
+        "User already exists",
+        request=httpx.Request("POST", "https://api.example.com/data"),
+        response=httpx.Response(409, text="User already exists"),
+    )
+    mock_auth0_client.create_user.side_effect = error
+
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username=valid_registration_data["username"])]
+    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build(email=valid_registration_data["email"])]
+
+    response = test_client.post("/sbp/register", json=valid_registration_data)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username and email are already taken"
 
 
 def test_registration_auth0_error(

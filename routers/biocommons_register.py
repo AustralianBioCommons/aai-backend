@@ -13,9 +13,14 @@ from config import Settings, get_settings
 from db.models import BiocommonsGroup, BiocommonsUser
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
+from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest
-from schemas.responses import RegistrationErrorResponse, RegistrationResponse
+from schemas.responses import (
+    FieldError,
+    RegistrationErrorResponse,
+    RegistrationResponse,
+)
 from services.email_queue import enqueue_email
 
 logger = logging.getLogger(__name__)
@@ -140,7 +145,29 @@ async def register_biocommons_user(
         logger.error(f"Auth0 registration failed: {e}")
         # Catch specific errors where possible and return a useful error message
         if e.response.status_code == 409:
-            response = RegistrationErrorResponse(message="Username or email already in use")
+            existing_field = check_existing_user(registration.username, registration.email, auth0_client)
+            field_errors = []
+            if existing_field == "username":
+                field_errors.append(FieldError(field="username", message="Username is already taken"))
+                response = RegistrationErrorResponse(
+                    message="Username is already taken",
+                    field_errors=field_errors
+                )
+            elif existing_field == "email":
+                field_errors.append(FieldError(field="email", message="Email is already taken"))
+                response = RegistrationErrorResponse(
+                    message="Email is already taken",
+                    field_errors=field_errors
+                )
+            elif existing_field == "both":
+                field_errors.append(FieldError(field="username", message="Username is already taken"))
+                field_errors.append(FieldError(field="email", message="Email is already taken"))
+                response = RegistrationErrorResponse(
+                    message="Username and email are already taken",
+                    field_errors=field_errors
+                )
+            else:
+                response = RegistrationErrorResponse(message="Username or email is already taken")
         else:
             response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
         return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
