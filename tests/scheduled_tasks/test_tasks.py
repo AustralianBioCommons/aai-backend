@@ -690,7 +690,7 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
         status=EmailStatusEnum.FAILED,
         attempts=1,
         send_after=datetime.now(timezone.utc) - timedelta(minutes=5),
-        first_attempt_at=first_attempt,
+        last_attempt_at=first_attempt,
     )
     test_db_session.add(notification)
     notification_id = notification.id

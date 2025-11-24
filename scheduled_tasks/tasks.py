@@ -60,7 +60,7 @@ def _ensure_aware(dt: datetime | None) -> datetime | None:
 
 
 def _retry_deadline(notification: EmailNotification) -> datetime | None:
-    first_attempt = _ensure_aware(notification.first_attempt_at)
+    first_attempt = _ensure_aware(notification.last_attempt_at)
     if first_attempt is None:
         return None
     return first_attempt + timedelta(seconds=EMAIL_RETRY_WINDOW_SECONDS)

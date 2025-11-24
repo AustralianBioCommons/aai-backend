@@ -910,7 +910,7 @@ class EmailNotification(BaseModel, table=True):
     last_error: str | None = Field(default=None, sa_column=Column(String(1024), nullable=True))
     send_after: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     sent_at: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
-    first_attempt_at: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    last_attempt_at: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     created_at: AwareDatetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_type=DateTime(timezone=True),
@@ -922,8 +922,8 @@ class EmailNotification(BaseModel, table=True):
 
     def mark_sending(self) -> None:
         now = datetime.now(timezone.utc)
-        if self.first_attempt_at is None:
-            self.first_attempt_at = now
+        if self.last_attempt_at is None:
+            self.last_attempt_at = now
         self.status = EmailStatusEnum.SENDING
         self.attempts += 1
         self.updated_at = now
