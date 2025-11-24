@@ -3,8 +3,8 @@ from enum import Enum
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from botocore.exceptions import ClientError, EndpointConnectionError
 import pytest
+from botocore.exceptions import ClientError, EndpointConnectionError
 from sqlmodel import select
 
 from db.models import (
@@ -19,10 +19,10 @@ from db.models import (
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum
 from scheduled_tasks.tasks import (
-    _ensure_user_from_auth0,
-    _get_group_membership_including_deleted,
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,
+    _ensure_user_from_auth0,
+    _get_group_membership_including_deleted,
     populate_db_groups,
     process_email_queue,
     send_email_notification,
