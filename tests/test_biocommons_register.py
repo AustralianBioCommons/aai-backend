@@ -374,8 +374,8 @@ def test_biocommons_registration_both_conflict_error(
         "User already exists", request=request, response=response
     )
 
-    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build()]
-    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build()]
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username="existinguser")]
+    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build(email="existing@example.com")]
 
     registration_data = {
         "first_name": "Test",

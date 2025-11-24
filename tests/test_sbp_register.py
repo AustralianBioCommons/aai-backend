@@ -159,7 +159,7 @@ def test_registration_duplicate_username(
     )
     mock_auth0_client.create_user.side_effect = error
 
-    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build()]
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username=valid_registration_data["username"])]
     mock_auth0_client.search_users_by_email.return_value = []
 
     response = test_client.post("/sbp/register", json=valid_registration_data)
@@ -179,8 +179,8 @@ def test_registration_duplicate_both(
     )
     mock_auth0_client.create_user.side_effect = error
 
-    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build()]
-    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build()]
+    mock_auth0_client.get_users.return_value = [Auth0UserDataFactory.build(username=valid_registration_data["username"])]
+    mock_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build(email=valid_registration_data["email"])]
 
     response = test_client.post("/sbp/register", json=valid_registration_data)
 

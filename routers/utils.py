@@ -1,5 +1,5 @@
 import logging
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 from fastapi.params import Depends
@@ -17,12 +17,17 @@ router = APIRouter(prefix="/utils", tags=["utils"])
 def _check_username_exists(username: str, auth0_client: Auth0Client) -> bool:
     """Helper function to check if a username exists in Auth0."""
     try:
-        username_query = f'username:"{username}"'
-        username_results = auth0_client.get_users(q=username_query)
-        if isinstance(username_results, list):
-            return len(username_results) > 0
-        else:
-            return username_results.total > 0
+        q = f'username:"{username}"'
+        res = auth0_client.get_users(q=q)
+
+        users = res if isinstance(res, list) else getattr(res, "users", [])
+        target = username.lower()
+
+        return any(
+            getattr(u, "username", "").lower() == target
+            for u in users
+            if getattr(u, "username", None)
+        )
     except Exception as e:
         logger.warning(f"Error checking username existence: {e}")
         return False
@@ -38,7 +43,7 @@ def _check_email_exists(email: str, auth0_client: Auth0Client) -> bool:
         return False
 
 
-def check_existing_user(username: str, email: str, auth0_client: Auth0Client) -> str | None:
+def check_existing_user(username: str, email: str, auth0_client: Auth0Client) -> Literal["both", "email", "username"] | None:
     """Check if username or email already exists in Auth0.
 
     Returns:
@@ -69,7 +74,7 @@ class AvailabilityResponse(BaseModel):
     field_errors: list[FieldError] = []
 
 
-@router.get("/check-username-availability", response_model=AvailabilityResponse)
+@router.get("/register/check-username-availability", response_model=AvailabilityResponse)
 async def check_username_availability(
     username: Annotated[str, Query(min_length=3, max_length=128)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -88,7 +93,7 @@ async def check_username_availability(
     return AvailabilityResponse(available=True)
 
 
-@router.get("/check-email-availability", response_model=AvailabilityResponse)
+@router.get("/register/check-email-availability", response_model=AvailabilityResponse)
 async def check_email_availability(
     email: Annotated[str, Query()],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -107,7 +112,7 @@ async def check_email_availability(
     return AvailabilityResponse(available=True)
 
 
-@router.get("/registration-info")
+@router.get("/register/registration-info")
 async def get_registration_info(
         user_email: str,
         client: Annotated[Auth0Client, Depends(get_auth0_client)]):
