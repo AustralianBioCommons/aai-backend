@@ -41,6 +41,7 @@ from schemas.auth0 import (
 )
 from schemas.biocommons import Auth0UserData
 
+
 def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple[BiocommonsUser, bool, bool]:
     """
     Ensure the Auth0 user exists in the database, creating or restoring if required.
