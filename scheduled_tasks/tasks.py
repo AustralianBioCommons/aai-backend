@@ -1,10 +1,12 @@
+import random
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
+from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from auth.management import get_management_token
@@ -32,8 +34,58 @@ from schemas.auth0 import (
 from schemas.biocommons import Auth0UserData
 
 EMAIL_QUEUE_BATCH_SIZE = 25
-EMAIL_RETRY_DELAY_SECONDS = 300
+EMAIL_MAX_ATTEMPTS = 2
+EMAIL_RETRY_DELAY_MIN_SECONDS = 15 * 60
+EMAIL_RETRY_DELAY_MAX_SECONDS = 30 * 60
+EMAIL_RETRY_WINDOW_SECONDS = 60 * 60
 EMAIL_JOB_ID_PREFIX = "email_notification_"
+
+TRANSIENT_CLIENT_ERROR_CODES = {
+    "Throttling",
+    "ThrottlingException",
+    "TooManyRequestsException",
+    "ServiceUnavailable",
+    "InternalFailure",
+    "InternalError",
+    "RequestThrottled",
+}
+
+
+def _ensure_aware(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _retry_deadline(notification: EmailNotification) -> datetime | None:
+    first_attempt = _ensure_aware(notification.first_attempt_at)
+    if first_attempt is None:
+        return None
+    return first_attempt + timedelta(seconds=EMAIL_RETRY_WINDOW_SECONDS)
+
+
+def _can_schedule_now(notification: EmailNotification, now: datetime) -> bool:
+    if notification.attempts >= EMAIL_MAX_ATTEMPTS:
+        return False
+    deadline = _retry_deadline(notification)
+    return deadline is None or now < deadline
+
+
+def _is_retryable_email_error(exc: Exception) -> bool:
+    if isinstance(exc, ClientError):
+        code = exc.response.get("Error", {}).get("Code")
+        return code in TRANSIENT_CLIENT_ERROR_CODES
+    if isinstance(exc, BotoCoreError):
+        return True
+    if isinstance(exc, OSError):
+        return True
+    return False
+
+
+def _next_retry_delay_seconds() -> int:
+    return random.randint(EMAIL_RETRY_DELAY_MIN_SECONDS, EMAIL_RETRY_DELAY_MAX_SECONDS)
 
 
 def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple[BiocommonsUser, bool, bool]:
@@ -72,7 +124,6 @@ def _get_group_membership_including_deleted(session: Session, user_id: str, grou
 
 async def process_email_queue(
     batch_size: int = EMAIL_QUEUE_BATCH_SIZE,
-    retry_delay_seconds: int = EMAIL_RETRY_DELAY_SECONDS,
 ) -> int:
     """
     Schedule pending email notifications for delivery.
@@ -84,8 +135,12 @@ async def process_email_queue(
         stmt = (
             select(EmailNotification)
             .where(
-                EmailNotification.status.in_(
-                    [EmailStatusEnum.PENDING, EmailStatusEnum.FAILED]
+                or_(
+                    EmailNotification.status == EmailStatusEnum.PENDING,
+                    and_(
+                        EmailNotification.status == EmailStatusEnum.FAILED,
+                        EmailNotification.send_after.is_not(None),
+                    ),
                 ),
                 or_(
                     EmailNotification.send_after.is_(None),
@@ -101,6 +156,15 @@ async def process_email_queue(
             return 0
         scheduled = 0
         for notification in notifications:
+            if not _can_schedule_now(notification, now):
+                logger.info(
+                    "Skipping email %s: retry window exhausted or max attempts reached",
+                    notification.id,
+                )
+                notification.status = EmailStatusEnum.FAILED
+                notification.send_after = None
+                session.add(notification)
+                continue
             notification.mark_sending()
             session.add(notification)
             session.flush()
@@ -110,7 +174,6 @@ async def process_email_queue(
                 args=[notification.id],
                 id=job_id,
                 replace_existing=True,
-                kwargs={"retry_delay_seconds": retry_delay_seconds},
             )
             scheduled += 1
         session.commit()
@@ -122,7 +185,6 @@ async def process_email_queue(
 
 async def send_email_notification(
     notification_id: UUID,
-    retry_delay_seconds: int = EMAIL_RETRY_DELAY_SECONDS,
 ) -> bool:
     """
     Deliver a single queued email notification.
@@ -141,10 +203,28 @@ async def send_email_notification(
                 notification.body_html,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to send email %s: %s", notification.id, exc
-            )
-            notification.mark_failed(str(exc), retry_delay_seconds)
+            logger.warning("Failed to send email %s: %s", notification.id, exc)
+            now = datetime.now(timezone.utc)
+            should_retry = _is_retryable_email_error(exc)
+            deadline = _retry_deadline(notification)
+            if deadline is None:
+                deadline = now + timedelta(seconds=EMAIL_RETRY_WINDOW_SECONDS)
+            else:
+                deadline = _ensure_aware(deadline)
+            attempts_remaining = notification.attempts < EMAIL_MAX_ATTEMPTS
+            if (
+                should_retry
+                and attempts_remaining
+                and now < deadline
+            ):
+                delay_seconds = _next_retry_delay_seconds()
+                retry_time = now + timedelta(seconds=delay_seconds)
+                if retry_time <= deadline:
+                    notification.schedule_retry(str(exc), retry_time)
+                    session.add(notification)
+                    session.commit()
+                    return False
+            notification.mark_failed(str(exc))
             session.add(notification)
             session.commit()
             return False

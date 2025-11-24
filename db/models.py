@@ -910,6 +910,7 @@ class EmailNotification(BaseModel, table=True):
     last_error: str | None = Field(default=None, sa_column=Column(String(1024), nullable=True))
     send_after: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     sent_at: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
+    first_attempt_at: AwareDatetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     created_at: AwareDatetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_type=DateTime(timezone=True),
@@ -920,9 +921,12 @@ class EmailNotification(BaseModel, table=True):
     )
 
     def mark_sending(self) -> None:
+        now = datetime.now(timezone.utc)
+        if self.first_attempt_at is None:
+            self.first_attempt_at = now
         self.status = EmailStatusEnum.SENDING
         self.attempts += 1
-        self.updated_at = datetime.now(timezone.utc)
+        self.updated_at = now
 
     def mark_sent(self) -> None:
         now = datetime.now(timezone.utc)
@@ -931,13 +935,18 @@ class EmailNotification(BaseModel, table=True):
         self.updated_at = now
         self.last_error = None
 
-    def mark_failed(self, error: str, retry_delay_seconds: int | None = None) -> None:
+    def mark_failed(self, error: str) -> None:
         now = datetime.now(timezone.utc)
         self.status = EmailStatusEnum.FAILED
         self.last_error = error[:1024]
         self.updated_at = now
-        if retry_delay_seconds:
-            self.send_after = now + timedelta(seconds=retry_delay_seconds)
+        self.send_after = None
+
+    def schedule_retry(self, error: str, retry_time: datetime) -> None:
+        self.status = EmailStatusEnum.FAILED
+        self.last_error = error[:1024]
+        self.send_after = retry_time
+        self.updated_at = datetime.now(timezone.utc)
 
 
 class EmailChangeOtp(BaseModel, table=True):

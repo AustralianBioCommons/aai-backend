@@ -1,7 +1,9 @@
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from botocore.exceptions import ClientError, EndpointConnectionError
 import pytest
 from sqlmodel import select
 
@@ -19,6 +21,8 @@ from db.types import ApprovalStatusEnum, EmailStatusEnum
 from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
+    EMAIL_MAX_ATTEMPTS,
+    EMAIL_RETRY_WINDOW_SECONDS,
     populate_db_groups,
     process_email_queue,
     send_email_notification,
@@ -576,7 +580,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mocker):
 
 
 @pytest.mark.asyncio
-async def test_process_email_queue_retries_failed_notifications(test_db_session, mocker):
+async def test_send_email_notification_retries_transient_errors(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
         subject="Hello",
@@ -587,13 +591,14 @@ async def test_process_email_queue_retries_failed_notifications(test_db_session,
     notification_id = notification.id
 
     mock_service = mocker.Mock()
-    mock_service.send.side_effect = RuntimeError("boom")
+    mock_service.send.side_effect = EndpointConnectionError(endpoint_url="https://ses")
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=iter(lambda: test_db_session, None),
     )
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
+    mocker.patch("scheduled_tasks.tasks._next_retry_delay_seconds", return_value=900)
 
     scheduled = await process_email_queue()
 
@@ -604,3 +609,103 @@ async def test_process_email_queue_retries_failed_notifications(test_db_session,
     assert updated.status == EmailStatusEnum.FAILED
     assert updated.last_error is not None
     assert updated.send_after is not None
+    delay = (updated.send_after - updated.updated_at).total_seconds()
+    assert delay == pytest.approx(900, abs=0.1)
+
+
+@pytest.mark.asyncio
+async def test_send_email_notification_does_not_retry_non_transient_error(test_db_session, mocker):
+    notification = EmailNotification(
+        to_address="user@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+    )
+    test_db_session.add(notification)
+    test_db_session.commit()
+    notification_id = notification.id
+
+    error = ClientError(
+        error_response={
+            "Error": {
+                "Code": "MessageRejected",
+                "Message": "Address blacklisted",
+            }
+        },
+        operation_name="SendEmail",
+    )
+    mock_service = mocker.Mock()
+    mock_service.send.side_effect = error
+    mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=iter(lambda: test_db_session, None),
+    )
+    mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
+
+    await process_email_queue()
+    await send_email_notification(notification_id)
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.FAILED
+    assert updated.send_after is None
+
+
+@pytest.mark.asyncio
+async def test_process_email_queue_skips_when_max_attempts_reached(test_db_session, mocker):
+    notification = EmailNotification(
+        to_address="user@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+        status=EmailStatusEnum.FAILED,
+        attempts=EMAIL_MAX_ATTEMPTS,
+        send_after=datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+    test_db_session.add(notification)
+    notification_id = notification.id
+    test_db_session.commit()
+
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=iter(lambda: test_db_session, None),
+    )
+    mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
+
+    scheduled = await process_email_queue()
+
+    assert scheduled == 0
+    mock_scheduler.assert_not_called()
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.FAILED
+    assert updated.send_after is None
+
+
+@pytest.mark.asyncio
+async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_session, mocker):
+    first_attempt = datetime.now(timezone.utc) - timedelta(
+        seconds=EMAIL_RETRY_WINDOW_SECONDS + 60
+    )
+    notification = EmailNotification(
+        to_address="user@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+        status=EmailStatusEnum.FAILED,
+        attempts=1,
+        send_after=datetime.now(timezone.utc) - timedelta(minutes=5),
+        first_attempt_at=first_attempt,
+    )
+    test_db_session.add(notification)
+    notification_id = notification.id
+    test_db_session.commit()
+
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=iter(lambda: test_db_session, None),
+    )
+    mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
+
+    scheduled = await process_email_queue()
+
+    assert scheduled == 0
+    mock_scheduler.assert_not_called()
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.FAILED
+    assert updated.send_after is None
