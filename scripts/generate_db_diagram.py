@@ -7,6 +7,8 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    EmailChangeOtp,
+    EmailNotification,
     GroupMembership,
     GroupMembershipHistory,
     Platform,
@@ -22,6 +24,8 @@ models = [
     Platform,
     PlatformMembership,
     PlatformMembershipHistory,
-    Auth0Role
+    Auth0Role,
+    EmailNotification,
+    EmailChangeOtp,
 ]
 generate_data_model_diagram(models, "db_diagram")

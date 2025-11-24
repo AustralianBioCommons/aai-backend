@@ -23,6 +23,7 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     EmailChangeOtp,
+    EmailNotification,
     GroupMembership,
     GroupMembershipHistory,
     Platform,
@@ -158,6 +159,24 @@ class EmailChangeOtpView(DefaultView):
     searchable_fields = ["target_email", "is_active"]
 
 
+class EmailNotificationView(DefaultView):
+    fields = [
+        "to_address",
+        "subject",
+        "status",
+        "attempts",
+        "send_after",
+        "sent_at",
+        "last_attempt_at",
+        "created_at",
+    ]
+    fields_default_sort = [("created_at", True)]
+    searchable_fields = ["to_address", "status"]
+
+    async def repr(self, obj: Any, request: Request) -> str:
+        return obj.subject
+
+
 
 def setup_starlette_admin(app: FastAPI):
     settings = get_settings()
@@ -181,6 +200,7 @@ def setup_starlette_admin(app: FastAPI):
     admin.add_view(PlatformMembershipHistoryView(PlatformMembershipHistory, identity="platform_membership_history", icon="fa fa-clock-rotate-left"))
     admin.add_view(GroupMembershipHistoryView(GroupMembershipHistory, identity="group_membership_history", icon="fa fa-clock-rotate-left"))
     admin.add_view(EmailChangeOtpView(EmailChangeOtp, identity="email_change_otp", icon="fa fa-envelope"))
+    admin.add_view(EmailNotificationView(EmailNotification, identity="email_notification", icon="fa fa-envelope-open-text"))
     admin.mount_to(app)
 
 
