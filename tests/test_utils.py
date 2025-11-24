@@ -25,7 +25,7 @@ def test_get_registration_info(override_auth0_client, test_client):
     user = Auth0UserDataFactory.build(email="user@example.com",
                                       app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
-    resp = test_client.get("/utils/registration_info", params={"user_email": user.email})
+    resp = test_client.get("/utils/registration-info", params={"user_email": user.email})
     assert resp.status_code == 200
     data = resp.json()
     assert data["app"] == "galaxy"
@@ -39,7 +39,7 @@ def test_get_registration_info_no_registration_from(override_auth0_client, test_
     user = Auth0UserDataFactory.build(email="user@example.com",
                                       app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
-    resp = test_client.get("/utils/registration_info", params={"user_email": user.email})
+    resp = test_client.get("/utils/registration-info", params={"user_email": user.email})
     assert resp.status_code == 200
     data = resp.json()
     assert data["app"] == "biocommons"
@@ -52,7 +52,7 @@ def test_get_registration_info_no_user(override_auth0_client, test_client):
     exists or not)
     """
     override_auth0_client.search_users_by_email.return_value = []
-    resp = test_client.get("/utils/registration_info", params={"user_email": "notfound@example.com"})
+    resp = test_client.get("/utils/registration-info", params={"user_email": "notfound@example.com"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["app"] == "biocommons"
