@@ -18,9 +18,11 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum
-from scheduled_tasks.tasks import (
+from scheduled_tasks.email_retry import (
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,
+)
+from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
     populate_db_groups,
@@ -598,7 +600,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
         return_value=iter(lambda: test_db_session, None),
     )
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
-    mocker.patch("scheduled_tasks.tasks._next_retry_delay_seconds", return_value=900)
+    mocker.patch("scheduled_tasks.tasks.next_retry_delay_seconds", return_value=900)
 
     scheduled = await process_email_queue()
 

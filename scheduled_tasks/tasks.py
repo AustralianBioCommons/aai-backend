@@ -1,9 +1,7 @@
-import random
 import re
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy import and_, or_
@@ -25,6 +23,16 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import GROUP_NAMES, ApprovalStatusEnum, EmailStatusEnum, GroupEnum
+from scheduled_tasks.email_retry import (
+    EMAIL_JOB_ID_PREFIX,
+    EMAIL_MAX_ATTEMPTS,
+    EMAIL_QUEUE_BATCH_SIZE,
+    EMAIL_RETRY_WINDOW_SECONDS,
+    can_schedule_notification,
+    is_retryable_email_error,
+    next_retry_delay_seconds,
+    retry_deadline,
+)
 from scheduled_tasks.scheduler import SCHEDULER
 from schemas.auth0 import (
     GROUP_ROLE_PATTERN,
@@ -32,61 +40,6 @@ from schemas.auth0 import (
     get_platform_id_from_role_name,
 )
 from schemas.biocommons import Auth0UserData
-
-EMAIL_QUEUE_BATCH_SIZE = 25
-EMAIL_MAX_ATTEMPTS = 2
-EMAIL_RETRY_DELAY_MIN_SECONDS = 15 * 60
-EMAIL_RETRY_DELAY_MAX_SECONDS = 30 * 60
-EMAIL_RETRY_WINDOW_SECONDS = 60 * 60
-EMAIL_JOB_ID_PREFIX = "email_notification_"
-
-TRANSIENT_CLIENT_ERROR_CODES = {
-    "Throttling",
-    "ThrottlingException",
-    "TooManyRequestsException",
-    "ServiceUnavailable",
-    "InternalFailure",
-    "InternalError",
-    "RequestThrottled",
-}
-
-
-def _ensure_aware(dt: datetime | None) -> datetime | None:
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _retry_deadline(notification: EmailNotification) -> datetime | None:
-    first_attempt = _ensure_aware(notification.last_attempt_at)
-    if first_attempt is None:
-        return None
-    return first_attempt + timedelta(seconds=EMAIL_RETRY_WINDOW_SECONDS)
-
-
-def _can_schedule_now(notification: EmailNotification, now: datetime) -> bool:
-    if notification.attempts >= EMAIL_MAX_ATTEMPTS:
-        return False
-    deadline = _retry_deadline(notification)
-    return deadline is None or now < deadline
-
-
-def _is_retryable_email_error(exc: Exception) -> bool:
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code")
-        return code in TRANSIENT_CLIENT_ERROR_CODES
-    if isinstance(exc, BotoCoreError):
-        return True
-    if isinstance(exc, OSError):
-        return True
-    return False
-
-
-def _next_retry_delay_seconds() -> int:
-    return random.randint(EMAIL_RETRY_DELAY_MIN_SECONDS, EMAIL_RETRY_DELAY_MAX_SECONDS)
-
 
 def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple[BiocommonsUser, bool, bool]:
     """
@@ -156,7 +109,7 @@ async def process_email_queue(
             return 0
         scheduled = 0
         for notification in notifications:
-            if not _can_schedule_now(notification, now):
+            if not can_schedule_notification(notification, now):
                 logger.info(
                     "Skipping email %s: retry window exhausted or max attempts reached",
                     notification.id,
@@ -205,19 +158,17 @@ async def send_email_notification(
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to send email %s: %s", notification.id, exc)
             now = datetime.now(timezone.utc)
-            should_retry = _is_retryable_email_error(exc)
-            deadline = _retry_deadline(notification)
+            should_retry = is_retryable_email_error(exc)
+            deadline = retry_deadline(notification)
             if deadline is None:
                 deadline = now + timedelta(seconds=EMAIL_RETRY_WINDOW_SECONDS)
-            else:
-                deadline = _ensure_aware(deadline)
             attempts_remaining = notification.attempts < EMAIL_MAX_ATTEMPTS
             if (
                 should_retry
                 and attempts_remaining
                 and now < deadline
             ):
-                delay_seconds = _next_retry_delay_seconds()
+                delay_seconds = next_retry_delay_seconds()
                 retry_time = now + timedelta(seconds=delay_seconds)
                 if retry_time <= deadline:
                     notification.schedule_retry(str(exc), retry_time)
