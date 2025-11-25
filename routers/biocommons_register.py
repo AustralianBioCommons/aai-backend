@@ -79,6 +79,7 @@ def _notify_bundle_group_admins(
     if bundle.group_auto_approve:
         return
 
+    db_session.refresh(user, attribute_names=["group_memberships"])
     membership = next(
         (m for m in user.group_memberships if m.group_id == bundle.group_id.value),
         None,
@@ -96,15 +97,8 @@ def _notify_bundle_group_admins(
             bundle.id,
         )
         return
-    if membership.group is None:
-        db_session.refresh(membership, attribute_names=["group"])
-    if membership.user is None:
-        db_session.refresh(membership, attribute_names=["user"])
 
-    # Guard again in case refresh failed
-    if membership.group is None:
-        logger.warning("Group %s missing on membership %s", membership.group_id, membership.id)
-        return
+    db_session.refresh(membership, attribute_names=["group", "user"])
 
     admin_emails = membership.group.get_admins(auth0_client=auth0_client)
     if not admin_emails:
