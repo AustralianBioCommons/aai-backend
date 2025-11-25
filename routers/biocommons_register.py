@@ -79,17 +79,11 @@ def _notify_bundle_group_admins(
     if bundle.group_auto_approve:
         return
 
-    db_session.refresh(user, attribute_names=["group_memberships"])
-    membership = next(
-        (m for m in user.group_memberships if m.group_id == bundle.group_id.value),
-        None,
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=user.id,
+        group_id=bundle.group_id.value,
+        session=db_session,
     )
-    if membership is None:
-        membership = GroupMembership.get_by_user_id_and_group_id(
-            user_id=user.id,
-            group_id=bundle.group_id.value,
-            session=db_session,
-        )
     if membership is None:
         logger.warning(
             "Unable to find group membership for user %s and bundle %s",
