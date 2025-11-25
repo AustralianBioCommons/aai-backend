@@ -20,6 +20,7 @@ from schemas.responses import (
     RegistrationErrorResponse,
     RegistrationResponse,
 )
+
 logger = logging.getLogger(__name__)
 
 # Bundle configuration mapping bundle names to their groups and included extra_platforms
