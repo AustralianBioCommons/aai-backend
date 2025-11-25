@@ -469,6 +469,51 @@ def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_
     assert resp.status_code == 403
 
 
+def test_get_user_counts(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    bpa_platform,
+    test_db_session,
+    persistent_factories,
+):
+    approved_users = _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    pending_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    revoked_users = _users_with_platform_membership(
+        1,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.REVOKED,
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        email_verified=False,
+    )
+    # Users on a platform without admin access should not be counted
+    _users_with_platform_membership(
+        2, db_session=test_db_session, platform_id=bpa_platform.id
+    )
+
+    resp = test_client.get("/admin/users/counts")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "all": len(approved_users) + len(pending_users) + len(revoked_users) + 1,
+        "pending": len(pending_users),
+        "revoked": len(revoked_users),
+        "unverified": 1,
+    }
+
+
 def test_get_approved_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
     approved_users = _users_with_platform_membership(
         3,

@@ -79,6 +79,8 @@ class PlatformFactory(SQLAlchemyFactory[Platform]):
 def _create_user_with_platform_membership(db_session: Session, platform_id: PlatformEnum,
                                           approval_status=ApprovalStatusEnum.APPROVED,
                                           commit=True, **kwargs):
+    if "email_verified" not in kwargs:
+        kwargs["email_verified"] = True
     user = BiocommonsUserFactory.build(**kwargs)
     membership = PlatformMembershipFactory.create_sync(
         platform_id=platform_id,
@@ -105,6 +107,8 @@ def _users_with_platform_membership(n: int, db_session: Session, platform_id: Pl
 def _create_user_with_group_membership(db_session: Session, group_id: str,
                                        approval_status=ApprovalStatusEnum.APPROVED,
                                        commit=True, **kwargs):
+    if "email_verified" not in kwargs:
+        kwargs["email_verified"] = True
     user = BiocommonsUserFactory.build(**kwargs)
     membership = GroupMembershipFactory.create_sync(
         group_id=group_id,

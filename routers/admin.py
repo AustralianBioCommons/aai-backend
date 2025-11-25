@@ -86,6 +86,14 @@ class BiocommonsUserResponse(BaseModel):
         )
 
 
+class UserCountsResponse(BaseModel):
+    """Aggregate counts for different user categories."""
+    all: int
+    pending: int
+    revoked: int
+    unverified: int
+
+
 class PaginationParams(BaseModel):
     """
     Query parameters for paginated endpoints. Page starts at 1.
@@ -470,6 +478,27 @@ def get_filtered_user_query(
     return user_query.get_complete_query(admin_roles, pagination)
 
 
+def _get_user_count(
+    *,
+    db_session: Session,
+    admin_roles: list[str],
+    query_params: UserQueryParams,
+) -> int:
+    """
+    Count distinct users matching the provided query parameters and admin permissions.
+    """
+    query = (
+        query_params.get_base_query()
+        .where(
+            query_params.get_admin_permissions_query(admin_roles),
+            *query_params.get_query_conditions(),
+        )
+        .distinct()
+    )
+    count_statement = select(func.count()).select_from(query.subquery())
+    return db_session.exec(count_statement).one()
+
+
 @router.get("/users",
             response_model=list[BiocommonsUserResponse])
 def get_users(db_session: Annotated[Session, Depends(get_db_session)],
@@ -485,6 +514,40 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
     query_params.check_missing_ids(db_session)
     users = db_session.exec(user_query).all()
     return [BiocommonsUserResponse.from_db_user(user) for user in users]
+
+
+@router.get(
+    "/users/counts",
+    response_model=UserCountsResponse,
+)
+def get_user_counts(
+    db_session: Annotated[Session, Depends(get_db_session)],
+    admin_user: Annotated[SessionUser, Depends(get_session_user)],
+    query_params: Annotated[UserQueryParams, Depends()],
+):
+    """
+    Get aggregate counts for all, pending, revoked, and unverified users.
+    Applies the same filtering and permission checks as the /users endpoint.
+    """
+    query_params.check_missing_ids(db_session)
+    admin_roles = admin_user.access_token.biocommons_roles
+    base_params = query_params.model_dump()
+
+    def count_with(overrides: dict[str, object] | None = None) -> int:
+        params_data = {**base_params, **(overrides or {})}
+        params = UserQueryParams(**params_data)
+        return _get_user_count(
+            db_session=db_session,
+            admin_roles=admin_roles,
+            query_params=params,
+        )
+
+    return UserCountsResponse(
+        all=count_with(),
+        pending=count_with({"platform_approval_status": ApprovalStatusEnum.PENDING}),
+        revoked=count_with({"platform_approval_status": ApprovalStatusEnum.REVOKED}),
+        unverified=count_with({"email_verified": False}),
+    )
 
 
 # NOTE: This must appear before /users/{user_id} so it takes precedence
