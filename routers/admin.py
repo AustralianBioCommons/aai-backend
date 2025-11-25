@@ -1,3 +1,4 @@
+import inspect
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any
@@ -393,9 +394,10 @@ class UserQueryParams(BaseModel):
             if field_value is not None:
                 method_name = f"{field_name}_query"
                 query_method = getattr(self, method_name)
-                try:
-                    condition = query_method(admin_roles) if admin_roles is not None else query_method()
-                except TypeError:
+                params = inspect.signature(query_method).parameters
+                if admin_roles is not None and "admin_roles" in params:
+                    condition = query_method(admin_roles)
+                else:
                     condition = query_method()
                 # conditions may be None for interacting queries like platform
                 #   and platform_approval_status
