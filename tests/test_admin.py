@@ -535,11 +535,25 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_p
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.PENDING
     )
+    # Include a user pending on a group to ensure group statuses are returned
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.TSI.value,
+        name="Threatened Species Initiative",
+        admin_roles=[admin_role],
+    )
+    group_pending_user = BiocommonsUserFactory.create_sync()
+    GroupMembershipFactory.create_sync(
+        group=group,
+        user=group_pending_user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
 
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
-    expected_ids = set(u.id for u in pending_users)
+    assert len(resp.json()) == 4
+    expected_ids = {u.id for u in pending_users} | {group_pending_user.id}
     for returned_user in resp.json():
         assert returned_user["id"] in expected_ids
 
@@ -551,11 +565,25 @@ def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_p
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.REVOKED
     )
+    # Include a user revoked on a group to ensure group statuses are returned
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.TSI.value,
+        name="Threatened Species Initiative",
+        admin_roles=[admin_role],
+    )
+    group_revoked_user = BiocommonsUserFactory.create_sync()
+    GroupMembershipFactory.create_sync(
+        group=group,
+        user=group_revoked_user,
+        approval_status=ApprovalStatusEnum.REVOKED.value,
+    )
+    test_db_session.commit()
 
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
-    expected_ids = set(u.id for u in revoked_users)
+    assert len(resp.json()) == 4
+    expected_ids = {u.id for u in revoked_users} | {group_revoked_user.id}
     for returned_user in resp.json():
         assert returned_user["id"] in expected_ids
 
