@@ -9,7 +9,7 @@ from db.models import (
     GroupMembership,
     GroupMembershipHistory,
 )
-from db.types import EmailStatusEnum
+from db.types import ApprovalStatusEnum, EmailStatusEnum
 from main import app
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
@@ -65,6 +65,59 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
 
 
 @respx.mock
+def test_request_group_membership_after_rejection(
+    test_client_with_email,
+    normal_user,
+    as_normal_user,
+    mock_auth0_client,
+    test_db_session,
+    persistent_factories,
+):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
+    user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+    membership = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.REJECTED.value,
+        rejection_reason="Incomplete application",
+    )
+    test_db_session.commit()
+
+    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
+    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = admin_info
+
+    resp = test_client_with_email.post(
+        "/biocommons/groups/request",
+        json={
+            "group_id": group.group_id,
+        }
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.PENDING
+    assert membership.rejection_reason is None
+    assert membership.updated_by is None
+
+    history = GroupMembershipHistory.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert history[-1].approval_status == ApprovalStatusEnum.PENDING
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == admin_info.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
+
+
+@respx.mock
 def test_approve_group_membership(test_client, test_db_session, persistent_factories, test_auth0_client):
     """
     Test the full approval process, including:
@@ -106,6 +159,48 @@ def test_approve_group_membership(test_client, test_db_session, persistent_facto
     assert membership_request.approval_status == "approved"
     assert membership_request.updated_by == group_admin_db
     assert membership_request.updated_by.email == group_admin.access_token.email
+
+
+@respx.mock
+def test_group_admin_cannot_approve_rejected_membership(
+    test_client,
+    test_db_session,
+    persistent_factories,
+    test_auth0_client,
+):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
+    access_token = AccessTokenPayloadFactory.build(biocommons_roles=[admin_role.name])
+    group_admin = SessionUserFactory.build(access_token=access_token)
+    app.dependency_overrides[get_session_user] = lambda: group_admin
+    BiocommonsUserFactory.create_sync(id=group_admin.access_token.sub, email=group_admin.access_token.email)
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership_request = GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.REJECTED.value,
+    )
+    respx.get(
+        f"https://{test_auth0_client.domain}/api/v2/roles",
+        params={"name_filter": group.group_id}
+    ).respond(
+        200,
+        json=[RoleDataFactory.build(name=group.group_id).model_dump(mode="json")]
+    )
+    respx.post(f"https://{test_auth0_client.domain}/api/v2/users/{user.id}/roles").respond(204)
+
+    resp = test_client.post(
+        "/biocommons/groups/approve",
+        json={
+            "group_id": group.group_id,
+            "user_id": user.id
+        }
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Only pending or revoked group memberships can be approved."
+    test_db_session.refresh(membership_request)
+    assert membership_request.approval_status == ApprovalStatusEnum.REJECTED
 
 
 @respx.mock

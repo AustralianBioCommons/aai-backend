@@ -331,6 +331,10 @@ class PlatformMembership(SoftDeleteModel, table=True):
         default=None,
         sa_column=Column(String(1024), nullable=True)
     )
+    rejection_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(255), nullable=True),
+    )
 
     @classmethod
     def get_by_user_id(
@@ -535,6 +539,10 @@ class GroupMembership(SoftDeleteModel, table=True):
         default=None,
         sa_column=Column(String(1024), nullable=True)
     )
+    rejection_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(255), nullable=True),
+    )
 
     @classmethod
     def get_by_user_id(
@@ -620,13 +628,14 @@ class GroupMembership(SoftDeleteModel, table=True):
             session.add(self)
         session.flush()
 
+        history_reason = self.rejection_reason if self.approval_status == ApprovalStatusEnum.REJECTED else self.revocation_reason
         history = GroupMembershipHistory(
             group_id=self.group_id,
             user_id=self.user_id,
             approval_status=self.approval_status,
             updated_at=self.updated_at,
             updated_by=self.updated_by,
-            reason=self.revocation_reason,
+            reason=history_reason,
         )
         session.add(history)
         if commit:
@@ -673,6 +682,23 @@ class GroupMembership(SoftDeleteModel, table=True):
         self.save(session=session, commit=commit)
         return role_revoked
 
+    def reject(
+        self,
+        *,
+        reason: str,
+        updated_by: Optional["BiocommonsUser"],
+        session: Session,
+        commit: bool = True,
+    ) -> None:
+        if self.approval_status != ApprovalStatusEnum.PENDING:
+            raise ValueError("Can only reject pending group memberships.")
+        self.approval_status = ApprovalStatusEnum.REJECTED
+        self.rejection_reason = reason
+        self.revocation_reason = None
+        self.updated_at = datetime.now(timezone.utc)
+        self.updated_by = updated_by
+        self.save(session=session, commit=commit)
+
     def get_data(self) -> GroupMembershipData:
         """
         Get a data model for this membership, suitable for returning to the frontend.
@@ -689,6 +715,7 @@ class GroupMembership(SoftDeleteModel, table=True):
             approval_status=self.approval_status,
             updated_by=updated_by,
             revocation_reason=self.revocation_reason,
+            rejection_reason=self.rejection_reason,
         )
 
 

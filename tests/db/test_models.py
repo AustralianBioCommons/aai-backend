@@ -865,7 +865,9 @@ def test_group_membership_save_with_history(test_db_session, persistent_factorie
 
 def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync()
-    membership = GroupMembershipFactory.build(group_id=group.group_id)
+    membership = GroupMembershipFactory.build(
+        group_id=group.group_id, approval_status=ApprovalStatusEnum.APPROVED
+    )
     membership.save_history(test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.id is not None
@@ -873,7 +875,7 @@ def test_group_membership_save_and_commit_history(test_db_session, persistent_fa
         select(GroupMembershipHistory)
         .where(GroupMembershipHistory.group_id == membership.group_id,
                GroupMembershipHistory.user_id == membership.user_id)
-    ).one()
+        ).one()
     assert history.group_id == membership.group_id
     assert history.user_id == membership.user_id
     assert history.reason == membership.revocation_reason

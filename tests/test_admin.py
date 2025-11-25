@@ -13,6 +13,7 @@ from auth0.client import Auth0Client
 from db.models import (
     BiocommonsGroup,
     EmailNotification,
+    GroupMembershipHistory,
     PlatformMembershipHistory,
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
@@ -934,9 +935,41 @@ def test_admin_group_approval_no_email_when_already_approved(
     group_url = quote(tsi_group.group_id, safe='')
     resp = test_client_with_email.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
 
-    assert resp.status_code == 200
-    queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 0
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Only pending or revoked group memberships can be approved."
+
+
+def test_approve_group_membership_rejected_fails(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.REJECTED.value,
+        rejection_reason="Not eligible",
+    )
+    BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+
+    group_url = quote(tsi_group.group_id, safe="")
+    resp = test_client.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
+
+    assert resp.status_code == 400
+    assert resp.json() == {
+        "detail": "Only pending or revoked group memberships can be approved."
+    }
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REJECTED
 
 
 def test_approve_group_membership_forbidden_without_group_role(
@@ -981,6 +1014,97 @@ def test_approve_group_membership_forbidden_without_group_role(
 
     test_db_session.refresh(membership)
     assert membership.approval_status == original_status
+
+
+def test_reject_group_membership_records_reason(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    admin_user,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    admin_db_user = BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+
+    reason = "Not eligible for this bundle"
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/{group_url}/reject",
+        json={"reason": reason},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "updated": True}
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.REJECTED
+    assert membership.rejection_reason == reason
+    assert membership.updated_by_id == admin_db_user.id
+
+    history = GroupMembershipHistory.get_by_user_id_and_group_id(
+        user_id=user.id,
+        group_id=tsi_group.group_id,
+        session=test_db_session,
+    )
+    assert history[-1].reason == reason
+
+
+def test_reject_group_membership_forbidden_without_group_role(
+    test_client,
+    test_db_session,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    original_status = membership.approval_status
+    original_reason = membership.rejection_reason
+
+    unauthorized_admin = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(
+            biocommons_roles=[
+                "Admin",
+                "biocommons/role/galaxy/admin",
+            ]
+        )
+    )
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+
+    group_url = quote(tsi_group.group_id, safe='')
+    try:
+        resp = test_client.post(
+            f"/admin/users/{user.id}/groups/{group_url}/reject",
+            json={"reason": "Not allowed"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+    assert resp.json() == {
+        "detail": "You do not have permission to manage this group."
+    }
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == original_status
+    assert membership.rejection_reason == original_reason
 
 
 def test_revoke_group_membership_records_reason(
