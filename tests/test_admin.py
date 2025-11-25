@@ -17,7 +17,7 @@ from db.models import (
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from main import app
-from routers.admin import PaginationParams
+from routers.admin import PaginationParams, UserQueryParams
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -512,6 +512,40 @@ def test_get_user_counts(
         "revoked": len(revoked_users),
         "unverified": 1,
     }
+
+
+def test_user_query_params_get_count(
+    test_db_session,
+    admin_user,
+    galaxy_platform,
+    persistent_factories,
+):
+    """
+    Ensure UserQueryParams.get_count respects approval_status across accessible platforms/groups.
+    """
+    _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    _users_with_platform_membership(
+        1,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+
+    query_params = UserQueryParams(
+        approval_status=ApprovalStatusEnum.PENDING,
+        platform_approval_status=None,
+        group_approval_status=None,
+    )
+    count = query_params.get_count(
+        db_session=test_db_session,
+        admin_roles=admin_user.access_token.biocommons_roles,
+    )
+    assert count == 2
 
 
 def test_get_approved_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):

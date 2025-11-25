@@ -483,6 +483,22 @@ class UserQueryParams(BaseModel):
             BiocommonsUser.id.in_(group_status_query),
         )
 
+    def get_count(self, db_session: Session, admin_roles: list[str]) -> int:
+        """
+        Count distinct users matching the current filters and admin permissions.
+        """
+        self._set_allowed_resource_subqueries(admin_roles)
+        query = (
+            self.get_base_query()
+            .where(
+                self.get_admin_permissions_query(admin_roles),
+                *self.get_query_conditions(admin_roles),
+            )
+            .distinct()
+        )
+        count_statement = select(func.count()).select_from(query.subquery())
+        return db_session.exec(count_statement).one()
+
     def email_verified_query(self):
         return BiocommonsUser.email_verified.is_(self.email_verified)
 
@@ -533,28 +549,6 @@ def get_filtered_user_query(
     return user_query.get_complete_query(admin_roles, pagination)
 
 
-def _get_user_count(
-    *,
-    db_session: Session,
-    admin_roles: list[str],
-    query_params: UserQueryParams,
-) -> int:
-    """
-    Count distinct users matching the provided query parameters and admin permissions.
-    """
-    query_params._set_allowed_resource_subqueries(admin_roles)
-    query = (
-        query_params.get_base_query()
-        .where(
-            query_params.get_admin_permissions_query(admin_roles),
-            *query_params.get_query_conditions(admin_roles),
-        )
-        .distinct()
-    )
-    count_statement = select(func.count()).select_from(query.subquery())
-    return db_session.exec(count_statement).one()
-
-
 @router.get("/users",
             response_model=list[BiocommonsUserResponse])
 def get_users(db_session: Annotated[Session, Depends(get_db_session)],
@@ -592,10 +586,9 @@ def get_user_counts(
     def count_with(overrides: dict[str, object] | None = None) -> int:
         params_data = {**base_params, **(overrides or {})}
         params = UserQueryParams(**params_data)
-        return _get_user_count(
+        return params.get_count(
             db_session=db_session,
             admin_roles=admin_roles,
-            query_params=params,
         )
 
     return UserCountsResponse(
