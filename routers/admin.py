@@ -459,6 +459,12 @@ class UserQueryParams(BaseModel):
         return BiocommonsUser.id.in_(group_query)
 
     def group_approval_status_query(self):
+        """
+        Filter by group approval status. This intentionally does not scope the
+        subquery to the admin's group permissions because get_admin_permissions_query
+        already enforces visibility. That allows platform admins (who may not be
+        group admins) to still see group-status results for the users they manage.
+        """
         group_status_query = select(GroupMembership.user_id).where(
             GroupMembership.approval_status == self.group_approval_status
         )
