@@ -136,22 +136,6 @@ class RevokeServiceRequest(BaseModel):
 def _membership_response() -> dict[str, object]:
     return {"status": "ok", "updated": True}
 
-def _get_allowed_resource_subqueries(admin_roles: list[str]):
-    """
-    Return subqueries for platform/group IDs the admin has access to.
-    """
-    allowed_platforms_subquery = (
-        select(Platform.id)
-        .join(Platform.admin_roles)
-        .where(Auth0Role.name.in_(admin_roles))
-    )
-    allowed_groups_subquery = (
-        select(BiocommonsGroup.group_id)
-        .join(BiocommonsGroup.admin_roles)
-        .where(Auth0Role.name.in_(admin_roles))
-    )
-    return allowed_platforms_subquery, allowed_groups_subquery
-
 
 def _approve_platform_membership(
     *,
@@ -297,6 +281,10 @@ class UserQueryParams(BaseModel):
 
     Each field listed here must have a {field}_query method defined.
     """
+    approval_status: ApprovalStatusEnum | None = Field(
+        None,
+        description="Filter by approval status across platforms and groups",
+    )
     platform: PlatformEnum | None = Field(None, description="Filter by platform")
     platform_approval_status: ApprovalStatusEnum | None = Field(None, description="Filter by platform approval status")
     group: GroupEnum | None = Field(None, description="Filter by group")
@@ -307,6 +295,8 @@ class UserQueryParams(BaseModel):
         description="Filter users by group ('tsi',) or platform ('galaxy', 'bpa_data_portal')"
     )
     search: str | None = Field(None, description="Search users by username or email")
+    _allowed_platforms_subquery: SelectOfScalar[Platform] | None = None
+    _allowed_groups_subquery: SelectOfScalar[BiocommonsGroup] | None = None
 
     def _fields(self):
         return (name for name in self.__pydantic_fields__.keys()
@@ -319,6 +309,11 @@ class UserQueryParams(BaseModel):
         for field_name in self._fields():
             if not hasattr(self, f"{field_name}_query"):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
+        if self.approval_status and (self.platform_approval_status or self.group_approval_status):
+            raise HTTPException(
+                status_code=400,
+                detail="approval_status cannot be used with platform_approval_status or group_approval_status",
+            )
 
     def get_base_query(self):
         """
@@ -328,12 +323,36 @@ class UserQueryParams(BaseModel):
             select(BiocommonsUser)
         )
 
+    def _set_allowed_resource_subqueries(self, admin_roles: list[str]) -> None:
+        """
+        Cache allowed platform/group subqueries for reuse within this instance.
+        """
+        allowed_platforms_subquery, allowed_groups_subquery = self.get_allowed_resource_subqueries(admin_roles)
+        self._allowed_platforms_subquery = allowed_platforms_subquery
+        self._allowed_groups_subquery = allowed_groups_subquery
+
+    def get_allowed_resource_subqueries(self, admin_roles: list[str]):
+        """
+        Return subqueries for platform/group IDs the admin has access to.
+        """
+        allowed_platforms_subquery = (
+            select(Platform.id)
+            .join(Platform.admin_roles)
+            .where(Auth0Role.name.in_(admin_roles))
+        )
+        allowed_groups_subquery = (
+            select(BiocommonsGroup.group_id)
+            .join(BiocommonsGroup.admin_roles)
+            .where(Auth0Role.name.in_(admin_roles))
+        )
+        return allowed_platforms_subquery, allowed_groups_subquery
+
     def get_admin_permissions_query(self, admin_roles: list[str]):
         """
         Get the query for only returning users the admin has permission to view/manage,
         based on group/platform roles
         """
-        allowed_platforms_subquery, allowed_groups_subquery = _get_allowed_resource_subqueries(admin_roles)
+        allowed_platforms_subquery, allowed_groups_subquery = self.get_allowed_resource_subqueries(admin_roles)
         platform_access_condition = BiocommonsUser.id.in_(
             select(PlatformMembership.user_id).where(
                 PlatformMembership.platform_id.in_(allowed_platforms_subquery)
@@ -350,17 +369,18 @@ class UserQueryParams(BaseModel):
         """
         Return a full user query, with permissions from admin roles applied
         """
+        self._set_allowed_resource_subqueries(admin_roles)
         return (
             self.get_base_query()
             .where(
                 self.get_admin_permissions_query(admin_roles),
-                *self.get_query_conditions())
+                *self.get_query_conditions(admin_roles))
             .distinct()
             .offset(pagination.start_index)
             .limit(pagination.per_page)
         )
 
-    def get_query_conditions(self):
+    def get_query_conditions(self, admin_roles: list[str] | None = None):
         """
         Returns a list of SQLAlchemy queries for the filters that have been set.
         The queries can be passed to where().
@@ -373,7 +393,10 @@ class UserQueryParams(BaseModel):
             if field_value is not None:
                 method_name = f"{field_name}_query"
                 query_method = getattr(self, method_name)
-                condition = query_method()
+                try:
+                    condition = query_method(admin_roles) if admin_roles is not None else query_method()
+                except TypeError:
+                    condition = query_method()
                 # conditions may be None for interacting queries like platform
                 #   and platform_approval_status
                 if condition is not None:
@@ -421,6 +444,10 @@ class UserQueryParams(BaseModel):
         platform_status_query = select(PlatformMembership.user_id).where(
             PlatformMembership.approval_status == self.platform_approval_status
         )
+        if self._allowed_platforms_subquery is not None:
+            platform_status_query = platform_status_query.where(
+                PlatformMembership.platform_id.in_(self._allowed_platforms_subquery)
+            )
         return BiocommonsUser.id.in_(platform_status_query)
 
     def group_query(self):
@@ -434,6 +461,27 @@ class UserQueryParams(BaseModel):
             GroupMembership.approval_status == self.group_approval_status
         )
         return BiocommonsUser.id.in_(group_status_query)
+
+    def approval_status_query(self, admin_roles: list[str] | None = None):
+        """
+        Filter by approval status across platforms and groups.
+        """
+        if self._allowed_platforms_subquery is None or self._allowed_groups_subquery is None:
+            if admin_roles is None:
+                raise ValueError("Allowed resource subqueries must be set before calling approval_status_query")
+            self._set_allowed_resource_subqueries(admin_roles)
+
+        platform_status_query = select(PlatformMembership.user_id).where(
+            PlatformMembership.platform_id.in_(self._allowed_platforms_subquery),
+            PlatformMembership.approval_status == self.approval_status,
+        )
+        group_status_query = select(GroupMembership.user_id).where(
+            GroupMembership.approval_status == self.approval_status,
+        )
+        return or_(
+            BiocommonsUser.id.in_(platform_status_query),
+            BiocommonsUser.id.in_(group_status_query),
+        )
 
     def email_verified_query(self):
         return BiocommonsUser.email_verified.is_(self.email_verified)
@@ -485,96 +533,6 @@ def get_filtered_user_query(
     return user_query.get_complete_query(admin_roles, pagination)
 
 
-def _count_users_with_membership_status(
-    *,
-    db_session: Session,
-    admin_roles: list[str],
-    base_params: dict[str, object],
-    status: ApprovalStatusEnum,
-) -> int:
-    """
-    Count distinct users who have either a platform or group membership
-    with the given status, limited to resources the admin can manage.
-    """
-    # Remove status filters so we can apply OR logic below
-    params_data = {**base_params, "platform_approval_status": None, "group_approval_status": None}
-    params = UserQueryParams(**params_data)
-    allowed_platforms_subquery, allowed_groups_subquery = _get_allowed_resource_subqueries(admin_roles)
-
-    base_conditions = [
-        params.get_admin_permissions_query(admin_roles),
-        *params.get_query_conditions(),
-    ]
-
-    platform_status_query = select(PlatformMembership.user_id).where(
-        PlatformMembership.platform_id.in_(allowed_platforms_subquery),
-        PlatformMembership.approval_status == status,
-    )
-    group_status_query = select(GroupMembership.user_id).where(
-        GroupMembership.group_id.in_(allowed_groups_subquery),
-        GroupMembership.approval_status == status,
-    )
-
-    status_condition = or_(
-        BiocommonsUser.id.in_(platform_status_query),
-        BiocommonsUser.id.in_(group_status_query),
-    )
-
-    query = (
-        params.get_base_query()
-        .where(status_condition, *base_conditions)
-        .distinct()
-    )
-    count_statement = select(func.count()).select_from(query.subquery())
-    return db_session.exec(count_statement).one()
-
-
-def _get_users_with_membership_status(
-    *,
-    db_session: Session,
-    admin_roles: list[str],
-    query_params: UserQueryParams,
-    status: ApprovalStatusEnum,
-    pagination: PaginationParams,
-) -> list[BiocommonsUser]:
-    """
-    Return users who have either a platform or group membership with the given status,
-    limited to resources the admin can manage.
-    """
-    params = UserQueryParams(
-        **{**query_params.model_dump(), "platform_approval_status": None, "group_approval_status": None}
-    )
-    allowed_platforms_subquery, allowed_groups_subquery = _get_allowed_resource_subqueries(admin_roles)
-
-    base_conditions = [
-        params.get_admin_permissions_query(admin_roles),
-        *params.get_query_conditions(),
-    ]
-
-    platform_status_query = select(PlatformMembership.user_id).where(
-        PlatformMembership.platform_id.in_(allowed_platforms_subquery),
-        PlatformMembership.approval_status == status,
-    )
-    group_status_query = select(GroupMembership.user_id).where(
-        GroupMembership.group_id.in_(allowed_groups_subquery),
-        GroupMembership.approval_status == status,
-    )
-
-    status_condition = or_(
-        BiocommonsUser.id.in_(platform_status_query),
-        BiocommonsUser.id.in_(group_status_query),
-    )
-
-    query = (
-        params.get_base_query()
-        .where(status_condition, *base_conditions)
-        .distinct()
-        .offset(pagination.start_index)
-        .limit(pagination.per_page)
-    )
-    return db_session.exec(query).all()
-
-
 def _get_user_count(
     *,
     db_session: Session,
@@ -584,11 +542,12 @@ def _get_user_count(
     """
     Count distinct users matching the provided query parameters and admin permissions.
     """
+    query_params._set_allowed_resource_subqueries(admin_roles)
     query = (
         query_params.get_base_query()
         .where(
             query_params.get_admin_permissions_query(admin_roles),
-            *query_params.get_query_conditions(),
+            *query_params.get_query_conditions(admin_roles),
         )
         .distinct()
     )
@@ -641,18 +600,16 @@ def get_user_counts(
 
     return UserCountsResponse(
         all=count_with(),
-        pending=_count_users_with_membership_status(
-            db_session=db_session,
-            admin_roles=admin_roles,
-            base_params=base_params,
-            status=ApprovalStatusEnum.PENDING,
-        ),
-        revoked=_count_users_with_membership_status(
-            db_session=db_session,
-            admin_roles=admin_roles,
-            base_params=base_params,
-            status=ApprovalStatusEnum.REVOKED,
-        ),
+        pending=count_with({
+            "approval_status": ApprovalStatusEnum.PENDING,
+            "platform_approval_status": None,
+            "group_approval_status": None,
+        }),
+        revoked=count_with({
+            "approval_status": ApprovalStatusEnum.REVOKED,
+            "platform_approval_status": None,
+            "group_approval_status": None,
+        }),
         unverified=count_with({"email_verified": False}),
     )
 
@@ -678,14 +635,16 @@ def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
 def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
                       admin_user: Annotated[SessionUser, Depends(get_session_user)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    user_query_params = UserQueryParams()
-    users = _get_users_with_membership_status(
-        db_session=db_session,
-        admin_roles=admin_user.access_token.biocommons_roles,
-        query_params=user_query_params,
-        status=ApprovalStatusEnum.PENDING,
+    user_query = get_filtered_user_query(
+        admin_user=admin_user,
+        user_query=UserQueryParams(
+            approval_status=ApprovalStatusEnum.PENDING,
+            platform_approval_status=None,
+            group_approval_status=None,
+        ),
         pagination=pagination,
     )
+    users = db_session.exec(user_query).all()
     return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
@@ -694,14 +653,16 @@ def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
 def get_revoked_users(db_session: Annotated[Session, Depends(get_db_session)],
                       admin_user: Annotated[SessionUser, Depends(get_session_user)],
                       pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
-    user_query_params = UserQueryParams()
-    users = _get_users_with_membership_status(
-        db_session=db_session,
-        admin_roles=admin_user.access_token.biocommons_roles,
-        query_params=user_query_params,
-        status=ApprovalStatusEnum.REVOKED,
+    user_query = get_filtered_user_query(
+        admin_user=admin_user,
+        user_query=UserQueryParams(
+            approval_status=ApprovalStatusEnum.REVOKED,
+            platform_approval_status=None,
+            group_approval_status=None,
+        ),
         pagination=pagination,
     )
+    users = db_session.exec(user_query).all()
     return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
 
