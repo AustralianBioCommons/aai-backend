@@ -17,7 +17,7 @@ from db.models import (
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from main import app
-from routers.admin import PaginationParams
+from routers.admin import PaginationParams, UserQueryParams
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -469,6 +469,85 @@ def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_
     assert resp.status_code == 403
 
 
+def test_get_user_counts(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    bpa_platform,
+    test_db_session,
+    persistent_factories,
+):
+    approved_users = _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    pending_users = _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    revoked_users = _users_with_platform_membership(
+        1,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.REVOKED,
+    )
+    _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        email_verified=False,
+    )
+    # Users on a platform without admin access should not be counted
+    _users_with_platform_membership(
+        2, db_session=test_db_session, platform_id=bpa_platform.id
+    )
+
+    resp = test_client.get("/admin/users/counts")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "all": len(approved_users) + len(pending_users) + len(revoked_users) + 1,
+        "pending": len(pending_users),
+        "revoked": len(revoked_users),
+        "unverified": 1,
+    }
+
+
+def test_user_query_params_get_count(
+    test_db_session,
+    admin_user,
+    galaxy_platform,
+    persistent_factories,
+):
+    """
+    Ensure UserQueryParams.get_count respects approval_status across accessible platforms/groups.
+    """
+    _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    _users_with_platform_membership(
+        1,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+
+    query_params = UserQueryParams(
+        approval_status=ApprovalStatusEnum.PENDING,
+        platform_approval_status=None,
+        group_approval_status=None,
+    )
+    count = query_params.get_count(
+        db_session=test_db_session,
+        admin_roles=admin_user.access_token.biocommons_roles,
+    )
+    assert count == 2
+
+
 def test_get_approved_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
     approved_users = _users_with_platform_membership(
         3,
@@ -490,11 +569,25 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_p
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.PENDING
     )
+    # Include a user pending on a group to ensure group statuses are returned
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.TSI.value,
+        name="Threatened Species Initiative",
+        admin_roles=[admin_role],
+    )
+    group_pending_user = BiocommonsUserFactory.create_sync()
+    GroupMembershipFactory.create_sync(
+        group=group,
+        user=group_pending_user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
 
     resp = test_client.get("/admin/users/pending")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
-    expected_ids = set(u.id for u in pending_users)
+    assert len(resp.json()) == 4
+    expected_ids = {u.id for u in pending_users} | {group_pending_user.id}
     for returned_user in resp.json():
         assert returned_user["id"] in expected_ids
 
@@ -506,11 +599,25 @@ def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_p
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.REVOKED
     )
+    # Include a user revoked on a group to ensure group statuses are returned
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.TSI.value,
+        name="Threatened Species Initiative",
+        admin_roles=[admin_role],
+    )
+    group_revoked_user = BiocommonsUserFactory.create_sync()
+    GroupMembershipFactory.create_sync(
+        group=group,
+        user=group_revoked_user,
+        approval_status=ApprovalStatusEnum.REVOKED.value,
+    )
+    test_db_session.commit()
 
     resp = test_client.get("/admin/users/revoked")
     assert resp.status_code == 200
-    assert len(resp.json()) == 3
-    expected_ids = set(u.id for u in revoked_users)
+    assert len(resp.json()) == 4
+    expected_ids = {u.id for u in revoked_users} | {group_revoked_user.id}
     for returned_user in resp.json():
         assert returned_user["id"] in expected_ids
 
