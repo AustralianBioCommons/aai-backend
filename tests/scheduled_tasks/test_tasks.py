@@ -48,6 +48,8 @@ from tests.db.datagen import (
     PlatformMembershipFactory,
 )
 
+DEFAULT_EMAIL_SENDER = "amanda@biocommons.org.au"
+
 
 @pytest.mark.asyncio
 async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session, persistent_factories):
@@ -556,6 +558,7 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
 async def test_process_email_queue_sends_notifications(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -578,13 +581,50 @@ async def test_process_email_queue_sends_notifications(test_db_session, mocker):
     await send_email_notification(notification_id)
     updated = test_db_session.get(EmailNotification, notification_id)
     assert updated.status == EmailStatusEnum.SENT
-    assert mock_service.send.called
+    mock_service.send.assert_called_once_with(
+        "user@example.com",
+        "Hello",
+        "<p>Test</p>",
+        sender=DEFAULT_EMAIL_SENDER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_email_notification_uses_custom_sender(test_db_session, mocker):
+    notification = EmailNotification(
+        to_address="user@example.com",
+        from_address="custom@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+    )
+    test_db_session.add(notification)
+    test_db_session.commit()
+    notification_id = notification.id
+
+    mock_service = mocker.Mock()
+    mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=iter(lambda: test_db_session, None),
+    )
+
+    await send_email_notification(notification_id)
+
+    mock_service.send.assert_called_once_with(
+        "user@example.com",
+        "Hello",
+        "<p>Test</p>",
+        sender="custom@example.com",
+    )
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.SENT
 
 
 @pytest.mark.asyncio
 async def test_send_email_notification_retries_transient_errors(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -619,6 +659,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
 async def test_send_email_notification_does_not_retry_non_transient_error(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -655,6 +696,7 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
 async def test_process_email_queue_skips_when_max_attempts_reached(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,
@@ -687,6 +729,7 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
     )
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,

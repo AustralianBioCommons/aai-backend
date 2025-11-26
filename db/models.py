@@ -898,6 +898,7 @@ class EmailNotification(BaseModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     to_address: str = Field(index=True)
+    from_address: str = Field(nullable=False, index=True)
     subject: str = Field()
     body_html: str = Field(sa_column=Column(Text(), nullable=False))
     status: EmailStatusEnum = Field(

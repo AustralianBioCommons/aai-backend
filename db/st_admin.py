@@ -162,6 +162,7 @@ class EmailChangeOtpView(DefaultView):
 class EmailNotificationView(DefaultView):
     fields = [
         "to_address",
+        "from_address",
         "subject",
         "status",
         "attempts",
@@ -171,7 +172,7 @@ class EmailNotificationView(DefaultView):
         "created_at",
     ]
     fields_default_sort = [("created_at", True)]
-    searchable_fields = ["to_address", "status"]
+    searchable_fields = ["to_address", "from_address", "status"]
 
     async def repr(self, obj: Any, request: Request) -> str:
         return obj.subject
