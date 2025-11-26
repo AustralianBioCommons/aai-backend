@@ -331,10 +331,6 @@ class PlatformMembership(SoftDeleteModel, table=True):
         default=None,
         sa_column=Column(String(1024), nullable=True)
     )
-    rejection_reason: str | None = Field(
-        default=None,
-        sa_column=Column(String(255), nullable=True),
-    )
 
     @classmethod
     def get_by_user_id(
@@ -834,6 +830,10 @@ class Auth0Role(SoftDeleteModel, table=True):
         return session.exec(
             select(Auth0Role).where(Auth0Role.name == name)
         ).one_or_none()
+
+    @classmethod
+    def get_all(cls, session: Session) -> list["Auth0Role"]:
+        return session.exec(select(Auth0Role)).all()
 
 
 class BiocommonsGroup(SoftDeleteModel, table=True):

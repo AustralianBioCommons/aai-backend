@@ -14,10 +14,11 @@ from db.models import (
     EmailNotification,
     GroupMembership,
     GroupMembershipHistory,
+    Platform,
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from db.types import ApprovalStatusEnum, EmailStatusEnum
+from db.types import ApprovalStatusEnum, EmailStatusEnum, PlatformEnum
 from scheduled_tasks.email_retry import (
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,
@@ -25,6 +26,7 @@ from scheduled_tasks.email_retry import (
 from scheduled_tasks.tasks import (
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
+    link_admin_roles,
     populate_db_groups,
     process_email_queue,
     send_email_notification,
@@ -184,6 +186,60 @@ async def test_update_auth0_user_closes_session(mocker):
 
     fake_session.commit.assert_called_once()
     fake_session.close.assert_called_once()
+
+
+def test_link_admin_roles_links_platform_and_group(test_db_session):
+    # Set up platform and group in DB
+    platform = PlatformFactory.build(id=PlatformEnum.GALAXY)
+    group = BiocommonsGroupFactory.build(group_id="biocommons/group/testgroup")
+    test_db_session.add(platform)
+    test_db_session.add(group)
+    test_db_session.commit()
+
+    # Admin roles following naming conventions
+    platform_role = Auth0RoleFactory.build(name="biocommons/role/galaxy/admin")
+    group_role = Auth0RoleFactory.build(name="biocommons/role/testgroup/admin")
+    test_db_session.add(platform_role)
+    test_db_session.add(group_role)
+    test_db_session.flush()
+
+    roles_by_name = {
+        platform_role.name: platform_role,
+        group_role.name: group_role,
+    }
+
+    link_admin_roles(test_db_session, roles_by_name)
+    test_db_session.commit()
+    platform = Platform.get_by_id(PlatformEnum.GALAXY, test_db_session)
+    group = BiocommonsGroup.get_by_id("biocommons/group/testgroup", test_db_session)
+
+    assert platform_role in platform.admin_roles
+    assert group_role in group.admin_roles
+
+
+def test_link_admin_roles_case_insensitive(test_db_session):
+    platform = PlatformFactory.build(id=PlatformEnum.GALAXY)
+    group = BiocommonsGroupFactory.build(group_id="biocommons/group/casegroup")
+    test_db_session.add(platform)
+    test_db_session.add(group)
+    test_db_session.commit()
+
+    platform_role = Auth0RoleFactory.build(name="biocommons/role/GALAXY/Admin")
+    group_role = Auth0RoleFactory.build(name="biocommons/role/CaseGroup/Admin")
+    test_db_session.add(platform_role)
+    test_db_session.add(group_role)
+    test_db_session.flush()
+
+    roles_by_name = {platform_role.name: platform_role, group_role.name: group_role}
+
+    link_admin_roles(test_db_session, roles_by_name)
+    test_db_session.commit()
+
+    platform = Platform.get_by_id(PlatformEnum.GALAXY, test_db_session)
+    group = BiocommonsGroup.get_by_id("biocommons/group/casegroup", test_db_session)
+
+    assert platform_role in platform.admin_roles
+    assert group_role in group.admin_roles
 
 
 def test_ensure_user_from_auth0_creates_user(test_db_session):

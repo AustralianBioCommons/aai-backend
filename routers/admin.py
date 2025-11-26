@@ -165,7 +165,6 @@ def _approve_platform_membership(
     status_changed = membership.approval_status != ApprovalStatusEnum.APPROVED
     membership.approval_status = ApprovalStatusEnum.APPROVED
     membership.revocation_reason = None
-    membership.rejection_reason = None
     membership.updated_at = datetime.now(timezone.utc)
     membership.updated_by = admin_record
     if status_changed:
