@@ -18,7 +18,7 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum
-from email_settings import DEFAULT_EMAIL_SENDER
+DEFAULT_EMAIL_SENDER = "amanda@biocommons.org.au"
 from scheduled_tasks.email_retry import (
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,

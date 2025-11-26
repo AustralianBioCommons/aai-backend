@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
     aai_portal_url: str = "https://aaiportal.test.biocommons.org.au"
+    # Default sender for outbound emails
+    default_email_sender: str = "amanda@biocommons.org.au"
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW

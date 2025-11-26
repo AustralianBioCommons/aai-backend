@@ -3,7 +3,7 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from email_settings import DEFAULT_EMAIL_SENDER
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,8 @@ class EmailService:
     def __init__(self, region_name="ap-southeast-2"):
         self.client = boto3.client("ses", region_name=region_name)
 
-    def send(self, to_address: str, subject: str, body_html: str, sender: str = DEFAULT_EMAIL_SENDER):
+    def send(self, to_address: str, subject: str, body_html: str, sender: str | None = None):
+        sender = sender or get_settings().default_email_sender
         try:
             response = self.client.send_email(
                 Source=sender,

@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 from sqlmodel import Session
 
+from config import get_settings
 from db.models import EmailNotification
-from email_settings import DEFAULT_EMAIL_SENDER
 
 
 def enqueue_email(
@@ -22,7 +22,7 @@ def enqueue_email(
     """
     notification = EmailNotification(
         to_address=to_address,
-        from_address=from_address or DEFAULT_EMAIL_SENDER,
+        from_address=from_address or get_settings().default_email_sender,
         subject=subject,
         body_html=body_html,
         send_after=send_after,
