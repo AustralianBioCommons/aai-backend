@@ -557,6 +557,7 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
 async def test_process_email_queue_sends_notifications(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -622,6 +623,7 @@ async def test_send_email_notification_uses_custom_sender(test_db_session, mocke
 async def test_send_email_notification_retries_transient_errors(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -656,6 +658,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
 async def test_send_email_notification_does_not_retry_non_transient_error(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -692,6 +695,7 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
 async def test_process_email_queue_skips_when_max_attempts_reached(test_db_session, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,
@@ -724,6 +728,7 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
     )
     notification = EmailNotification(
         to_address="user@example.com",
+        from_address=DEFAULT_EMAIL_SENDER,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,
