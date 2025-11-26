@@ -514,6 +514,63 @@ def test_get_user_counts(
     }
 
 
+def test_get_user_page_info(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    bpa_platform,
+    test_db_session,
+    persistent_factories,
+):
+    # Create users on a platform the admin has access to (Galaxy)
+    _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+
+    # Create users on a platform the admin does NOT have access to (BPA)
+    _users_with_platform_membership(
+        2, db_session=test_db_session, platform_id=bpa_platform.id
+    )
+
+    # Case 1: Total count (default pagination)
+    # Should only count Galaxy users
+    resp = test_client.get("/admin/users/pages")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 5,
+        "pages": 1,
+        "per_page": 100
+    }
+
+    # Case 2: Pagination (per_page=2)
+    # 5 items / 2 per page = 3 pages
+    resp = test_client.get("/admin/users/pages?per_page=2")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 5,
+        "pages": 3,
+        "per_page": 2
+    }
+
+    # Case 3: Filter by status
+    # Should only count pending Galaxy users (3)
+    resp = test_client.get(f"/admin/users/pages?approval_status={ApprovalStatusEnum.PENDING.value}")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 3,
+        "pages": 1,
+        "per_page": 100
+    }
+
+
 def test_user_query_params_get_count(
     test_db_session,
     admin_user,
