@@ -87,6 +87,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(op.f("fk_platformmembership_platform_id_platform"), "platformmembership", type_="foreignkey")
+    bind = op.get_bind()
+    dialect_name = bind.dialect.name
+
+    if dialect_name == "sqlite":
+        # SQLite needs batch mode to drop FKs.
+        with op.batch_alter_table("platformmembership", recreate="always") as batch_op:
+            batch_op.drop_constraint(op.f("fk_platformmembership_platform_id_platform"), type_="foreignkey")
+    else:
+        op.drop_constraint(op.f("fk_platformmembership_platform_id_platform"), "platformmembership", type_="foreignkey")
     op.drop_table("platformrolelink")
     op.drop_table("platform")
