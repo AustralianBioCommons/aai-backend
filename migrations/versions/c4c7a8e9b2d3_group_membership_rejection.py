@@ -1,7 +1,7 @@
 """group-membership-rejection
 
 Revision ID: c4c7a8e9b2d3
-Revises: 9f2d8c1b5d4e
+Revises: d6a5578732bc
 Create Date: 2025-12-02 12:00:00.000000
 
 """
