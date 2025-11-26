@@ -1,5 +1,6 @@
 import inspect
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -573,6 +574,27 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
     users = db_session.exec(user_query).all()
     return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
+
+class UsersPageInfoResponse(BaseModel):
+    total: int
+    pages: int
+    per_page: int
+
+
+@router.get("/users/pages",
+            response_model=UsersPageInfoResponse,)
+def get_users_page_info(db_session: Annotated[Session, Depends(get_db_session)],
+                    query_params: Annotated[UserQueryParams, Depends()],
+                    admin_user: Annotated[SessionUser, Depends(get_session_user)],
+                    pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+    """
+    Return the total number of users and number of pages matching the query parameters and
+    current admin roles (useful for pagination).
+    """
+    admin_roles = admin_user.access_token.biocommons_roles
+    query_params.check_missing_ids(db_session)
+    total = query_params.get_count(db_session=db_session, admin_roles=admin_roles)
+    return UsersPageInfoResponse(total=total, pages=math.ceil(total / pagination.per_page), per_page=pagination.per_page)
 
 @router.get(
     "/users/counts",
