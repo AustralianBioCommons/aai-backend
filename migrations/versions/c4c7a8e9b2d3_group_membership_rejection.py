@@ -1,7 +1,7 @@
 """group-membership-rejection
 
 Revision ID: c4c7a8e9b2d3
-Revises: d6a5578732bc
+Revises: c563e06b01b3
 Create Date: 2025-12-02 12:00:00.000000
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "c4c7a8e9b2d3"
-down_revision: Union[str, Sequence[str], None] = "d6a5578732bc"
+down_revision: Union[str, Sequence[str], None] = "c563e06b01b3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
