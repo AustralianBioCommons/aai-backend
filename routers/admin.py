@@ -1,5 +1,6 @@
 import inspect
 import logging
+import math
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
@@ -366,9 +367,10 @@ class UserQueryParams(BaseModel):
         )
         return or_(platform_access_condition, group_access_condition)
 
-    def get_complete_query(self, admin_roles: list[str], pagination: PaginationParams = None) -> SelectOfScalar[BiocommonsUser]:
+    def _get_combined_query(self, admin_roles: list[str]):
         """
-        Return a full user query, with permissions from admin roles applied
+        Combine admin permissions and queries from the params to get the overall
+        user query
         """
         self._set_allowed_resource_subqueries(admin_roles)
         return (
@@ -377,6 +379,14 @@ class UserQueryParams(BaseModel):
                 self.get_admin_permissions_query(admin_roles),
                 *self.get_query_conditions(admin_roles))
             .distinct()
+        )
+
+    def get_complete_query(self, admin_roles: list[str], pagination: PaginationParams = None) -> SelectOfScalar[BiocommonsUser]:
+        """
+        Return a full user query, with permissions from admin roles and pagination applied
+        """
+        return (
+            self._get_combined_query(admin_roles)
             .offset(pagination.start_index)
             .limit(pagination.per_page)
         )
@@ -495,15 +505,7 @@ class UserQueryParams(BaseModel):
         """
         Count distinct users matching the current filters and admin permissions.
         """
-        self._set_allowed_resource_subqueries(admin_roles)
-        query = (
-            self.get_base_query()
-            .where(
-                self.get_admin_permissions_query(admin_roles),
-                *self.get_query_conditions(admin_roles),
-            )
-            .distinct()
-        )
+        query = self._get_combined_query(admin_roles)
         count_statement = select(func.count()).select_from(query.subquery())
         return db_session.exec(count_statement).one()
 
@@ -573,6 +575,27 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
     users = db_session.exec(user_query).all()
     return [BiocommonsUserResponse.from_db_user(user) for user in users]
 
+
+class UsersPageInfoResponse(BaseModel):
+    total: int
+    pages: int
+    per_page: int
+
+
+@router.get("/users/pages",
+            response_model=UsersPageInfoResponse,)
+def get_users_page_info(db_session: Annotated[Session, Depends(get_db_session)],
+                    query_params: Annotated[UserQueryParams, Depends()],
+                    admin_user: Annotated[SessionUser, Depends(get_session_user)],
+                    pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+    """
+    Return the total number of users and number of pages matching the query parameters and
+    current admin roles (useful for pagination).
+    """
+    admin_roles = admin_user.access_token.biocommons_roles
+    query_params.check_missing_ids(db_session)
+    total = query_params.get_count(db_session=db_session, admin_roles=admin_roles)
+    return UsersPageInfoResponse(total=total, pages=math.ceil(total / pagination.per_page), per_page=pagination.per_page)
 
 @router.get(
     "/users/counts",
