@@ -22,7 +22,13 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import GROUP_NAMES, ApprovalStatusEnum, EmailStatusEnum, GroupEnum
+from db.types import (
+    GROUP_NAMES,
+    ApprovalStatusEnum,
+    EmailStatusEnum,
+    GroupEnum,
+    PlatformEnum,
+)
 from scheduled_tasks.email_retry import (
     EMAIL_JOB_ID_PREFIX,
     EMAIL_MAX_ATTEMPTS,
@@ -263,6 +269,7 @@ async def sync_auth0_roles():
 
     db_session = next(get_db_session())
     auth0_role_ids: set[str] = set()
+    db_roles_by_name: dict[str, Auth0Role] = {}
     try:
         for role in roles:
             logger.info(f"  Role: {role.name}")
@@ -292,6 +299,7 @@ async def sync_auth0_roles():
             if db_role.name != role.name or db_role.description != role.description:
                 db_role.name = role.name
                 db_role.description = role.description
+            db_roles_by_name[db_role.name] = db_role
         # Soft delete roles missing from Auth0
         db_session.flush()
         existing_roles = db_session.exec(select(Auth0Role)).all()
@@ -299,10 +307,49 @@ async def sync_auth0_roles():
             if db_role.id not in auth0_role_ids:
                 logger.info(f"    Soft deleting role {db_role.name} ({db_role.id}) absent from Auth0")
                 db_role.delete(db_session, commit=False)
+        link_admin_roles(db_session, db_roles_by_name)
         db_session.commit()
     finally:
         db_session.close()
 
+
+def link_admin_roles(session: Session, db_roles_by_name: dict[str, Auth0Role]) -> None:
+    """
+    Link admin roles to platforms/groups based on naming conventions:
+      - Platform admin roles: biocommons/role/{platform_id}/admin
+      - Group admin roles:    biocommons/role/{group_short_id}/admin where group_id is biocommons/group/{group_short_id}
+    """
+    platform_admin_pattern = re.compile(
+        r"^biocommons/role/(?P<platform_id>[a-z0-9_]+)/admin$", re.IGNORECASE
+    )
+    group_admin_pattern = re.compile(
+        r"^biocommons/role/(?P<group_short_id>[a-z0-9_]+)/admin$", re.IGNORECASE
+    )
+
+    for role_name, role in db_roles_by_name.items():
+        platform_match = platform_admin_pattern.match(role_name)
+        if platform_match:
+            pid = platform_match.group("platform_id").lower()
+            try:
+                platform_enum = PlatformEnum(pid)
+            except ValueError:
+                platform = None
+            else:
+                platform = Platform.get_by_id(platform_enum, session)
+            if platform:
+                if role not in platform.admin_roles:
+                    platform.admin_roles.append(role)
+                    session.add(platform)
+                continue
+
+        group_match = group_admin_pattern.match(role_name)
+        if group_match:
+            gid_short = group_match.group("group_short_id").lower()
+            full_group_id = f"biocommons/group/{gid_short}"
+            group = BiocommonsGroup.get_by_id(full_group_id, session)
+            if group and role not in group.admin_roles:
+                group.admin_roles.append(role)
+                session.add(group)
 
 class MembershipSyncStatus(BaseModel):
     created: bool
@@ -498,6 +545,10 @@ async def populate_db_groups(groups=GroupEnum):
                 db_group = BiocommonsGroup(group_id=group.value, name=name, short_name=short_name)
                 db_session.add(db_group)
         db_session.commit()
+        # Ensure admin roles are linked now that groups exist (sync_auth0_roles may have run earlier)
+        roles_by_name = {role.name: role for role in Auth0Role.get_all(db_session)}
+        link_admin_roles(db_session, roles_by_name)
+        db_session.commit()
     finally:
         db_session.close()
 
@@ -528,6 +579,10 @@ async def populate_platforms_from_auth0():
                 else:
                     logger.info(f"  Updating platform {platform_id} (if needed)")
                     platform.update_from_auth0_role(db_role, db_session, commit=False)
+        db_session.commit()
+        roles_by_name = {role.name: role for role in Auth0Role.get_all(db_session)}
+        link_admin_roles(db_session, roles_by_name)
+        db_session.commit()
     finally:
         db_session.close()
 

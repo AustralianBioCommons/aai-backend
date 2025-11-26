@@ -14,6 +14,7 @@ class ApprovalStatusEnum(str, Enum):
     APPROVED = "approved"
     PENDING = "pending"
     REVOKED = "revoked"
+    REJECTED = "rejected"
 
 
 class EmailStatusEnum(str, Enum):
@@ -49,6 +50,7 @@ class GroupMembershipData(BaseModel):
     approval_status: ApprovalStatusEnum
     updated_by: str
     revocation_reason: str | None = None
+    rejection_reason: str | None = None
 
 
 class GroupEnum(str, Enum):

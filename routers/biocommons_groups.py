@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Annotated
 
@@ -41,8 +42,9 @@ def request_group_access(
         settings: Annotated[Settings, Depends(get_settings)],
     ):
     """
-    Request access to a group. Assumes the user does not already have a
-    GroupMembership record for this group.
+    Request access to a group. Users can re-request access if their last
+    request was rejected; otherwise the request is rejected if a membership
+    already exists.
     """
     group_id = request_data.group_id
     existing_membership = GroupMembership.get_by_user_id_and_group_id(
@@ -50,24 +52,35 @@ def request_group_access(
         group_id=group_id,
         session=db_session,
     )
+    membership: GroupMembership
     if existing_membership is not None:
-        raise HTTPException(
-            status_code=HTTPStatus.CONFLICT,
-            detail=f"User {user.access_token.sub} already has a membership for {group_id}"
+        if existing_membership.approval_status != ApprovalStatusEnum.REJECTED:
+            raise HTTPException(
+                status_code=HTTPStatus.CONFLICT,
+                detail=f"User {user.access_token.sub} already has a membership for {group_id}"
+            )
+        membership = existing_membership
+        membership.approval_status = ApprovalStatusEnum.PENDING
+        membership.rejection_reason = None
+        membership.updated_by = None
+        membership.updated_at = datetime.now(timezone.utc)
+        membership.save(session=db_session, commit=False)
+        logger.info("Re-requested group membership for %s(%s)", group_id, user.access_token.sub)
+    else:
+        group = BiocommonsGroup.get_by_id(group_id, db_session)
+        user_record = BiocommonsUser.get_or_create(
+            auth0_id=user.access_token.sub,
+            db_session=db_session,
+            auth0_client=auth0_client
         )
-    group = BiocommonsGroup.get_by_id(group_id, db_session)
-    user_record = BiocommonsUser.get_or_create(
-        auth0_id=user.access_token.sub,
-        db_session=db_session,
-        auth0_client=auth0_client
-    )
-    membership = GroupMembership(
-        group=group,
-        user=user_record,
-        approval_status=ApprovalStatusEnum.PENDING,
-        updated_by=None
-    )
-    membership.save(session=db_session, commit=False)
+        membership = GroupMembership(
+            group=group,
+            user=user_record,
+            approval_status=ApprovalStatusEnum.PENDING,
+            updated_by=None
+        )
+        membership.save(session=db_session, commit=False)
+        logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
     logger.info("Queueing emails to group admins for approval")
     admin_emails = membership.group.get_admins(auth0_client=auth0_client)
     for email in admin_emails:
@@ -113,8 +126,15 @@ def approve_group_access(
             status_code=HTTPStatus.NOT_FOUND,
             detail="No membership request found for this user"
     )
+    if membership.approval_status not in {ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED}:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Only pending or revoked group memberships can be approved.",
+        )
     membership.approval_status = ApprovalStatusEnum.APPROVED
     membership.updated_by = approving_user_record
+    membership.rejection_reason = None
+    membership.revocation_reason = None
     membership.grant_auth0_role(auth0_client=auth0_client)
     membership.save(session=db_session, commit=False)
     if membership.user is None:
