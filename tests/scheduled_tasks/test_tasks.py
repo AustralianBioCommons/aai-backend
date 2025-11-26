@@ -18,7 +18,6 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum
-DEFAULT_EMAIL_SENDER = "amanda@biocommons.org.au"
 from scheduled_tasks.email_retry import (
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,
@@ -48,6 +47,8 @@ from tests.db.datagen import (
     PlatformFactory,
     PlatformMembershipFactory,
 )
+
+DEFAULT_EMAIL_SENDER = "amanda@biocommons.org.au"
 
 
 @pytest.mark.asyncio
