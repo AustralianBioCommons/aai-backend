@@ -7,6 +7,7 @@ import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 from sqlmodel import select
 
+from email_settings import DEFAULT_EMAIL_SENDER
 from db.models import (
     Auth0Role,
     BiocommonsGroup,
@@ -578,7 +579,43 @@ async def test_process_email_queue_sends_notifications(test_db_session, mocker):
     await send_email_notification(notification_id)
     updated = test_db_session.get(EmailNotification, notification_id)
     assert updated.status == EmailStatusEnum.SENT
-    assert mock_service.send.called
+    mock_service.send.assert_called_once_with(
+        "user@example.com",
+        "Hello",
+        "<p>Test</p>",
+        sender=DEFAULT_EMAIL_SENDER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_email_notification_uses_custom_sender(test_db_session, mocker):
+    notification = EmailNotification(
+        to_address="user@example.com",
+        from_address="custom@example.com",
+        subject="Hello",
+        body_html="<p>Test</p>",
+    )
+    test_db_session.add(notification)
+    test_db_session.commit()
+    notification_id = notification.id
+
+    mock_service = mocker.Mock()
+    mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=iter(lambda: test_db_session, None),
+    )
+
+    await send_email_notification(notification_id)
+
+    mock_service.send.assert_called_once_with(
+        "user@example.com",
+        "Hello",
+        "<p>Test</p>",
+        sender="custom@example.com",
+    )
+    updated = test_db_session.get(EmailNotification, notification_id)
+    assert updated.status == EmailStatusEnum.SENT
 
 
 @pytest.mark.asyncio

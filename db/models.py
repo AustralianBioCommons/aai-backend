@@ -19,6 +19,7 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from email_settings import DEFAULT_EMAIL_SENDER
 from schemas.auth0 import get_platform_id_from_role_name
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
@@ -898,6 +899,7 @@ class EmailNotification(BaseModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     to_address: str = Field(index=True)
+    from_address: str = Field(default=DEFAULT_EMAIL_SENDER, nullable=False, index=True)
     subject: str = Field()
     body_html: str = Field(sa_column=Column(Text(), nullable=False))
     status: EmailStatusEnum = Field(

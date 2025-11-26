@@ -155,6 +155,7 @@ async def send_email_notification(
                 notification.to_address,
                 notification.subject,
                 notification.body_html,
+                sender=notification.from_address,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to send email %s: %s", notification.id, exc)

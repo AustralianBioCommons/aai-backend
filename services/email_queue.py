@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session
 
 from db.models import EmailNotification
+from email_settings import DEFAULT_EMAIL_SENDER
 
 
 def enqueue_email(
@@ -12,6 +13,7 @@ def enqueue_email(
     subject: str,
     body_html: str,
     send_after: datetime | None = None,
+    from_address: str | None = None,
 ) -> EmailNotification:
     """
     Persist an outbound email so the scheduler can deliver it later.
@@ -20,6 +22,7 @@ def enqueue_email(
     """
     notification = EmailNotification(
         to_address=to_address,
+        from_address=from_address or DEFAULT_EMAIL_SENDER,
         subject=subject,
         body_html=body_html,
         send_after=send_after,
