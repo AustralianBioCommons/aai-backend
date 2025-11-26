@@ -58,6 +58,13 @@ jobs:
           uv run alembic upgrade head
           uv run alembic check
 
+      - name: Downgrade migrations one by one
+        run: |
+          set -euo pipefail
+          while uv run alembic current | grep -vq "None"; do
+            uv run alembic downgrade -1
+          done
+
       - name: Reset database contents
         env:
           PGPASSWORD: testpass
@@ -97,6 +104,13 @@ jobs:
         run: |
           uv run alembic upgrade head
           uv run alembic check
+
+      - name: Downgrade migrations one by one (SQLite)
+        run: |
+          set -euo pipefail
+          while uv run alembic current | grep -vq "None"; do
+            uv run alembic downgrade -1
+          done
 
       - name: Reset database file (SQLite)
         run: |
