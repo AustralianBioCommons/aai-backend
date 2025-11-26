@@ -9,8 +9,25 @@ on:
 
 jobs:
 
-  check:
+  check-migrations-postgres:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U testuser -d testdb -p 5432"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_URL: postgresql+psycopg://testuser:testpass@localhost:5433/testdb
 
     steps:
       - name: Checkout code
@@ -31,7 +48,75 @@ jobs:
           uv venv
           uv sync --extra dev
 
-      - name: Run migration checks
+      - name: Install PostgreSQL client (psql)
         run: |
-          source .venv/bin/activate
-          python generate_migrations.py --check
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Prepare DB and run Alembic check
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Downgrade migrations one by one
+        run: |
+          set -euo pipefail
+          while uv run alembic current | grep -vq "None"; do
+            uv run alembic downgrade -1
+          done
+
+      - name: Reset database contents
+        env:
+          PGPASSWORD: testpass
+        run: |
+          psql -h localhost -p 5433 -U testuser -d testdb -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+      - name: Run migrations via bootstrap
+        run: |
+          uv run scripts/bootstrap.py migrate
+          uv run alembic check
+
+  check-migrations-sqlite:
+    runs-on: ubuntu-latest
+    env:
+      DB_URL: sqlite:////tmp/aai_migrations.sqlite
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.13
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Create virtual environment and install dependencies
+        run: |
+          uv venv
+          uv sync --extra dev
+
+      - name: Migrate and check Alembic (SQLite)
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Downgrade migrations one by one (SQLite)
+        run: |
+          set -euo pipefail
+          while uv run alembic current | grep -vq "None"; do
+            uv run alembic downgrade -1
+          done
+
+      - name: Reset database file (SQLite)
+        run: |
+          rm -f /tmp/aai_migrations.sqlite
+
+      - name: Run migrations via bootstrap (SQLite)
+        run: |
+          uv run scripts/bootstrap.py migrate
+          uv run alembic check

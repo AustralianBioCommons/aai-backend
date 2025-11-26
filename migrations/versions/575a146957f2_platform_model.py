@@ -58,14 +58,23 @@ def upgrade() -> None:
 
     fk_names = {fk["name"] for fk in inspector.get_foreign_keys("platformmembership")}
     fk_name = op.f("fk_platformmembership_platform_id_platform")
-    if dialect_name != "sqlite" and fk_name not in fk_names:
-        op.create_foreign_key(
-            fk_name,
-            "platformmembership",
-            "platform",
-            ["platform_id"],
-            ["id"],
-        )
+    if fk_name not in fk_names:
+        if dialect_name == "sqlite":
+            with op.batch_alter_table("platformmembership", recreate="always") as batch_op:
+                batch_op.create_foreign_key(
+                    fk_name,
+                    "platform",
+                    ["platform_id"],
+                    ["id"],
+                )
+        else:
+            op.create_foreign_key(
+                fk_name,
+                "platformmembership",
+                "platform",
+                ["platform_id"],
+                ["id"],
+            )
 
     if dialect_name == "sqlite":
         op.execute("INSERT OR IGNORE INTO platform (id, name) VALUES ('GALAXY', 'Galaxy Australia')")
@@ -78,6 +87,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_constraint(op.f("fk_platformmembership_platform_id_platform"), "platformmembership", type_="foreignkey")
+    bind = op.get_bind()
+    dialect_name = bind.dialect.name
+
+    if dialect_name == "sqlite":
+        # SQLite needs batch mode to drop FKs.
+        with op.batch_alter_table("platformmembership", recreate="always") as batch_op:
+            batch_op.drop_constraint(op.f("fk_platformmembership_platform_id_platform"), type_="foreignkey")
+    else:
+        op.drop_constraint(op.f("fk_platformmembership_platform_id_platform"), "platformmembership", type_="foreignkey")
     op.drop_table("platformrolelink")
     op.drop_table("platform")
