@@ -646,7 +646,11 @@ class GroupMembership(SoftDeleteModel, table=True):
             session.add(self)
         session.flush()
 
-        history_reason = self.rejection_reason if self.approval_status == ApprovalStatusEnum.REJECTED else self.revocation_reason
+        history_reason = (
+            self.rejection_reason
+            if self.approval_status == ApprovalStatusEnum.REJECTED and self.rejection_reason is not None
+            else self.revocation_reason
+        )
         history = GroupMembershipHistory(
             group_id=self.group_id,
             user_id=self.user_id,
