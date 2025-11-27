@@ -5,8 +5,8 @@ Useful to keep them here rather than in models.py to
 avoid circular imports.
 """
 import uuid
-from enum import Enum
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel
 
