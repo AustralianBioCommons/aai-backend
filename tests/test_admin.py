@@ -805,17 +805,19 @@ def test_revoke_platform_membership_records_reason(
     mock_auth0_client.get_role_by_name.return_value = mock_role
 
     reason = "  No longer meets access requirements  "
-    resp = test_client.post(
-        f"/admin/users/{user.id}/platforms/galaxy/revoke",
-        json={"reason": reason},
-    )
+    with freeze_time("2025-01-01 12:00:00"):
+        resp = test_client.post(
+            f"/admin/users/{user.id}/platforms/galaxy/revoke",
+            json={"reason": reason},
+        )
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
 
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
-    assert membership.revocation_reason == reason.strip()
+    expected_reason = f"{reason.strip()} (revoked on 2025-01-01T12:00:00+00:00 by {admin_db_user.email})"
+    assert membership.revocation_reason == expected_reason
     assert membership.updated_by_id == admin_db_user.id
 
     history_entries = test_db_session.exec(
@@ -827,7 +829,7 @@ def test_revoke_platform_membership_records_reason(
         .order_by(PlatformMembershipHistory.updated_at)
     ).all()
     assert history_entries[-1].approval_status == ApprovalStatusEnum.REVOKED
-    assert history_entries[-1].reason == reason.strip()
+    assert history_entries[-1].reason == expected_reason
     mock_auth0_client.get_role_by_name.assert_called_once_with("biocommons/platform/galaxy")
     mock_auth0_client.remove_roles_from_user.assert_called_once_with(
         user_id=user.id,
@@ -1096,17 +1098,19 @@ def test_reject_group_membership_records_reason(
 
     reason = "Not eligible for this bundle"
     group_url = quote(tsi_group.group_id, safe='')
-    resp = test_client.post(
-        f"/admin/users/{user.id}/groups/{group_url}/reject",
-        json={"reason": reason},
-    )
+    with freeze_time("2025-01-01 12:00:00"):
+        resp = test_client.post(
+            f"/admin/users/{user.id}/groups/{group_url}/reject",
+            json={"reason": reason},
+        )
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
 
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REJECTED
-    assert membership.rejection_reason == reason
+    expected_reason = f"{reason} (rejected on 2025-01-01T12:00:00+00:00 by {admin_db_user.email})"
+    assert membership.rejection_reason == expected_reason
     assert membership.updated_by_id == admin_db_user.id
 
     history = GroupMembershipHistory.get_by_user_id_and_group_id(
@@ -1114,7 +1118,7 @@ def test_reject_group_membership_records_reason(
         group_id=tsi_group.group_id,
         session=test_db_session,
     )
-    assert history[-1].reason == reason
+    assert history[-1].reason == expected_reason
 
 
 def test_reject_group_membership_forbidden_without_group_role(
@@ -1190,17 +1194,19 @@ def test_revoke_group_membership_records_reason(
     mock_auth0_client.get_role_by_name.return_value = mock_role
 
     reason = "Access no longer required"
-    resp = test_client.post(
-        f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
-        json={"reason": reason},
-    )
+    with freeze_time("2025-01-01 12:00:00"):
+        resp = test_client.post(
+            f"/admin/users/{user.id}/groups/{tsi_group.group_id}/revoke",
+            json={"reason": reason},
+        )
 
     assert resp.status_code == 200
     assert resp.json() == {"status": "ok", "updated": True}
 
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
-    assert membership.revocation_reason == reason
+    expected_reason = f"{reason} (revoked on 2025-01-01T12:00:00+00:00 by {admin_db_user.email})"
+    assert membership.revocation_reason == expected_reason
     assert membership.updated_by_id == admin_db_user.id
     mock_auth0_client.get_role_by_name.assert_called_once_with(tsi_group.group_id)
     mock_auth0_client.remove_roles_from_user.assert_called_once_with(
