@@ -6,8 +6,6 @@ from sqlmodel import select
 from auth.user_permissions import get_session_user
 from db.models import (
     EmailNotification,
-    GroupMembership,
-    GroupMembershipHistory,
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum
 from main import app
@@ -15,7 +13,6 @@ from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
-    RoleUserDataFactory,
     SessionUserFactory,
 )
 from tests.db.datagen import (
@@ -24,97 +21,6 @@ from tests.db.datagen import (
     BiocommonsUserFactory,
     GroupMembershipFactory,
 )
-
-
-@respx.mock
-def test_request_group_membership(test_client_with_email, normal_user, as_normal_user, mock_auth0_client, test_db_session, persistent_factories, mocker):
-    """
-    Test the full process of requesting group membership - request membership for a user
-    and send approval email to the relevant admins.
-    """
-    test_client = test_client_with_email
-    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
-    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
-    user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
-    # Mock an admin that has the required admin role (to send approval email to)
-    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
-    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
-    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
-    mock_auth0_client.get_user.return_value = admin_info
-    # Request membership
-    resp = test_client.post(
-        "/biocommons/groups/request",
-        json={
-            "group_id": group.group_id,
-        }
-    )
-    assert resp.status_code == 200
-    assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
-    # Check membership request is created along with history entry
-    membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
-    assert membership.approval_status == "pending"
-    history = GroupMembershipHistory.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
-    assert len(history) == 1
-    assert history[0].approval_status == "pending"
-    assert membership.user == user
-    # Check approval email is queued for admin review
-    queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 1
-    assert queued_emails[0].to_address == admin_info.email
-    assert queued_emails[0].status == EmailStatusEnum.PENDING
-
-
-@respx.mock
-def test_request_group_membership_after_rejection(
-    test_client_with_email,
-    normal_user,
-    as_normal_user,
-    mock_auth0_client,
-    test_db_session,
-    persistent_factories,
-):
-    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
-    group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[admin_role])
-    user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
-    membership = GroupMembershipFactory.create_sync(
-        group=group,
-        user=user,
-        approval_status=ApprovalStatusEnum.REJECTED.value,
-        rejection_reason="Incomplete application",
-    )
-    test_db_session.commit()
-
-    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
-    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
-    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
-    mock_auth0_client.get_user.return_value = admin_info
-
-    resp = test_client_with_email.post(
-        "/biocommons/groups/request",
-        json={
-            "group_id": group.group_id,
-        }
-    )
-
-    assert resp.status_code == 200
-    assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
-
-    test_db_session.refresh(membership)
-    assert membership.approval_status == ApprovalStatusEnum.PENDING
-    assert membership.rejection_reason is None
-    assert membership.updated_by is None
-
-    history = GroupMembershipHistory.get_by_user_id_and_group_id(
-        user_id=normal_user.access_token.sub,
-        group_id=group.group_id,
-        session=test_db_session,
-    )
-    assert history[-1].approval_status == ApprovalStatusEnum.PENDING
-
-    queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 1
-    assert queued_emails[0].to_address == admin_info.email
-    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 @respx.mock

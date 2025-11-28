@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Annotated
 
@@ -9,9 +8,7 @@ from sqlmodel import Session
 
 from auth.user_permissions import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
-from biocommons.groups import (
-    GroupId,
-)
+from biocommons.emails import compose_group_membership_approved_email
 from config import Settings, get_settings
 from db.models import (
     ApprovalStatusEnum,
@@ -27,72 +24,6 @@ logger = logging.getLogger('uvicorn.error')
 
 router = APIRouter(prefix="/biocommons", tags=["biocommons"],
                    dependencies=[Depends(get_session_user)])
-
-
-class GroupAccessRequestData(BaseModel):
-    group_id: GroupId
-
-
-@router.post("/groups/request")
-def request_group_access(
-        request_data: GroupAccessRequestData,
-        user: Annotated[SessionUser, Depends(get_session_user)],
-        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
-        db_session: Annotated[Session, Depends(get_db_session)],
-        settings: Annotated[Settings, Depends(get_settings)],
-    ):
-    """
-    Request access to a group. Users can re-request access if their last
-    request was rejected; otherwise the request is rejected if a membership
-    already exists.
-    """
-    group_id = request_data.group_id
-    existing_membership = GroupMembership.get_by_user_id_and_group_id(
-        user_id=user.access_token.sub,
-        group_id=group_id,
-        session=db_session,
-    )
-    membership: GroupMembership
-    if existing_membership is not None:
-        if existing_membership.approval_status != ApprovalStatusEnum.REJECTED:
-            raise HTTPException(
-                status_code=HTTPStatus.CONFLICT,
-                detail=f"User {user.access_token.sub} already has a membership for {group_id}"
-            )
-        membership = existing_membership
-        membership.approval_status = ApprovalStatusEnum.PENDING
-        membership.rejection_reason = None
-        membership.updated_by = None
-        membership.updated_at = datetime.now(timezone.utc)
-        membership.save(session=db_session, commit=False)
-        logger.info("Re-requested group membership for %s(%s)", group_id, user.access_token.sub)
-    else:
-        group = BiocommonsGroup.get_by_id(group_id, db_session)
-        user_record = BiocommonsUser.get_or_create(
-            auth0_id=user.access_token.sub,
-            db_session=db_session,
-            auth0_client=auth0_client
-        )
-        membership = GroupMembership(
-            group=group,
-            user=user_record,
-            approval_status=ApprovalStatusEnum.PENDING,
-            updated_by=None
-        )
-        membership.save(session=db_session, commit=False)
-        logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
-    logger.info("Queueing emails to group admins for approval")
-    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
-    for email in admin_emails:
-        subject, body_html = compose_group_approval_email(request=membership, settings=settings)
-        enqueue_email(
-            db_session,
-            to_address=email,
-            subject=subject,
-            body_html=body_html,
-        )
-    db_session.commit()
-    return {"message": f"Group membership for {group_id} requested successfully."}
 
 
 class GroupAccessApprovalData(BaseModel):
@@ -153,33 +84,3 @@ def approve_group_access(
         )
     db_session.commit()
     return {"message": f"Group membership for {group.name} approved successfully."}
-
-
-def compose_group_approval_email(request: GroupMembership, settings: Settings) -> tuple[str, str]:
-    subject = f"New request to join {request.group.name}"
-    body_html = f"""
-        <p>A new user has requested access to the {request.group.name} group.</p>
-        <p><strong>User:</strong> {request.user.email}</p>
-        <p>Please <a href='{settings.aai_portal_url}/requests'>log into the BioCommons account dashboard</a> to review and approve access.</p>
-    """
-    return subject, body_html
-
-
-def compose_group_membership_approved_email(
-    group_name: str,
-    group_short_name: str,
-    settings: Settings,
-) -> tuple[str, str]:
-    """
-    Notify a user that their group/bundle access was approved.
-    """
-    short_name = group_short_name or group_name
-    portal_url = settings.aai_portal_url.rstrip("/")
-    subject = f"Access approved for {short_name}"
-    body_html = f"""
-        <p>Hello,</p>
-        <p>Your request to join <strong>{group_name}</strong> ({short_name} bundle) has been approved.</p>
-        <p>You now have access to all services included with this bundle. Sign in to the <a href="{portal_url}">AAI Portal</a> to review the bundle details and launch its platforms.</p>
-        <p>If you have any questions, please reply to this email.</p>
-    """
-    return subject, body_html

@@ -19,6 +19,8 @@ from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
+from biocommons.emails import compose_group_approval_email
+from biocommons.groups import GroupId
 from config import Settings, get_settings
 from db.models import (
     BiocommonsGroup,
@@ -39,6 +41,7 @@ from schemas.biocommons import (
     UserProfileData,
 )
 from schemas.user import SessionUser
+from services.email_queue import enqueue_email
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
@@ -281,6 +284,68 @@ async def get_admin_groups(
     """Get groups for which the current user has admin privileges."""
     user_roles = user.access_token.biocommons_roles
     return BiocommonsGroup.get_for_admin_roles(role_names=user_roles, session=db_session)
+
+
+class GroupAccessRequestData(BaseModel):
+    group_id: GroupId
+
+
+@router.post("/groups/request")
+def request_group_access(
+        request_data: GroupAccessRequestData,
+        user: Annotated[SessionUser, Depends(get_session_user)],
+        db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+        settings: Annotated[Settings, Depends(get_settings)],
+):
+    """
+    Request access to a group. Users can re-request access if their last
+    request was rejected; otherwise the request is rejected if a membership
+    already exists.
+    """
+    group_id = request_data.group_id
+    existing_membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=user.access_token.sub,
+        group_id=group_id,
+        session=db_session,
+    )
+    membership: GroupMembership
+    if existing_membership is not None:
+        if existing_membership.approval_status != ApprovalStatusEnum.REJECTED:
+            raise HTTPException(
+                status_code=http.HTTPStatus.CONFLICT,
+                detail=f"User {user.access_token.sub} already has a membership for {group_id}"
+            )
+        membership = existing_membership
+        membership.approval_status = ApprovalStatusEnum.PENDING
+        membership.rejection_reason = None
+        membership.updated_by = None
+        membership.updated_at = datetime.now(timezone.utc)
+        membership.save(session=db_session, commit=False)
+        logger.info("Re-requested group membership for %s(%s)", group_id, user.access_token.sub)
+    else:
+        group = BiocommonsGroup.get_by_id(group_id, db_session)
+        membership = GroupMembership(
+            group=group,
+            user=db_user,
+            approval_status=ApprovalStatusEnum.PENDING,
+            updated_by=None
+        )
+        membership.save(session=db_session, commit=False)
+        logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
+    logger.info("Queueing emails to group admins for approval")
+    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
+    for email in admin_emails:
+        subject, body_html = compose_group_approval_email(request=membership, settings=settings)
+        enqueue_email(
+            db_session,
+            to_address=email,
+            subject=subject,
+            body_html=body_html,
+        )
+    db_session.commit()
+    return {"message": f"Group membership for {group_id} requested successfully."}
 
 
 @router.get("/is-general-admin")
