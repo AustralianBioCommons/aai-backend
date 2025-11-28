@@ -13,7 +13,6 @@ from db.st_admin import setup_starlette_admin
 from routers import (
     admin,
     biocommons_admin,
-    biocommons_groups,
     biocommons_register,
     sbp_register,
     user,
@@ -85,7 +84,6 @@ app.include_router(user.router)
 app.include_router(biocommons_register.router)
 app.include_router(sbp_register.router)
 app.include_router(utils.router)
-app.include_router(biocommons_groups.router)
 try:
     SERVICE_VERSION = version("aai-backend")
 except PackageNotFoundError:
