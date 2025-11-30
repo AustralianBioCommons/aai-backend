@@ -5,6 +5,7 @@ Useful to keep them here rather than in models.py to
 avoid circular imports.
 """
 import uuid
+from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel
@@ -38,6 +39,7 @@ class PlatformMembershipData(BaseModel):
     user_id: str
     approval_status: ApprovalStatusEnum
     updated_by: str
+    updated_at: datetime
     revocation_reason: str | None = None
 
 
@@ -49,6 +51,7 @@ class GroupMembershipData(BaseModel):
     group_short_name: str
     approval_status: ApprovalStatusEnum
     updated_by: str
+    updated_at: datetime
     revocation_reason: str | None = None
     rejection_reason: str | None = None
 

@@ -38,7 +38,7 @@ def _reason_with_metadata(
     """
     base_reason = (reason or "").strip()
     actor_email = actor.email if actor and getattr(actor, "email", None) else "(unknown)"
-    suffix = f"{action} on {action_time.isoformat()} by {actor_email}"
+    suffix = f"{action} on {action_time.isoformat(timespec='seconds')} by {actor_email}"
     return f"{base_reason} ({suffix})" if base_reason else suffix
 
 
@@ -488,6 +488,7 @@ class PlatformMembership(SoftDeleteModel, table=True):
             user_id=self.user_id,
             approval_status=self.approval_status,
             updated_by=updated_by,
+            updated_at=self.updated_at,
             revocation_reason=self.revocation_reason,
         )
 
@@ -748,6 +749,7 @@ class GroupMembership(SoftDeleteModel, table=True):
             group_short_name=self.group.short_name,
             approval_status=self.approval_status,
             updated_by=updated_by,
+            updated_at=self.updated_at,
             revocation_reason=self.revocation_reason,
             rejection_reason=self.rejection_reason,
         )
