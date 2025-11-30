@@ -9,10 +9,10 @@ from starlette.responses import JSONResponse
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
+from biocommons.emails import compose_group_approval_email
 from config import Settings, get_settings
 from db.models import BiocommonsUser, GroupMembership
 from db.setup import get_db_session
-from routers.biocommons_groups import compose_group_approval_email
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData

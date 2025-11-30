@@ -22,6 +22,7 @@ from auth.user_permissions import (
     user_is_general_admin,
 )
 from auth0.client import Auth0Client, get_auth0_client
+from biocommons.emails import compose_group_membership_approved_email
 from config import Settings, get_settings
 from db.models import (
     Auth0Role,
@@ -39,7 +40,6 @@ from db.types import (
     GroupMembershipData,
     PlatformMembershipData,
 )
-from routers.biocommons_groups import compose_group_membership_approved_email
 from schemas.biocommons import Auth0UserDataWithMemberships, ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
