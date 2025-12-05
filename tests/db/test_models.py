@@ -512,13 +512,12 @@ def test_platform_membership_revoke_updates_state(test_db_session, mock_auth0_cl
     role = RoleDataFactory.build(name="biocommons/platform/galaxy")
     mock_auth0_client.get_role_by_name.return_value = role
 
-    with freeze_time("2025-01-01 12:00:00"):
-        result = membership.revoke(
-            auth0_client=mock_auth0_client,
-            reason="No longer required",
-            updated_by=admin,
-            session=test_db_session,
-        )
+    result = membership.revoke(
+        auth0_client=mock_auth0_client,
+        reason="No longer required",
+        updated_by=admin,
+        session=test_db_session,
+    )
 
     assert result is True
     mock_auth0_client.remove_roles_from_user.assert_called_once_with(
@@ -527,7 +526,7 @@ def test_platform_membership_revoke_updates_state(test_db_session, mock_auth0_cl
     )
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
-    assert membership.revocation_reason == f"No longer required (revoked on 2025-01-01T12:00:00+00:00 by {admin.email})"
+    assert membership.revocation_reason == "No longer required"
     assert membership.updated_by_id == admin.id
 
 
@@ -804,7 +803,7 @@ def test_group_membership_revoke_updates_state(test_db_session, test_auth0_clien
     assert route.called
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
-    assert membership.revocation_reason == f"No longer required (revoked on 2025-01-01T12:00:00+00:00 by {admin.email})"
+    assert membership.revocation_reason == "No longer required"
     assert membership.updated_by_id == admin.id
 
 
@@ -820,19 +819,18 @@ def test_group_membership_revoke_skips_auth0_when_not_approved(status, test_db_s
         params={"name_filter": group.group_id}
     ).respond(status_code=200, json=[])
 
-    with freeze_time("2025-01-01 12:00:00"):
-        result = membership.revoke(
-            auth0_client=test_auth0_client,
-            reason="Policy update",
-            updated_by=admin,
-            session=test_db_session,
-        )
+    result = membership.revoke(
+        auth0_client=test_auth0_client,
+        reason="Policy update",
+        updated_by=admin,
+        session=test_db_session,
+    )
 
     assert result is False
     assert not role_lookup.called
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.REVOKED
-    assert membership.revocation_reason == f"Policy update (revoked on 2025-01-01T12:00:00+00:00 by {admin.email})"
+    assert membership.revocation_reason == "Policy update"
     assert membership.updated_by_id == admin.id
 
 
