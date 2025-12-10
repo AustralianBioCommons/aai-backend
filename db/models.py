@@ -26,22 +26,6 @@ from schemas.user import SessionUser
 logger = getLogger(__name__)
 
 
-def _reason_with_metadata(
-    reason: str | None,
-    *,
-    action: str,
-    actor: Optional["BiocommonsUser"],
-    action_time: datetime,
-) -> str:
-    """
-    Append action metadata (timestamp and actor email) to the supplied reason.
-    """
-    base_reason = (reason or "").strip()
-    actor_email = actor.email if actor and getattr(actor, "email", None) else "(unknown)"
-    suffix = f"{action} on {action_time.isoformat(timespec='seconds')} by {actor_email}"
-    return f"{base_reason} ({suffix})" if base_reason else suffix
-
-
 class BiocommonsUser(SoftDeleteModel, table=True):
     __tablename__ = "biocommons_user"
     # Auth0 ID
@@ -52,7 +36,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     email_verified: bool = Field(default=False, nullable=False)
     username: str = Field(unique=True)
     created_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
 
     platform_memberships: list["PlatformMembership"] = Relationship(
@@ -334,7 +318,7 @@ class PlatformMembership(SoftDeleteModel, table=True):
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
@@ -456,16 +440,10 @@ class PlatformMembership(SoftDeleteModel, table=True):
 
         :return: True when an Auth0 role removal call was performed.
         """
-        action_time = datetime.now(timezone.utc)
         role_revoked = self.revoke_auth0_role(auth0_client)
         self.approval_status = ApprovalStatusEnum.REVOKED
-        self.revocation_reason = _reason_with_metadata(
-            reason,
-            action="revoked",
-            actor=updated_by,
-            action_time=action_time,
-        )
-        self.updated_at = action_time
+        self.revocation_reason = reason
+        self.updated_at = datetime.now(timezone.utc)
         self.updated_by = updated_by
         session.add(self)
         self.save_history(session, commit=False)
@@ -481,6 +459,11 @@ class PlatformMembership(SoftDeleteModel, table=True):
             updated_by = self.updated_by.email
         else:
             updated_by = '(automatic)'
+
+        updated_at = self.updated_at
+        if updated_at and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
         return PlatformMembershipData(
             id=self.id,
             platform_id=self.platform_id,
@@ -488,7 +471,7 @@ class PlatformMembership(SoftDeleteModel, table=True):
             user_id=self.user_id,
             approval_status=self.approval_status,
             updated_by=updated_by,
-            updated_at=self.updated_at,
+            updated_at=updated_at,
             revocation_reason=self.revocation_reason,
         )
 
@@ -507,7 +490,7 @@ class PlatformMembershipHistory(SoftDeleteModel, table=True):
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
     updated_by: "BiocommonsUser" = Relationship(
@@ -545,7 +528,7 @@ class GroupMembership(SoftDeleteModel, table=True):
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
@@ -697,16 +680,10 @@ class GroupMembership(SoftDeleteModel, table=True):
 
         :return: True when an Auth0 role removal call was performed.
         """
-        action_time = datetime.now(timezone.utc)
         role_revoked = self.revoke_auth0_role(auth0_client)
         self.approval_status = ApprovalStatusEnum.REVOKED
-        self.revocation_reason = _reason_with_metadata(
-            reason,
-            action="revoked",
-            actor=updated_by,
-            action_time=action_time,
-        )
-        self.updated_at = action_time
+        self.revocation_reason = reason
+        self.updated_at = datetime.now(timezone.utc)
         self.updated_by = updated_by
         self.save(session=session, commit=commit)
         return role_revoked
@@ -721,16 +698,10 @@ class GroupMembership(SoftDeleteModel, table=True):
     ) -> None:
         if self.approval_status != ApprovalStatusEnum.PENDING:
             raise ValueError("Can only reject pending group memberships.")
-        action_time = datetime.now(timezone.utc)
         self.approval_status = ApprovalStatusEnum.REJECTED
-        self.rejection_reason = _reason_with_metadata(
-            reason,
-            action="rejected",
-            actor=updated_by,
-            action_time=action_time,
-        )
+        self.rejection_reason = reason
         self.revocation_reason = None
-        self.updated_at = action_time
+        self.updated_at = datetime.now(timezone.utc)
         self.updated_by = updated_by
         self.save(session=session, commit=commit)
 
@@ -742,6 +713,11 @@ class GroupMembership(SoftDeleteModel, table=True):
             updated_by = self.updated_by.email
         else:
             updated_by = '(automatic)'
+
+        updated_at = self.updated_at
+        if updated_at and updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
         return GroupMembershipData(
             id=self.id,
             group_id=self.group_id,
@@ -749,7 +725,7 @@ class GroupMembership(SoftDeleteModel, table=True):
             group_short_name=self.group.short_name,
             approval_status=self.approval_status,
             updated_by=updated_by,
-            updated_at=self.updated_at,
+            updated_at=updated_at,
             revocation_reason=self.revocation_reason,
             rejection_reason=self.rejection_reason,
         )
@@ -774,7 +750,7 @@ class GroupMembershipHistory(SoftDeleteModel, table=True):
         sa_type=DbEnum(ApprovalStatusEnum, name="ApprovalStatusEnum")
     )
     updated_at: AwareDatetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime
+        default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
     # Nullable: some memberships are automatically approved
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
