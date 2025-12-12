@@ -1,4 +1,6 @@
 import pytest
+import respx
+from httpx import Response
 from sqlmodel import select
 from starlette.exceptions import HTTPException
 
@@ -15,6 +17,14 @@ from tests.datagen import (
     RoleUserDataFactory,
 )
 from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory, PlatformFactory
+
+
+@pytest.fixture
+def mock_recaptcha_verify():
+    with respx.mock:
+        route = respx.post("https://www.google.com/recaptcha/api/siteverify")
+        route.mock(return_value=Response(200, json={"success": True}))
+        yield route
 
 
 @pytest.fixture
@@ -52,7 +62,6 @@ def tsi_group(persistent_factories):
         short_name="TSI",
         admin_roles=[admin_role],
     )
-
 
 
 def test_biocommons_registration_data_excludes_null_user_metadata():
@@ -255,6 +264,7 @@ def test_successful_biocommons_registration_endpoint(
     galaxy_platform,
     bpa_platform,
     test_db_session,
+    mock_recaptcha_verify,
 ):
     """Test successful biocommons registration via HTTP endpoint"""
     auth0_data = Auth0UserDataFactory.build()
@@ -273,14 +283,17 @@ def test_successful_biocommons_registration_endpoint(
         "username": auth0_data.username,
         "password": "StrongPass1!",
         "bundle": "tsi",
+        "recaptcha_token": "mock-token",
     }
 
     response = test_client_with_email.post(
         "/biocommons/register", json=registration_data
     )
+    print(response, response.json())
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
     assert "user" in response.json()
+    assert mock_recaptcha_verify.called
 
     db_user = test_db_session.get(BiocommonsUser, auth0_data.user_id)
     assert db_user is not None
@@ -303,7 +316,8 @@ def test_successful_biocommons_registration_endpoint(
 
 
 def test_biocommons_registration_auth0_conflict_error(
-    test_client, tsi_group, mock_auth0_client, test_db_session
+    test_client, tsi_group, mock_auth0_client, test_db_session,
+    mock_recaptcha_verify,
 ):
     """Test handling of Auth0 conflict error (user already exists)"""
     from httpx import HTTPStatusError, Request, Response
@@ -324,6 +338,7 @@ def test_biocommons_registration_auth0_conflict_error(
         "username": "existinguser",
         "password": "StrongPass1!",
         "bundle": "tsi",
+        "recaptcha_token": "mock-token",
     }
 
     response = test_client.post("/biocommons/register", json=registration_data)
@@ -333,7 +348,7 @@ def test_biocommons_registration_auth0_conflict_error(
 
 
 def test_biocommons_registration_email_conflict_error(
-    test_client, tsi_group, mock_auth0_client, test_db_session
+    test_client, tsi_group, mock_auth0_client, test_db_session, mock_recaptcha_verify,
 ):
     """Test handling of Auth0 conflict error when email exists"""
     from httpx import HTTPStatusError, Request, Response
@@ -354,6 +369,7 @@ def test_biocommons_registration_email_conflict_error(
         "username": "newuser",
         "password": "StrongPass1!",
         "bundle": "tsi",
+        "recaptcha_token": "mock-token",
     }
 
     response = test_client.post("/biocommons/register", json=registration_data)
@@ -363,7 +379,8 @@ def test_biocommons_registration_email_conflict_error(
 
 
 def test_biocommons_registration_both_conflict_error(
-    test_client, tsi_group, mock_auth0_client, test_db_session
+    test_client, tsi_group, mock_auth0_client, test_db_session,
+    mock_recaptcha_verify,
 ):
     """Test handling of Auth0 conflict error when both username and email exist"""
     from httpx import HTTPStatusError, Request, Response
@@ -384,6 +401,7 @@ def test_biocommons_registration_both_conflict_error(
         "username": "existinguser",
         "password": "StrongPass1!",
         "bundle": "tsi",
+        "recaptcha_token": "mock-token",
     }
 
     response = test_client.post("/biocommons/register", json=registration_data)
@@ -392,7 +410,7 @@ def test_biocommons_registration_both_conflict_error(
     assert response.json()["message"] == "Username and email are already taken"
 
 
-def test_biocommons_registration_missing_group_error(test_client, mock_auth0_client):
+def test_biocommons_registration_missing_group_error(test_client, mock_auth0_client, mock_recaptcha_verify,):
     """Test error when required group doesn't exist in database"""
     registration_data = {
         "first_name": "Test",
@@ -401,6 +419,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
         "username": "testuser",
         "password": "StrongPass1!",
         "bundle": "tsi",
+        "recaptcha_token": "mock-token",
     }
 
     mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build()
@@ -411,7 +430,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
     assert response.json()["detail"] == "Internal server error"
 
 
-def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, mock_auth0_client):
+def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, mock_auth0_client, mock_recaptcha_verify,):
     """Test database record creation when no bundle is selected"""
     registration = BiocommonsRegistrationRequest(
         first_name="No",
@@ -420,6 +439,7 @@ def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_pl
         username="no_bundle",
         password="StrongPass1!",
         bundle=None,
+        recaptcha_token="mock-token",
     )
 
     auth0_data = Auth0UserDataFactory.build(
