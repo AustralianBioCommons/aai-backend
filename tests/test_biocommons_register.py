@@ -289,7 +289,6 @@ def test_successful_biocommons_registration_endpoint(
     response = test_client_with_email.post(
         "/biocommons/register", json=registration_data
     )
-    print(response, response.json())
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
     assert "user" in response.json()
