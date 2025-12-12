@@ -609,8 +609,6 @@ class GroupMembership(SoftDeleteModel, table=True):
         ).first()
         return result is not None
 
-
-
     def save(self, session: Session, commit: bool = True) -> Self:
         """
         Save the current object, and create a new GroupMembershipHistory row for it
