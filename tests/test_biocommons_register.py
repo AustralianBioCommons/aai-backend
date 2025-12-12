@@ -314,6 +314,57 @@ def test_successful_biocommons_registration_endpoint(
     assert email.status == EmailStatusEnum.PENDING
 
 
+@respx.mock
+def test_biocommons_registration_endpoint_failed_recaptcha(
+        test_client,
+):
+    """Test successful biocommons registration via HTTP endpoint"""
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "test@example.com",
+        "username": "test_user",
+        "password": "StrongPass1!",
+        "bundle": "tsi",
+        "recaptcha_token": "mock-token",
+    }
+    route = respx.post("https://www.google.com/recaptcha/api/siteverify")
+    # Response might be 200 but we need to check the success field
+    route.mock(return_value=Response(200, json={"success": False}))
+
+    response = test_client.post(
+        "/biocommons/register", json=registration_data
+    )
+    print(response, response.json())
+    assert response.status_code == 400
+    assert response.json()["message"] == "Invalid recaptcha token, please try again"
+
+
+@respx.mock
+def test_biocommons_registration_endpoint_missing_recaptcha(
+        test_client,
+):
+    """Test successful biocommons registration via HTTP endpoint"""
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "test@example.com",
+        "username": "test_user",
+        "password": "StrongPass1!",
+        "bundle": "tsi",
+        "recaptcha_token": None,
+    }
+    route = respx.post("https://www.google.com/recaptcha/api/siteverify")
+    # Response might be 200 but we need to check the success field
+    route.mock(return_value=Response(200, json={"success": False}))
+
+    response = test_client.post(
+        "/biocommons/register", json=registration_data
+    )
+    print(response, response.json())
+    assert response.status_code == 400
+    assert response.json()["message"] == "Recaptcha token is required"
+
 def test_biocommons_registration_auth0_conflict_error(
     test_client, tsi_group, mock_auth0_client, test_db_session,
     mock_recaptcha_verify,
