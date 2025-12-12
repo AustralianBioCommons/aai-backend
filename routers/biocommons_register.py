@@ -1,10 +1,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from httpx import HTTPStatusError
 from sqlmodel import Session
-from starlette.responses import JSONResponse
 
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
@@ -119,6 +118,7 @@ def _notify_bundle_group_admins(
 )
 async def register_biocommons_user(
     registration: BiocommonsRegistrationRequest,
+    response: Response,
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
     settings: Settings = Depends(get_settings),
@@ -126,12 +126,12 @@ async def register_biocommons_user(
     """Register a new BioCommons user."""
     # Validate recaptcha
     if not registration.recaptcha_token:
-        raise HTTPException(status_code=400, detail="Recaptcha token is required")
+        response.status_code = 400
+        return RegistrationErrorResponse(message="Recaptcha token is required")
     recaptcha_check = validate_recaptcha(registration.recaptcha_token, settings)
     if not recaptcha_check:
-        raise HTTPException(
-            status_code=400, detail="Invalid recaptcha token. Please try again."
-        )
+        response.status_code = 400
+        return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_biocommons_registration(registration)
@@ -176,28 +176,29 @@ async def register_biocommons_user(
             field_errors = []
             if existing_field == "username":
                 field_errors.append(FieldError(field="username", message="Username is already taken"))
-                response = RegistrationErrorResponse(
+                error_response = RegistrationErrorResponse(
                     message="Username is already taken",
                     field_errors=field_errors
                 )
             elif existing_field == "email":
                 field_errors.append(FieldError(field="email", message="Email is already taken"))
-                response = RegistrationErrorResponse(
+                error_response = RegistrationErrorResponse(
                     message="Email is already taken",
                     field_errors=field_errors
                 )
             elif existing_field == "both":
                 field_errors.append(FieldError(field="username", message="Username is already taken"))
                 field_errors.append(FieldError(field="email", message="Email is already taken"))
-                response = RegistrationErrorResponse(
+                error_response = RegistrationErrorResponse(
                     message="Username and email are already taken",
                     field_errors=field_errors
                 )
             else:
-                response = RegistrationErrorResponse(message="Username or email is already taken")
+                error_response = RegistrationErrorResponse(message="Username or email is already taken")
         else:
-            response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
-        return JSONResponse(status_code=400, content=response.model_dump(mode="json"))
+            error_response = RegistrationErrorResponse(message=f"Auth0 error: {str(e.response.text)}")
+        response.status_code = 400
+        return error_response
     except Exception as e:
         logger.error(f"Unexpected error during registration: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
