@@ -13,6 +13,7 @@ from biocommons.emails import compose_group_approval_email
 from config import Settings, get_settings
 from db.models import BiocommonsUser, GroupMembership
 from db.setup import get_db_session
+from register.tokens import validate_recaptcha
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
@@ -123,6 +124,14 @@ async def register_biocommons_user(
     settings: Settings = Depends(get_settings),
 ):
     """Register a new BioCommons user."""
+    # Validate recaptcha
+    if not registration.recaptcha_token:
+        raise HTTPException(status_code=400, detail="Recaptcha token is required")
+    recaptcha_check = validate_recaptcha(registration.recaptcha_token, settings)
+    if not recaptcha_check:
+        raise HTTPException(
+            status_code=400, detail="Invalid recaptcha token. Please try again."
+        )
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_biocommons_registration(registration)
