@@ -84,10 +84,10 @@ BiocommonsPassword = ValidatedString(min_length=8, max_length=72, pattern=VALID_
     "max_length": "Password must be 72 characters or less.",
     "pattern": PASSWORD_FORMAT_MESSAGE
 })
-BiocommonsFullName = ValidatedString(min_length=1, max_length=255,
+BiocommonsFullName = ValidatedString(min_length=1, max_length=300,
     messages={
         "min_length": "Full name must be at least 1 character.",
-        "max_length": "Full name must be 255 characters or less.",
+        "max_length": "Full name must be 300 characters or less.",
     },
 )
 
