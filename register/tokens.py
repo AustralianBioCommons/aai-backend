@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import httpx
 from fastapi import HTTPException
 from jose import JWTError, jwt
 
@@ -31,13 +30,3 @@ def verify_registration_token(token: str, settings: Settings):
             raise JWTError("Invalid purpose")
     except JWTError:
         raise HTTPException(status_code=403, detail="Invalid or expired token")
-
-
-def validate_recaptcha(token: str, settings: Settings):
-    response = httpx.post(
-        url="https://www.google.com/recaptcha/api/siteverify",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data={"secret": settings.recaptcha_secret, "response": token},
-    )
-    response.raise_for_status()
-    return response.json().get("success", False)
