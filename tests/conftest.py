@@ -177,8 +177,7 @@ def mock_settings():
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
         admin_roles=["Admin"],
-        auth0_algorithms=["RS256"],
-        recaptcha_secret="mock-secret",
+        auth0_algorithms=["RS256"]
     )
 
 
