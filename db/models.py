@@ -272,6 +272,22 @@ class Platform(SoftDeleteModel, table=True):
             .where(Auth0Role.name.in_(role_names))
         ).all()
 
+    def get_admins(self, auth0_client: Auth0Client) -> set[str]:
+        """
+        Get all admin emails for this platform from the Auth0 API, returning a set of emails.
+        """
+        admins = set()
+        for role in self.admin_roles:
+            role_admins = auth0_client.get_all_role_users(role_id=role.id)
+            for admin in role_admins:
+                email = admin.email
+                if email is None:
+                    full_admin = auth0_client.get_user(admin.user_id)
+                    email = full_admin.email
+                if email:
+                    admins.add(email)
+        return admins
+
     @classmethod
     def get_approved_by_user_id(cls, user_id: str, session: Session) -> list[Self] | None:
         return session.exec(

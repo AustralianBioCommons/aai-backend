@@ -735,6 +735,37 @@ def test_biocommons_group_get_admins_collects_emails(test_db_session, mocker, pe
     ]
 
 
+def test_platform_get_admins_collects_emails(test_db_session, mocker, persistent_factories):
+    primary_role = Auth0RoleFactory.create_sync(id="platform-role-primary")
+    secondary_role = Auth0RoleFactory.create_sync(id="platform-role-secondary")
+    platform = PlatformFactory.create_sync(id=PlatformEnum.SBP, admin_roles=[primary_role, secondary_role])
+    mock_client = mocker.Mock()
+    mock_user_1 = Auth0UserDataFactory.build()
+    mock_user_2 = Auth0UserDataFactory.build()
+    mock_user_3 = Auth0UserDataFactory.build()
+    stub_1 = RoleUserDataFactory.build(user_id=mock_user_1.user_id, email=mock_user_1.email)
+    stub_2 = RoleUserDataFactory.build(user_id=mock_user_2.user_id, email=None)
+    stub_3 = RoleUserDataFactory.build(user_id=mock_user_3.user_id, email=None)
+
+    def _get_all_role_users(*, role_id):
+        if role_id == primary_role.id:
+            return [stub_1, stub_2]
+        if role_id == secondary_role.id:
+            return [stub_3]
+        raise AssertionError(f"Unexpected role id {role_id}")
+
+    mock_client.get_all_role_users.side_effect = _get_all_role_users
+    mock_client.get_user.side_effect = [mock_user_2, mock_user_3]
+
+    admins = platform.get_admins(mock_client)
+
+    assert admins == {mock_user_1.email, mock_user_2.email, mock_user_3.email}
+    assert mock_client.get_all_role_users.call_args_list == [
+        call(role_id=primary_role.id),
+        call(role_id=secondary_role.id),
+    ]
+
+
 @respx.mock
 def test_group_membership_grant_auth0_role(test_auth0_client, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(group_id="biocommons/group/tsi", admin_roles=[])

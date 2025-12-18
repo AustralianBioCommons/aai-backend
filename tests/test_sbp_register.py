@@ -14,6 +14,7 @@ from routers.sbp_register import validate_sbp_email_domain
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
     Auth0UserDataFactory,
+    RoleUserDataFactory,
     SBPRegistrationDataFactory,
     random_auth0_id,
 )
@@ -39,10 +40,12 @@ def sbp_platform(persistent_factories):
     Set up a SBP platform with the associated platform role
     """
     platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/sbp/admin")
     return PlatformFactory.create_sync(
         id=PlatformEnum.SBP,
         role_id=platform_role.id,
         name="Structural Biology Platform",
+        admin_roles=[admin_role],
     )
 
 
@@ -91,6 +94,14 @@ def test_successful_registration(
         email=valid_registration_data["email"],
         username=valid_registration_data["username"]
     )
+    admin_user = RoleUserDataFactory.build(email="sbp.admin@example.com")
+
+    def _get_all_role_users(*, role_id):
+        if role_id == sbp_platform.admin_roles[0].id:
+            return [admin_user]
+        raise AssertionError(f"Unexpected role id {role_id}")
+
+    mock_auth0_client.get_all_role_users.side_effect = _get_all_role_users
 
     response = test_client.post("/sbp/register", json=valid_registration_data)
 
@@ -125,7 +136,7 @@ def test_successful_registration(
     assert called_data.app_metadata.registration_from == "sbp"
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued_emails) == 1
-    assert queued_emails[0].to_address == "aai-dev@biocommons.org.au"
+    assert queued_emails[0].to_address == admin_user.email
     assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
