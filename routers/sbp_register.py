@@ -8,7 +8,7 @@ from starlette.responses import JSONResponse
 
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsUser, PlatformEnum
+from db.models import BiocommonsUser, Platform, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
@@ -55,6 +55,33 @@ def compose_sbp_registration_email(registration: SBPRegistrationRequest, setting
     return subject, body_html
 
 
+def queue_sbp_admin_notifications(
+    registration: SBPRegistrationRequest,
+    db_session: Session,
+    auth0_client: Auth0Client,
+    settings: Settings,
+) -> None:
+    """Queue approval emails for SBP platform admins."""
+    sbp_platform = Platform.get_by_id(PlatformEnum.SBP, db_session)
+    if sbp_platform is None:
+        logger.warning("SBP platform not found; skipping admin notification email")
+        return
+
+    admin_emails = sbp_platform.get_admins(auth0_client=auth0_client)
+    if not admin_emails:
+        logger.info("No SBP platform admins found; skipping notification email")
+        return
+
+    subject, body_html = compose_sbp_registration_email(registration, settings)
+    for email in admin_emails:
+        enqueue_email(
+            db_session,
+            to_address=email,
+            subject=subject,
+            body_html=body_html,
+        )
+
+
 @router.post(
     "/register",
     responses={
@@ -94,14 +121,12 @@ async def register_sbp_user(
         logger.info("Adding user to DB")
         _create_sbp_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
 
-        # Queue approval email for admins
-        subject, body_html = compose_sbp_registration_email(registration, settings)
-        enqueue_email(
-            db_session,
-            # TODO: update to send email to SBP admin instead
-            to_address="aai-dev@biocommons.org.au",
-            subject=subject,
-            body_html=body_html,
+        # Queue approval email for SBP platform admins
+        queue_sbp_admin_notifications(
+            registration=registration,
+            db_session=db_session,
+            auth0_client=auth0_client,
+            settings=settings,
         )
         db_session.commit()
 
