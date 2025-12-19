@@ -1,7 +1,7 @@
 import os
 import warnings
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -329,6 +329,16 @@ def persistent_factories(test_db_session):
     yield
     for factory in factories:
         factory.__session__ = None
+
+
+@pytest.fixture
+def mock_background_tasks():
+    """
+    Mock BackgroundTasks - tasks will not be run but you can check add_task was called
+    """
+    with patch("fastapi.BackgroundTasks.add_task") as mocked:
+        yield mocked
+
 
 @pytest.fixture(scope="function")
 def aws_credentials():

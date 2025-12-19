@@ -27,6 +27,7 @@ from scheduled_tasks.tasks import (
 
 def schedule_jobs(scheduler: AsyncIOScheduler):
     hourly_trigger = IntervalTrigger(minutes=60)
+    half_hourly_trigger = IntervalTrigger(minutes=30)
     email_trigger = IntervalTrigger(minutes=1)
     logger.info("Adding one-off job: populate DB groups")
     scheduler.add_job(
@@ -50,10 +51,10 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         replace_existing=True,
         next_run_time=datetime.now(UTC)
     )
-    logger.info("Adding hourly job: sync_auth0_users")
+    logger.info("Adding half-hourly job: sync_auth0_users")
     scheduler.add_job(
         sync_auth0_users,
-        trigger=hourly_trigger,
+        trigger=half_hourly_trigger,
         id="sync_auth0_users",
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=15)
