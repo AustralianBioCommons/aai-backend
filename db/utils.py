@@ -10,7 +10,7 @@ from db.models import BiocommonsUser
 logger = logging.getLogger("uvicorn.error")
 
 
-UNVERIFIED_REFRESH_INTERVAL = 60 * 5
+UNVERIFIED_REFRESH_INTERVAL_SECONDS = 60 * 5
 LAST_UNVERIFIED_REFRESH_TIME: datetime | None = None
 
 
@@ -24,7 +24,7 @@ def refresh_unverified_users(session: Session, auth0_client: Auth0Client):
     global LAST_UNVERIFIED_REFRESH_TIME
     if LAST_UNVERIFIED_REFRESH_TIME is not None:
         since_last_refresh = datetime.now(UTC) - LAST_UNVERIFIED_REFRESH_TIME
-        if since_last_refresh < timedelta(seconds=UNVERIFIED_REFRESH_INTERVAL):
+        if since_last_refresh < timedelta(seconds=UNVERIFIED_REFRESH_INTERVAL_SECONDS):
             logger.info(f"Skipping refresh of unverified users: last refresh was {LAST_UNVERIFIED_REFRESH_TIME}")
             return
     LAST_UNVERIFIED_REFRESH_TIME = datetime.now(UTC)
