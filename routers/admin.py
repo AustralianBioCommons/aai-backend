@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
@@ -40,6 +40,7 @@ from db.types import (
     GroupMembershipData,
     PlatformMembershipData,
 )
+from db.utils import refresh_unverified_users
 from schemas.biocommons import Auth0UserDataWithMemberships, ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
@@ -580,13 +581,23 @@ def get_filtered_user_query(
             response_model=list[BiocommonsUserResponse])
 def get_users(db_session: Annotated[Session, Depends(get_db_session)],
               query_params: Annotated[UserQueryParams, Depends()],
-              user_query: Annotated[SelectOfScalar[BiocommonsUser], Depends(get_filtered_user_query)]):
+              user_query: Annotated[SelectOfScalar[BiocommonsUser], Depends(get_filtered_user_query)],
+              auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+              background_tasks: BackgroundTasks):
     """
     Get all users from the database with pagination and optional filtering.
 
     The admin_user must have roles that allow access to either the platform or group to
     see the users.
     """
+    # Refresh unverified status if specifically requested
+    if query_params.email_verified is not None:
+        logger.info("Refreshing unverified users")
+        background_tasks.add_task(
+            refresh_unverified_users,
+            session=db_session,
+            auth0_client=auth0_client,
+        )
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
     query_params.check_missing_ids(db_session)
     users = db_session.exec(user_query).all()

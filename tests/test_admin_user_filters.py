@@ -4,6 +4,7 @@ import pytest
 
 from db.models import BiocommonsUser
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
+from db.utils import refresh_unverified_users
 from routers.admin import UserQueryParams
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -36,7 +37,7 @@ def test_user_query_params_missing_method(monkeypatch):
         UserQueryParams(email_verified=True)
 
 
-def test_user_query_multiple_filters(test_client, mock_auth0_client, as_admin_user, test_db_session, persistent_factories):
+def test_user_query_multiple_filters(test_client, mock_auth0_client, as_admin_user, test_db_session, mock_background_tasks, persistent_factories):
     """
     Test that multiple conditions can be combined correctly
     """
@@ -164,3 +165,16 @@ def test_get_users_combined_group_filters(
     matching_user_ids = {u.id for u in matching_users}
     returned_ids = {u["id"] for u in data}
     assert returned_ids == matching_user_ids
+
+
+def test_get_users_email_verified_refreshes_status(test_client, as_admin_user, test_db_session, persistent_factories, mock_background_tasks):
+    """
+    Check that explicitly searching based on email_verified status triggers a refresh of unverified users.
+    """
+    resp = test_client.get(
+        "/admin/users?email_verified=true"
+    )
+    assert resp.status_code == 200
+    assert mock_background_tasks.called
+    print(mock_background_tasks.call_args)
+    assert mock_background_tasks.call_args[0][0] == refresh_unverified_users
