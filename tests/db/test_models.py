@@ -918,9 +918,11 @@ def test_group_membership_unreject(test_db_session, persistent_factories):
     membership = GroupMembershipFactory.create_sync(
         group_id=group.group_id, approval_status=ApprovalStatusEnum.REJECTED
     )
-    membership.unreject(updated_by=None, session=test_db_session, commit=True)
+    admin_user = BiocommonsUserFactory.create_sync()
+    membership.unreject(updated_by=admin_user, session=test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.PENDING
+    assert membership.updated_by_id == admin_user.id
 
 
 @pytest.mark.parametrize("status", [ApprovalStatusEnum.APPROVED, ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED])
