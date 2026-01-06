@@ -719,6 +719,18 @@ class GroupMembership(SoftDeleteModel, table=True):
         self.updated_by = updated_by
         self.save(session=session, commit=commit)
 
+    def unreject(self, *, updated_by: Optional["BiocommonsUser"], session: Session, commit: bool = True) -> None:
+        """
+        Change rejected membership's status to pending.
+        """
+        if self.approval_status != ApprovalStatusEnum.REJECTED:
+            raise ValueError("Can only unreject rejected group memberships.")
+        self.approval_status = ApprovalStatusEnum.PENDING
+        self.rejection_reason = None
+        self.updated_at = datetime.now(timezone.utc)
+        self.updated_by = updated_by
+        self.save(session=session, commit=commit)
+
     def get_data(self) -> GroupMembershipData:
         """
         Get a data model for this membership, suitable for returning to the frontend.
