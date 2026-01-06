@@ -1146,6 +1146,28 @@ def test_unreject_group_membership(
     assert membership.updated_by_id == admin_db_user.id
 
 
+def test_unreject_group_membership_status_not_rejected(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/{group_url}/unreject",
+    )
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Only rejected group requests can be unrejected."}
+
+
 def test_unreject_group_membership_forbidden_without_group_role(
         test_client,
         test_db_session,
