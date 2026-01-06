@@ -923,6 +923,8 @@ def test_group_membership_unreject(test_db_session, persistent_factories):
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.PENDING
     assert membership.updated_by_id == admin_user.id
+    # Should clear rejection reason
+    assert membership.rejection_reason is None
 
 
 @pytest.mark.parametrize("status", [ApprovalStatusEnum.APPROVED, ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED])

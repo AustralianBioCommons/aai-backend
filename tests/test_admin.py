@@ -1197,7 +1197,7 @@ def test_unreject_group_membership_forbidden_without_group_role(
     membership = GroupMembershipFactory.create_sync(
         group=tsi_group,
         user=user,
-        approval_status=ApprovalStatusEnum.PENDING.value,
+        approval_status=ApprovalStatusEnum.REJECTED.value,
     )
     test_db_session.commit()
 
