@@ -904,6 +904,11 @@ def unreject_group_membership(user_id: Annotated[str, UserIdParam],
         )
     membership.unreject(updated_by=admin_record, session=db_session)
     db_session.commit()
+    logger.info(
+        "Unrejected group %s for user %s",
+        group_id,
+        user_id,
+    )
     return MembershipUpdateResponse(status="ok", updated=True)
 
 
