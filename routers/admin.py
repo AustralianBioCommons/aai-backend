@@ -885,6 +885,28 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
     return MembershipUpdateResponse(status="ok", updated=True)
 
 
+@router.post("/users/{user_id}/groups/{group_id:path}/unreject",
+             dependencies=[Depends(require_admin_permission_for_group)],
+             response_model=MembershipUpdateResponse)
+def unreject_group_membership(user_id: Annotated[str, UserIdParam],
+                              group_id: Annotated[str, ServiceIdParam],
+                              admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
+                              db_session: Annotated[Session, Depends(get_db_session)]):
+    membership = GroupMembership.get_by_user_id_and_group_id_or_404(
+        user_id=user_id,
+        group_id=group_id,
+        session=db_session,
+    )
+    if membership.approval_status != ApprovalStatusEnum.REJECTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only rejected group requests can be unrejected.",
+        )
+    membership.unreject(updated_by=admin_record, session=db_session)
+    db_session.commit()
+    return MembershipUpdateResponse(status="ok", updated=True)
+
+
 @router.post("/users/{user_id}/groups/{group_id:path}/revoke",
              dependencies=[Depends(require_admin_permission_for_group)],
              response_model=MembershipUpdateResponse,)
