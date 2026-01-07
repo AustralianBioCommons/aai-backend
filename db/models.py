@@ -10,7 +10,7 @@ from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
 
 import schemas
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, UpdateUserData
 from db.core import BaseModel, SoftDeleteModel
 from db.types import (
     ApprovalStatusEnum,
@@ -100,7 +100,16 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             db_session.commit()
         return user
 
-    def delete(self, session: Session, commit: bool = False) -> "BiocommonsUser":
+    def admin_delete(self, deleted_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
+        """
+        Delete the user, when actioned by an admin. Soft delete the user in Auth0 and then in the database.
+        """
+        logger.info(f"Deleting user {self.id} from Auth0")
+        auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
+        logger.info("Marking user as deleted in DB")
+        self.delete(session, commit=False, reason=reason, deleted_by=deleted_by)
+
+    def delete(self, session: Session, commit: bool = False, reason: str | None = None, deleted_by: Self | None = None) -> "BiocommonsUser":
         """
         Soft delete the user and cascade the soft delete to related memberships.
         """
@@ -111,6 +120,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if not membership.is_deleted:
                 membership.delete(session, commit=False)
 
+        self.deletion_reason = reason
+        self.deleted_at = datetime.now(timezone.utc)
+        self.deleted_by = deleted_by
         super().delete(session, commit=commit)
         return self
 
