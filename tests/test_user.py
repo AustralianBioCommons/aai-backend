@@ -610,7 +610,7 @@ def test_update_username_auth0_error(test_client, test_db_session, mocker, persi
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Username already exists"
+    assert response.json()["message"] == "Username already exists"
 
     # Verify DB user was not updated
     test_db_session.refresh(user)
@@ -795,7 +795,10 @@ def test_change_password_invalid_current_password(test_client, test_db_session, 
         )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Current password is incorrect."
+    response_data = response.json()
+    assert response_data["message"] == "Current password is incorrect"
+    assert len(response_data["field_errors"]) == 1
+    assert response_data["field_errors"][0]["field"] == "currentPassword"
 
 
 def test_change_password_disallows_external_identity(test_client, mocker, persistent_factories):
@@ -821,4 +824,4 @@ def test_change_password_disallows_external_identity(test_client, mocker, persis
     )
 
     assert response.status_code == 400
-    assert "not supported" in response.json()["detail"]
+    assert "not supported" in response.json()["message"]

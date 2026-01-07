@@ -8,13 +8,20 @@ class FieldError(BaseModel):
     message: str
 
 
-class RegistrationErrorResponse(BaseModel):
+class FieldErrorResponse(BaseModel):
+    """
+    Generic error response that specifies errors for individual fields where possible
+    """
+    message: str = Field(description="Overall error message")
+    field_errors: list[FieldError] = Field(default_factory=list)
+
+
+class RegistrationErrorResponse(FieldErrorResponse):
     """
     Error response for registration requests that specifies
     errors for individual fields where possible
     """
-    message: str = Field(description="Overall error message")
-    field_errors: list[FieldError] = Field(default_factory=list)
+    pass
 
 
 class RegistrationResponse(BaseModel):
