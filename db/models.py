@@ -39,7 +39,10 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
     deleted_at: AwareDatetime | None = Field(default=None, nullable=True, sa_type=DateTime(timezone=True))
+    deleted_by_id: str | None = Field(default=None, foreign_key="biocommons_user.id", nullable=True)
     deletion_reason: str | None = Field(default=None, nullable=True)
+
+    deleted_by: Optional["BiocommonsUser"] = Relationship(sa_relationship_kwargs={"remote_side": "BiocommonsUser.id"})
 
     platform_memberships: list["PlatformMembership"] = Relationship(
         back_populates="user",
