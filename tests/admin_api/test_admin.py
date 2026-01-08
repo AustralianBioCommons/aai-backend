@@ -684,7 +684,6 @@ def test_approve_platform_membership_updates_db(
     test_client,
     test_db_session,
     as_admin_user,
-    admin_user,
     galaxy_platform,
     persistent_factories,
     mock_auth0_client,
@@ -695,9 +694,7 @@ def test_approve_platform_membership_updates_db(
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.PENDING.value,
     )
-    admin_db_user = BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-    )
+    admin_db_user = as_admin_user
     test_db_session.commit()
 
     resp = test_client.post(f"/admin/users/{user.id}/platforms/galaxy/approve")
@@ -773,7 +770,6 @@ def test_revoke_platform_membership_records_reason(
     test_client,
     test_db_session,
     as_admin_user,
-    admin_user,
     galaxy_platform,
     persistent_factories,
     mock_auth0_client,
@@ -784,11 +780,7 @@ def test_revoke_platform_membership_records_reason(
         platform_id=PlatformEnum.GALAXY,
         approval_status=ApprovalStatusEnum.APPROVED.value,
     )
-    admin_db_user = BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        platform_memberships=[],
-        group_memberships=[],
-    )
+    admin_db_user = as_admin_user
     test_db_session.commit()
 
     mock_role = RoleDataFactory.build(name="biocommons/platform/galaxy")
@@ -875,7 +867,6 @@ def test_approve_group_membership_updates_db(
     test_client,
     test_db_session,
     as_admin_user,
-    admin_user,
     tsi_group,
     mock_auth0_client,
     persistent_factories,
@@ -887,11 +878,7 @@ def test_approve_group_membership_updates_db(
         user=user,
         approval_status=ApprovalStatusEnum.PENDING.value,
     )
-    admin_db_user = BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        group_memberships=[],
-        platform_memberships=[],
-    )
+    admin_db_user = as_admin_user
     test_db_session.commit()
 
     mock_role = mocker.Mock(id="role1")
@@ -919,7 +906,6 @@ def test_admin_group_approval_sends_email(
     test_client_with_email,
     test_db_session,
     as_admin_user,
-    admin_user,
     tsi_group,
     mock_auth0_client,
     persistent_factories,
@@ -930,11 +916,6 @@ def test_admin_group_approval_sends_email(
         group=tsi_group,
         user=user,
         approval_status=ApprovalStatusEnum.PENDING.value,
-    )
-    BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        group_memberships=[],
-        platform_memberships=[],
     )
     test_db_session.commit()
 
@@ -956,7 +937,6 @@ def test_admin_group_approval_no_email_when_already_approved(
     test_client_with_email,
     test_db_session,
     as_admin_user,
-    admin_user,
     tsi_group,
     mock_auth0_client,
     persistent_factories,
@@ -967,11 +947,6 @@ def test_admin_group_approval_no_email_when_already_approved(
         group=tsi_group,
         user=user,
         approval_status=ApprovalStatusEnum.APPROVED.value,
-    )
-    BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        group_memberships=[],
-        platform_memberships=[],
     )
     test_db_session.commit()
 
@@ -990,7 +965,6 @@ def test_approve_group_membership_rejected_fails(
     test_client,
     test_db_session,
     as_admin_user,
-    admin_user,
     tsi_group,
     persistent_factories,
 ):
@@ -1000,11 +974,6 @@ def test_approve_group_membership_rejected_fails(
         user=user,
         approval_status=ApprovalStatusEnum.REJECTED.value,
         rejection_reason="Not eligible",
-    )
-    BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        group_memberships=[],
-        platform_memberships=[],
     )
     test_db_session.commit()
 
@@ -1067,7 +1036,6 @@ def test_reject_group_membership_records_reason(
     test_client,
     test_db_session,
     as_admin_user,
-    admin_user,
     tsi_group,
     persistent_factories,
 ):
@@ -1077,11 +1045,7 @@ def test_reject_group_membership_records_reason(
         user=user,
         approval_status=ApprovalStatusEnum.PENDING.value,
     )
-    admin_db_user = BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        group_memberships=[],
-        platform_memberships=[],
-    )
+    admin_db_user = as_admin_user
     test_db_session.commit()
 
     reason = "Not eligible for this bundle"
@@ -1154,11 +1118,106 @@ def test_reject_group_membership_forbidden_without_group_role(
     assert membership.rejection_reason == original_reason
 
 
+def test_unreject_group_membership(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.REJECTED.value,
+    )
+    admin_db_user = as_admin_user
+    test_db_session.commit()
+
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/{group_url}/unreject",
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"status": "ok", "updated": True}
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.PENDING
+    assert membership.rejection_reason is None
+    assert membership.updated_by_id == admin_db_user.id
+
+
+def test_unreject_group_membership_status_not_rejected(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    tsi_group,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/{group_url}/unreject",
+    )
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Only rejected group requests can be unrejected."}
+
+
+def test_unreject_group_membership_forbidden_without_group_role(
+        test_client,
+        test_db_session,
+        tsi_group,
+        persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    membership = GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.REJECTED.value,
+    )
+    test_db_session.commit()
+
+    original_status = membership.approval_status
+    original_reason = membership.rejection_reason
+
+    unauthorized_admin = SessionUserFactory.build(
+        access_token=AccessTokenPayloadFactory.build(
+            biocommons_roles=[
+                "Admin",
+                "biocommons/role/galaxy/admin",
+            ]
+        )
+    )
+    app.dependency_overrides[get_session_user] = lambda: unauthorized_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+
+    group_url = quote(tsi_group.group_id, safe='')
+    try:
+        resp = test_client.post(
+            f"/admin/users/{user.id}/groups/{group_url}/unreject",
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 403
+    assert resp.json() == {
+        "detail": "You do not have permission to manage this group."
+    }
+
+    test_db_session.refresh(membership)
+    assert membership.approval_status == original_status
+    assert membership.rejection_reason == original_reason
+
+
 def test_revoke_group_membership_records_reason(
     test_client,
     test_db_session,
     as_admin_user,
-    admin_user,
     tsi_group,
     persistent_factories,
     mock_auth0_client,
@@ -1169,11 +1228,7 @@ def test_revoke_group_membership_records_reason(
         user=user,
         approval_status=ApprovalStatusEnum.APPROVED.value,
     )
-    admin_db_user = BiocommonsUserFactory.create_sync(
-        id=admin_user.access_token.sub,
-        group_memberships=[],
-        platform_memberships=[],
-    )
+    admin_db_user = as_admin_user
     test_db_session.commit()
 
     mock_role = RoleDataFactory.build(name=tsi_group.group_id)

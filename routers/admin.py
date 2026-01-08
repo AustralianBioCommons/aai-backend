@@ -147,8 +147,11 @@ class RejectServiceRequest(BaseModel):
             raise ValueError("Reason must not be empty")
         return stripped
 
-def _membership_response() -> dict[str, object]:
-    return {"status": "ok", "updated": True}
+
+class MembershipUpdateResponse(BaseModel):
+    """Response model for membership updates."""
+    status: str
+    updated: bool
 
 
 def _approve_platform_membership(
@@ -775,7 +778,8 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
 
 
 @router.post("/users/{user_id}/platforms/{platform_id}/approve",
-             dependencies=[Depends(require_admin_permission_for_platform)])
+             dependencies=[Depends(require_admin_permission_for_platform)],
+             response_model=MembershipUpdateResponse,)
 def approve_platform_membership(user_id: Annotated[str, UserIdParam],
                                 platform_id: Annotated[str, ServiceIdParam],
                                 client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -789,11 +793,12 @@ def approve_platform_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
         client=client,
     )
-    return _membership_response()
+    return MembershipUpdateResponse(status="ok", updated=True)
 
 
 @router.post("/users/{user_id}/platforms/{platform_id}/revoke",
-             dependencies=[Depends(require_admin_permission_for_platform)])
+             dependencies=[Depends(require_admin_permission_for_platform)],
+             response_model=MembershipUpdateResponse,)
 def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
                                platform_id: Annotated[str, ServiceIdParam],
                                payload: RevokeServiceRequest,
@@ -809,12 +814,13 @@ def revoke_platform_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
         client=client,
     )
-    return _membership_response()
+    return MembershipUpdateResponse(status="ok", updated=True)
 
 
 # Need :path for group_id as may contain slashes
 @router.post("/users/{user_id}/groups/{group_id:path}/approve",
-             dependencies=[Depends(require_admin_permission_for_group)])
+             dependencies=[Depends(require_admin_permission_for_group)],
+             response_model=MembershipUpdateResponse,)
 def approve_group_membership(user_id: Annotated[str, UserIdParam],
                              group_id: Annotated[str, ServiceIdParam],
                              client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -842,11 +848,12 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
             body_html=body_html,
         )
     db_session.commit()
-    return _membership_response()
+    return MembershipUpdateResponse(status="ok", updated=True)
 
 
 @router.post("/users/{user_id}/groups/{group_id:path}/reject",
-             dependencies=[Depends(require_admin_permission_for_group)])
+             dependencies=[Depends(require_admin_permission_for_group)],
+             response_model=MembershipUpdateResponse,)
 def reject_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RejectServiceRequest,
@@ -875,11 +882,39 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         user_id,
         payload.reason,
     )
-    return _membership_response()
+    return MembershipUpdateResponse(status="ok", updated=True)
+
+
+@router.post("/users/{user_id}/groups/{group_id:path}/unreject",
+             dependencies=[Depends(require_admin_permission_for_group)],
+             response_model=MembershipUpdateResponse)
+def unreject_group_membership(user_id: Annotated[str, UserIdParam],
+                              group_id: Annotated[str, ServiceIdParam],
+                              admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
+                              db_session: Annotated[Session, Depends(get_db_session)]):
+    membership = GroupMembership.get_by_user_id_and_group_id_or_404(
+        user_id=user_id,
+        group_id=group_id,
+        session=db_session,
+    )
+    if membership.approval_status != ApprovalStatusEnum.REJECTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only rejected group requests can be unrejected.",
+        )
+    membership.unreject(updated_by=admin_record, session=db_session)
+    db_session.commit()
+    logger.info(
+        "Unrejected group %s for user %s",
+        group_id,
+        user_id,
+    )
+    return MembershipUpdateResponse(status="ok", updated=True)
 
 
 @router.post("/users/{user_id}/groups/{group_id:path}/revoke",
-             dependencies=[Depends(require_admin_permission_for_group)])
+             dependencies=[Depends(require_admin_permission_for_group)],
+             response_model=MembershipUpdateResponse,)
 def revoke_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RevokeServiceRequest,
@@ -895,7 +930,7 @@ def revoke_group_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
         client=client,
     )
-    return _membership_response()
+    return MembershipUpdateResponse(status="ok", updated=True)
 
 
 @router.get("/platforms/{platform_id}/is-admin")
