@@ -517,6 +517,7 @@ def test_delete_user_calls_auth0_api(test_client, test_db_session, as_admin_user
         user_id=user_id,
         update_data=UpdateUserData(blocked=True)
     )
+    mock_auth0_client.delete_user_refresh_tokens.assert_called_once_with(user_id=user_id)
 
 
 def test_delete_user_forbidden_without_admin_role(test_client, test_db_session, as_admin_user, bpa_platform, mock_auth0_client, persistent_factories):
