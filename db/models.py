@@ -117,7 +117,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         logger.info(f"Deleting user {self.id} from Auth0")
         auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
         logger.info("Marking user as deleted in DB")
-        self.delete(session, commit=False, reason=reason, deleted_by=deleted_by)
+        self.delete(session, commit=True, reason=reason, deleted_by=deleted_by)
         return self
 
     def delete(self, session: Session, commit: bool = False, reason: str | None = None, deleted_by: Self | None = None) -> "BiocommonsUser":
