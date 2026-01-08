@@ -913,6 +913,30 @@ def test_group_membership_save_and_commit_history(test_db_session, persistent_fa
     assert history.reason == membership.revocation_reason
 
 
+def test_group_membership_unreject(test_db_session, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.create_sync(
+        group_id=group.group_id, approval_status=ApprovalStatusEnum.REJECTED
+    )
+    admin_user = BiocommonsUserFactory.create_sync()
+    membership.unreject(updated_by=admin_user, session=test_db_session, commit=True)
+    test_db_session.refresh(membership)
+    assert membership.approval_status == ApprovalStatusEnum.PENDING
+    assert membership.updated_by_id == admin_user.id
+    # Should clear rejection reason
+    assert membership.rejection_reason is None
+
+
+@pytest.mark.parametrize("status", [ApprovalStatusEnum.APPROVED, ApprovalStatusEnum.PENDING, ApprovalStatusEnum.REVOKED])
+def test_group_membership_unreject_requires_rejected_status(status, test_db_session, persistent_factories):
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.create_sync(
+        group_id=group.group_id, approval_status=status
+    )
+    with pytest.raises(ValueError, match="Can only unreject rejected group memberships."):
+        membership.unreject(updated_by=None, session=test_db_session)
+
+
 def test_soft_delete_hides_records(test_db_session, persistent_factories):
     user = BiocommonsUserFactory.create_sync()
     test_db_session.commit()

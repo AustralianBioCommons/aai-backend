@@ -265,17 +265,28 @@ def admin_user():
 
 
 @pytest.fixture
-def as_admin_user(admin_user):
+def admin_db_user(admin_user, test_db_session, persistent_factories):
+    admin_user = BiocommonsUserFactory.create_sync(
+        id=admin_user.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    test_db_session.commit()
+    return admin_user
+
+
+@pytest.fixture
+def as_admin_user(admin_user, admin_db_user):
     """
     Override the get_session_user dependency to return a User object with admin role,
-    so admin check will pass.
+    so admin check will pass. Yield the DB record for the user in case it needs to be checked
     """
     def override_user():
         return admin_user
 
     app.dependency_overrides[get_session_user] = override_user
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
-    yield
+    yield admin_db_user
     app.dependency_overrides.clear()
 
 
