@@ -80,6 +80,18 @@ def test_get_role_users(test_auth0_client):
 
 
 @respx.mock
+def test_delete_user_refresh_tokens(test_auth0_client):
+    """
+    Test we call the expected Auth0 API endpoint to delete user refresh tokens
+    """
+    user_id = "auth0|123"
+    route = respx.delete(f"https://auth0.example.com/api/v2/users/{user_id}/refresh-tokens").respond(202)
+    result = test_auth0_client.delete_user_refresh_tokens(user_id)
+    assert route.called
+    assert result
+
+
+@respx.mock
 def test_get_all_role_users(test_auth0_client):
     """
     Test we can get all users for a role from Auth0 API, automatically

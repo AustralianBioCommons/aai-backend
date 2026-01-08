@@ -215,6 +215,14 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
+    def delete_user_refresh_tokens(self, user_id: str) -> bool:
+        """
+        Delete all refresh tokens for a user.
+        """
+        url = f"https://{self.domain}/api/v2/users/{user_id}/refresh-tokens"
+        resp = self._client.delete(url)
+        resp.raise_for_status()
+        return True
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]) -> bool:
         """
