@@ -1,16 +1,17 @@
 import asyncio
-from datetime import datetime
 from urllib.parse import quote
 
 import pytest
 from fastapi import HTTPException
+from freezegun import freeze_time
 from sqlmodel import select
 
 from auth.management import get_management_token
 from auth.user_permissions import get_session_user, user_is_general_admin
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, UpdateUserData
 from db.models import (
     BiocommonsGroup,
+    BiocommonsUser,
     EmailNotification,
     GroupMembershipHistory,
     PlatformMembershipHistory,
@@ -37,7 +38,14 @@ from tests.db.datagen import (
     _users_with_platform_membership,
 )
 
-FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0)
+
+@pytest.fixture
+def frozen_time():
+    """
+    Freeze time so datetime.now() returns FROZEN_TIME.
+    """
+    with freeze_time("2025-01-01 12:00:00") as time:
+        yield time()
 
 
 @pytest.fixture
@@ -458,6 +466,72 @@ def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_
     user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=platform.id)
     resp = test_client.get(f"/admin/users/{user.id}")
     assert resp.status_code == 403
+
+
+def test_delete_user(test_client, test_db_session, as_admin_user, mock_auth0_client, galaxy_platform, persistent_factories, frozen_time):
+    """
+    Test deleting a user marks them as deleted (without actually deleting them from the database), and records
+    deletion info
+    """
+    mock_auth0_client.update_user.return_value = True
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
+    user_id = user.id
+    admin_user = as_admin_user
+    resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": "Testing user deletion"})
+    assert resp.status_code == 200
+    user_query = test_db_session.query(BiocommonsUser).filter(BiocommonsUser.id == user_id)
+    # Should be hidden from normal queries
+    assert user_query.count() == 0
+    # Should still be found when include_deleted=True is passed
+    assert user_query.execution_options(include_deleted=True).count() == 1
+    # Check user is updated with deletion info
+    refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+    assert refreshed_user.deleted_at == frozen_time
+    assert refreshed_user.deleted_by == admin_user
+    assert refreshed_user.deletion_reason == "Testing user deletion"
+
+
+def test_delete_user_empty_reason(test_client, test_db_session, as_admin_user, mock_auth0_client, galaxy_platform, persistent_factories, frozen_time):
+    mock_auth0_client.update_user.return_value = True
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
+    user_id = user.id
+    admin_user = as_admin_user
+    resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": None})
+    assert resp.status_code == 200
+    # Check user is updated with deletion info
+    refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+    assert refreshed_user.deleted_at == frozen_time
+    assert refreshed_user.deleted_by == admin_user
+    assert refreshed_user.deletion_reason is None
+
+
+def test_delete_user_calls_auth0_api(test_client, test_db_session, as_admin_user, mock_auth0_client, galaxy_platform, persistent_factories):
+    mock_auth0_client.update_user.return_value = True
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=galaxy_platform.id)
+    user_id = user.id
+    resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": "Testing user deletion"})
+    assert resp.status_code == 200
+    mock_auth0_client.update_user.assert_called_once()
+    mock_auth0_client.update_user.assert_called_with(
+        user_id=user_id,
+        update_data=UpdateUserData(blocked=True)
+    )
+
+
+def test_delete_user_forbidden_without_admin_role(test_client, test_db_session, as_admin_user, bpa_platform, mock_auth0_client, persistent_factories):
+    mock_auth0_client.update_user.return_value = True
+    # Create user with platform membership that admin can't access
+    user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=bpa_platform.id)
+    user_id = user.id
+    resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": "Testing user deletion"})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "You do not have permission to manage this user."
+    # Auth0 API should not have been called
+    assert mock_auth0_client.update_user.call_count == 0
+    # User should not have been deleted
+    refreshed_user = BiocommonsUser.get_by_id(user_id, test_db_session)
+    assert refreshed_user is not None
+    assert refreshed_user.is_deleted is False
 
 
 def test_get_user_counts(

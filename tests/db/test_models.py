@@ -46,8 +46,8 @@ def frozen_time():
     """
     Freeze time so datetime.now() returns FROZEN_TIME.
     """
-    with freeze_time("2025-01-01 12:00:00"):
-        yield
+    with freeze_time("2025-01-01 12:00:00") as time:
+        yield time
 
 
 def test_create_biocommons_user(test_db_session):
