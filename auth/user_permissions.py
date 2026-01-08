@@ -153,11 +153,24 @@ def has_group_admin_permission_for_user(
     return False
 
 
+def require_platform_admin_permission_for_user(
+        user_id: Annotated[str, UserIdParam],
+        admin: Annotated[SessionUser, Depends(user_is_general_admin)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+) -> bool:
+    if not has_platform_admin_permission_for_user(user_id, admin, db_session):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to manage this user.",
+        )
+    return True
+
+
 def require_admin_permission_for_user(
         user_id: Annotated[str, UserIdParam],
         admin: Annotated[SessionUser, Depends(user_is_general_admin)],
         db_session: Annotated[Session, Depends(get_db_session)],
-):
+) -> bool:
     """
     Dependency for checking if the current admin has the right to manage the
     specified user (user_id should be a path parameter).
