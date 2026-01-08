@@ -772,7 +772,7 @@ class AdminDeleteData(BaseModel):
     reason: str | None = None
 
 
-@router.get("/users/{user_id}/delete",
+@router.post("/users/{user_id}/delete",
             # Only platform admins/sysadmins can delete users
             dependencies=[Depends(require_platform_admin_permission_for_user)])
 def delete_user(user_id: Annotated[str, UserIdParam],
