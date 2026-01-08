@@ -757,8 +757,7 @@ def get_user_details(user_id: Annotated[str, UserIdParam],
     from our user DB.
     """
     user = client.get_user(user_id)
-    from db.models import BiocommonsUser
-    db_user = db_session.get_one(BiocommonsUser, user_id)
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
     details = Auth0UserDataWithMemberships.from_auth0_data(
         auth0_data=user,
         db_data=db_user,
