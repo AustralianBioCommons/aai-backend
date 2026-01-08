@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from logging import getLogger
 from typing import Optional, Self
 
+from httpx import HTTPStatusError
 from pydantic import AwareDatetime
 from sqlalchemy import Column, String, Text, UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
@@ -116,6 +117,12 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         logger.info(f"Deleting user {self.id} from Auth0")
         auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
+        logger.info("Deleting user refresh tokens")
+        # Deleting refresh tokens is not essential, so allow deletion to continue on error
+        try:
+            auth0_client.delete_user_refresh_tokens(user_id=self.id)
+        except HTTPStatusError as e:
+            logger.warning(f"Error deleting user refresh tokens for user {self.id}: {e}")
         logger.info("Marking user as deleted in DB")
         self.delete(session, commit=True, reason=reason, deleted_by=deleted_by)
         return self
