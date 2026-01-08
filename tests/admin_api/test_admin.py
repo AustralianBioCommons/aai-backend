@@ -4,6 +4,7 @@ from urllib.parse import quote
 import pytest
 from fastapi import HTTPException
 from freezegun import freeze_time
+from sqlalchemy import func
 from sqlmodel import select
 
 from auth.management import get_management_token
@@ -479,11 +480,11 @@ def test_delete_user(test_client, test_db_session, as_admin_user, mock_auth0_cli
     admin_user = as_admin_user
     resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": "Testing user deletion"})
     assert resp.status_code == 200
-    user_query = test_db_session.query(BiocommonsUser).filter(BiocommonsUser.id == user_id)
+    user_query = select(func.count()).select_from(BiocommonsUser).where(BiocommonsUser.id == user_id)
     # Should be hidden from normal queries
-    assert user_query.count() == 0
+    assert test_db_session.exec(user_query).one() == 0
     # Should still be found when include_deleted=True is passed
-    assert user_query.execution_options(include_deleted=True).count() == 1
+    assert test_db_session.exec(user_query.execution_options(include_deleted=True)).one() == 1
     # Check user is updated with deletion info
     refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
     assert refreshed_user.deleted_at == frozen_time
