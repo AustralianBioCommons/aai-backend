@@ -58,6 +58,16 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         return session.get(BiocommonsUser, user_id)
 
     @classmethod
+    def get_by_id_or_404(cls, user_id: str, session: Session) -> Self:
+        """
+        Retrieve a BiocommonsUser by ID or raise a 404 error if not found.
+        """
+        user = session.get(BiocommonsUser, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
+        return user
+
+    @classmethod
     def has_platform_membership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
         """
         Check if a user has a membership for a specific platform.
