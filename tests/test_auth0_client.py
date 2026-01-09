@@ -59,32 +59,6 @@ def test_get_user_by_id(test_auth0_client):
     assert result.model_dump(mode="json") == user.model_dump(mode="json")
 
 
-@pytest.mark.parametrize(
-    "method,query",
-    [
-        ("get_approved_users", 'app_metadata.services.status:"approved"'),
-        ("get_pending_users", 'app_metadata.services.status:"pending"'),
-        ("get_revoked_users", 'app_metadata.services.status:"revoked"'),
-    ]
-)
-@respx.mock
-def test_search_users_methods(test_auth0_client, method, query):
-    user = Auth0UserDataFactory.build()
-    route = respx.get("https://auth0.example.com/api/v2/users").respond(
-        200, json=[user.model_dump(mode="json")]
-    )
-
-    result = getattr(test_auth0_client, method)(page=3, per_page=50)
-
-    assert route.called
-    request = route.calls[0].request
-    assert request.url.params["q"] == query
-    assert request.url.params["search_engine"] == "v3"
-    assert request.url.params["page"] == "2"
-    assert request.url.params["per_page"] == "50"
-    assert result[0].model_dump(mode="json") == user.model_dump(mode="json")
-
-
 @respx.mock
 def test_get_role_users(test_auth0_client):
     """
@@ -103,6 +77,18 @@ def test_get_role_users(test_auth0_client):
     for user in result:
         assert any(user.user_id == original["user_id"] for original in users)
     assert isinstance(result[0], RoleUserData)
+
+
+@respx.mock
+def test_delete_user_refresh_tokens(test_auth0_client):
+    """
+    Test we call the expected Auth0 API endpoint to delete user refresh tokens
+    """
+    user_id = "auth0|123"
+    route = respx.delete(f"https://auth0.example.com/api/v2/users/{user_id}/refresh-tokens").respond(202)
+    result = test_auth0_client.delete_user_refresh_tokens(user_id)
+    assert route.called
+    assert result
 
 
 @respx.mock

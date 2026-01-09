@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from logging import getLogger
 from typing import Optional, Self
 
+from httpx import HTTPStatusError
 from pydantic import AwareDatetime
 from sqlalchemy import Column, String, Text, UniqueConstraint
 from sqlmodel import DateTime, Field, Relationship, Session, select
@@ -10,7 +11,7 @@ from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
 
 import schemas
-from auth0.client import Auth0Client
+from auth0.client import Auth0Client, UpdateUserData
 from db.core import BaseModel, SoftDeleteModel
 from db.types import (
     ApprovalStatusEnum,
@@ -38,6 +39,11 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     created_at: AwareDatetime = Field(
         default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True)
     )
+    deleted_at: AwareDatetime | None = Field(default=None, nullable=True, sa_type=DateTime(timezone=True))
+    deleted_by_id: str | None = Field(default=None, foreign_key="biocommons_user.id", nullable=True)
+    deletion_reason: str | None = Field(default=None, nullable=True)
+
+    deleted_by: Optional["BiocommonsUser"] = Relationship(sa_relationship_kwargs={"remote_side": "BiocommonsUser.id"})
 
     platform_memberships: list["PlatformMembership"] = Relationship(
         back_populates="user",
@@ -51,6 +57,16 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     @classmethod
     def get_by_id(cls, user_id: str, session: Session) -> Self | None:
         return session.get(BiocommonsUser, user_id)
+
+    @classmethod
+    def get_by_id_or_404(cls, user_id: str, session: Session) -> Self:
+        """
+        Retrieve a BiocommonsUser by ID or raise a 404 error if not found.
+        """
+        user = session.get(BiocommonsUser, user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
+        return user
 
     @classmethod
     def has_platform_membership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
@@ -95,7 +111,23 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             db_session.commit()
         return user
 
-    def delete(self, session: Session, commit: bool = False) -> "BiocommonsUser":
+    def admin_delete(self, deleted_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
+        """
+        Delete the user, when actioned by an admin. Soft delete the user in Auth0 and then in the database.
+        """
+        logger.info(f"Deleting user {self.id} from Auth0")
+        auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
+        logger.info("Deleting user refresh tokens")
+        # Deleting refresh tokens is not essential, so allow deletion to continue on error
+        try:
+            auth0_client.delete_user_refresh_tokens(user_id=self.id)
+        except HTTPStatusError as e:
+            logger.warning(f"Error deleting user refresh tokens for user {self.id}: {e}")
+        logger.info("Marking user as deleted in DB")
+        self.delete(session, commit=True, reason=reason, deleted_by=deleted_by)
+        return self
+
+    def delete(self, session: Session, commit: bool = False, reason: str | None = None, deleted_by: Self | None = None) -> "BiocommonsUser":
         """
         Soft delete the user and cascade the soft delete to related memberships.
         """
@@ -106,6 +138,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if not membership.is_deleted:
                 membership.delete(session, commit=False)
 
+        self.deletion_reason = reason
+        self.deleted_at = datetime.now(timezone.utc)
+        self.deleted_by = deleted_by
         super().delete(session, commit=commit)
         return self
 

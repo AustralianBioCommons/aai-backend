@@ -19,6 +19,7 @@ from auth.user_permissions import (
     require_admin_permission_for_group,
     require_admin_permission_for_platform,
     require_admin_permission_for_user,
+    require_platform_admin_permission_for_user,
     user_is_general_admin,
 )
 from auth0.client import Auth0Client, get_auth0_client
@@ -759,13 +760,42 @@ def get_user_details(user_id: Annotated[str, UserIdParam],
     from our user DB.
     """
     user = client.get_user(user_id)
-    from db.models import BiocommonsUser
-    db_user = db_session.get_one(BiocommonsUser, user_id)
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
     details = Auth0UserDataWithMemberships.from_auth0_data(
         auth0_data=user,
         db_data=db_user,
     )
     return details
+
+
+class AdminDeleteData(BaseModel):
+    """
+    POST data for user deletion endpoint. Reason for deletion is optional.
+    """
+    reason: str | None = None
+
+
+@router.post("/users/{user_id}/delete",
+            # Only platform admins/sysadmins can delete users
+            dependencies=[Depends(require_platform_admin_permission_for_user)])
+def delete_user(user_id: Annotated[str, UserIdParam],
+                delete_data: AdminDeleteData,
+                client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                current_admin: Annotated[BiocommonsUser, Depends(get_db_user)],
+                db_session: Annotated[Session, Depends(get_db_session)]):
+    """
+    Soft-delete a user, marking them as deleted in our database and blocking
+    access in Auth0
+    """
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
+    logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
+    db_user.admin_delete(
+        deleted_by=current_admin,
+        reason=delete_data.reason,
+        session=db_session,
+        auth0_client=client,
+    )
+    return {"message": f"User {user_id} deleted successfully."}
 
 
 @router.post(

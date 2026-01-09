@@ -215,6 +215,14 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
+    def delete_user_refresh_tokens(self, user_id: str) -> bool:
+        """
+        Delete all refresh tokens for a user.
+        """
+        url = f"https://{self.domain}/api/v2/users/{user_id}/refresh-tokens"
+        resp = self._client.delete(url)
+        resp.raise_for_status()
+        return True
 
     def add_roles_to_user(self, user_id: str, role_id: str | list[str]) -> bool:
         """
@@ -265,19 +273,6 @@ class Auth0Client:
             }
         )
         return self._convert_users(resp)
-
-    def get_approved_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
-        # TODO: also search for approved resources? (with OR)
-        approved_query = 'app_metadata.services.status:"approved"'
-        return self._search_users(approved_query, page, per_page)
-
-    def get_pending_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
-        pending_query = 'app_metadata.services.status:"pending"'
-        return self._search_users(pending_query, page, per_page)
-
-    def get_revoked_users(self, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
-        revoked_query = 'app_metadata.services.status:"revoked"'
-        return self._search_users(revoked_query, page, per_page)
 
     def get_roles(self,
                   name_filter: Optional[str] = None,
