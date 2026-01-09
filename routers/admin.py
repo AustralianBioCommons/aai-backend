@@ -769,6 +769,9 @@ def get_user_details(user_id: Annotated[str, UserIdParam],
 
 
 class AdminDeleteData(BaseModel):
+    """
+    POST data for user deletion endpoint. Reason for deletion is optional.
+    """
     reason: str | None = None
 
 
