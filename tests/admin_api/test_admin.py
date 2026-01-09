@@ -46,7 +46,7 @@ def frozen_time():
     """
     Freeze time so datetime.now() returns FROZEN_TIME.
     """
-    with freeze_time("2025-01-01 12:00:00") as time:
+    with freeze_time("2025-01-01 12:00:00", tz_offset=0) as time:
         yield time()
 
 
