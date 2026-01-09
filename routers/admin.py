@@ -783,6 +783,10 @@ def delete_user(user_id: Annotated[str, UserIdParam],
                 client: Annotated[Auth0Client, Depends(get_auth0_client)],
                 current_admin: Annotated[BiocommonsUser, Depends(get_db_user)],
                 db_session: Annotated[Session, Depends(get_db_session)]):
+    """
+    Soft-delete a user, marking them as deleted in our database and blocking
+    access in Auth0
+    """
     db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
     logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
     db_user.admin_delete(
