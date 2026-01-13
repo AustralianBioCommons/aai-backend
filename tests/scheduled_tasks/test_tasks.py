@@ -75,14 +75,17 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         email=existing_email,
         username=existing_username,
         email_verified=True,
+        blocked=False,
     )
     new_user_data = Auth0UserDataFactory.build(
         email="new.user@example.com",
         username="new_user",
+        blocked=False
     )
     extra_user_data = Auth0UserDataFactory.build(
         email="extra.user@example.com",
         username="extra_user",
+        blocked=False
     )
     batch = UsersWithTotalsFactory.build(
         total=3,
@@ -250,6 +253,7 @@ def test_ensure_user_from_auth0_creates_user(test_db_session):
         email="ensure.create@example.com",
         username="ensure_create",
         email_verified=True,
+        blocked=False,
     )
 
     user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
