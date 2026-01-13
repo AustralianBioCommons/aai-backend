@@ -276,6 +276,7 @@ def test_ensure_user_from_auth0_restores_soft_deleted(test_db_session, persisten
         email="restore.user@example.com",
         username="restore_user",
         email_verified=True,
+        blocked=False,
     )
 
     user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
