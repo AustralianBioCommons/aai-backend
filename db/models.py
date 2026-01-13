@@ -115,7 +115,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         Delete the user, when actioned by an admin. Soft delete the user in Auth0 and then in the database.
         """
-        logger.info(f"Deleting user {self.id} from Auth0")
+        logger.info(f"Blocking user {self.id} from Auth0")
         auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
         logger.info("Deleting user refresh tokens")
         # Deleting refresh tokens is not essential, so allow deletion to continue on error
