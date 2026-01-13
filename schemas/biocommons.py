@@ -288,7 +288,7 @@ class Auth0UserData(BaseModel):
     picture: HttpUrl
     updated_at: datetime
     user_id: str
-    blocked: bool
+    blocked: Optional[bool] = None
     # Auth0 will not include user/app metadata in the response when
     #   empty, so make it optional
     user_metadata: Optional[BiocommonsUserMetadata] = None
