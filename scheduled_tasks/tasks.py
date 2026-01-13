@@ -377,6 +377,9 @@ async def sync_group_memberships_for_role(role: RoleData, auth0_client: Auth0Cli
     for role_user in role_users:
         sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
         auth0_user = auth0_client.get_user(role_user.user_id)
+        if auth0_user.blocked:
+            logger.info(f"    User {auth0_user.user_id} blocked, skipping")
+            continue
         db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
         group_membership = _get_group_membership_including_deleted(session, db_user.id, role.name)
         # No membership found in DB
@@ -467,6 +470,9 @@ async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0
     for role_user in role_users:
         sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
         auth0_user = auth0_client.get_user(role_user.user_id)
+        if auth0_user.blocked:
+            logger.info(f"    User {auth0_user.user_id} blocked, skipping")
+            continue
         db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
         platform_membership = _get_platform_membership_including_deleted(session, db_user.id, platform_id)
         # No membership found in DB
