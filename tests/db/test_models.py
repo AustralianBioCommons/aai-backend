@@ -879,9 +879,10 @@ def test_group_membership_revoke_auth0_role_not_approved(status, test_auth0_clie
     assert not role_lookup.called
 
 
-def test_group_membership_save_with_history(test_db_session, persistent_factories):
+@pytest.mark.parametrize("status", ApprovalStatusEnum)
+def test_group_membership_save_with_history(status, test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync()
-    membership = GroupMembershipFactory.build(group_id=group.group_id)
+    membership = GroupMembershipFactory.build(group_id=group.group_id, approval_status=status)
     membership.save(test_db_session, commit=True)
     test_db_session.refresh(membership)
     assert membership.id is not None
@@ -892,7 +893,12 @@ def test_group_membership_save_with_history(test_db_session, persistent_factorie
     ).one()
     assert history.group_id == membership.group_id
     assert history.user_id == membership.user_id
-    assert history.reason == membership.revocation_reason
+    expected_reason = (
+        membership.rejection_reason
+        if membership.approval_status == ApprovalStatusEnum.REJECTED and membership.rejection_reason is not None
+        else membership.revocation_reason
+    )
+    assert history.reason == expected_reason
 
 
 def test_group_membership_save_and_commit_history(test_db_session, persistent_factories):
