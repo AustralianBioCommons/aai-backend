@@ -90,15 +90,19 @@ class DeletedUserView(UserView):
         settings = get_settings()
         management_token = get_management_token(settings=settings)
         auth0_client = get_auth0_client(settings=settings, management_token=management_token)
-        db_session = next(get_db_session())
-        admin_id = request.state.user["sub"]
-        admin = BiocommonsUser.get_by_id(admin_id, db_session)
-        logger.info(f"Restoring user {pk}")
-        user = BiocommonsUser.get_deleted_by_id(session=db_session, identity=pk)
-        data: FormData = await request.form()
-        reason = data.get("reason-input")
-        user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
-        return "User restored successfully"
+        db_session_gen = get_db_session()
+        db_session = next(db_session_gen)
+        try:
+            admin_id = request.state.user["sub"]
+            admin = BiocommonsUser.get_by_id(admin_id, db_session)
+            logger.info(f"Restoring user {pk}")
+            user = BiocommonsUser.get_deleted_by_id(session=db_session, identity=pk)
+            data: FormData = await request.form()
+            reason = data.get("reason-input")
+            user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
+            return "User restored successfully"
+        finally:
+            db_session_gen.close()
 
 
 class PlatformView(DefaultView):
