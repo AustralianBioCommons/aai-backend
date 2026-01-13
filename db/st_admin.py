@@ -94,9 +94,11 @@ class DeletedUserView(UserView):
         db_session = next(db_session_gen)
         try:
             admin_id = request.state.user["sub"]
-            admin = BiocommonsUser.get_by_id(admin_id, db_session)
+            admin = BiocommonsUser.get_by_id_or_404(admin_id, db_session)
             logger.info(f"Restoring user {pk}")
             user = BiocommonsUser.get_deleted_by_id(session=db_session, identity=pk)
+            if user is None:
+                raise HTTPException(status_code=404, detail=f"User {pk} not found")
             data: FormData = await request.form()
             reason = data.get("reason-input")
             user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
