@@ -59,7 +59,7 @@ def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple
     user = BiocommonsUser.get_by_id(user_data.user_id, session)
     if user is None:
         user = BiocommonsUser.get_deleted_by_id(session, user_data.user_id)
-        if user is not None:
+        if user is not None and not user_data.blocked:
             restored = True
             user.restore(session, commit=False)
         else:
