@@ -104,7 +104,7 @@ class DeletedUserView(UserView):
             user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
             return "User restored successfully"
         finally:
-            db_session_gen.close()
+            db_session.close()
 
 
 class PlatformView(DefaultView):
