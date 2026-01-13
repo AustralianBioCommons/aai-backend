@@ -4,6 +4,7 @@ from typing import Optional, Type, TypeVar
 
 import httpx
 from fastapi import Depends
+from httpx import HTTPStatusError
 from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
 
 from auth.management import get_management_token
@@ -187,8 +188,11 @@ class Auth0Client:
         url = f"https://{self.domain}/api/v2/users/{user_id}"
         # Make sure we exclude None to not update fields with null values.
         data = update_data.model_dump(mode="json", exclude_none=True)
-        resp = self._client.patch(url, json=data)
-        resp.raise_for_status()
+        try:
+            resp = self._client.patch(url, json=data)
+            resp.raise_for_status()
+        except HTTPStatusError as exc:
+            raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
 
     def check_user_password(self, username: str, password: str, settings: Settings) -> bool:

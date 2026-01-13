@@ -109,6 +109,8 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
         return random_auth0_id()
 
     username = BiocommonsProviders.biocommons_username
+    # blocked = False by default
+    blocked = False
 
 
 class SBPRegistrationDataFactory(ModelFactory[SBPRegistrationRequest]):

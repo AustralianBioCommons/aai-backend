@@ -1,10 +1,14 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 from itsdangerous import URLSafeSerializer
+from starlette.datastructures import FormData
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+
+from db.models import BiocommonsUser
+from db.st_admin import DeletedUserView
 
 
 @pytest.fixture
@@ -140,3 +144,40 @@ async def test_auth_callback_success_sets_session_and_redirects(mocker, mock_set
 
     assert isinstance(resp, type(resp))  # RedirectResponse type
     assert "user" in mock_request.session
+
+
+@pytest.mark.asyncio
+async def test_restore_row_action_calls_admin_restore(mocker):
+    mock_auth0_client = MagicMock()
+    mock_db_session = MagicMock()
+    mock_request = MagicMock()
+
+    admin_id = "auth0|admin123"
+    target_user_id = "auth0|user456"
+    restoration_reason = "Mistakenly deleted"
+
+    mock_admin = MagicMock(spec=BiocommonsUser)
+    mock_user = MagicMock(spec=BiocommonsUser)
+
+    mock_request.state.user = {"sub": admin_id}
+    mock_request.form = AsyncMock(return_value=FormData({"reason-input": restoration_reason}))
+
+    mocker.patch("db.st_admin.get_db_session", return_value=iter([mock_db_session]))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client)
+    mocker.patch("db.st_admin.get_management_token")
+    mocker.patch("db.st_admin.get_settings")
+
+    mocker.patch.object(BiocommonsUser, "get_by_id_or_404", return_value=mock_admin)
+    mocker.patch.object(BiocommonsUser, "get_deleted_by_id", return_value=mock_user)
+
+    view = DeletedUserView(BiocommonsUser)
+    response = await view.restore_row_action(mock_request, target_user_id)
+
+    assert response == "User restored successfully"
+    # Check admin_restore() called with the expected args.
+    mock_user.admin_restore.assert_called_once_with(
+        mock_admin,
+        restoration_reason,
+        mock_db_session,
+        auth0_client=mock_auth0_client
+    )

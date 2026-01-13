@@ -75,14 +75,17 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         email=existing_email,
         username=existing_username,
         email_verified=True,
+        blocked=False,
     )
     new_user_data = Auth0UserDataFactory.build(
         email="new.user@example.com",
         username="new_user",
+        blocked=False
     )
     extra_user_data = Auth0UserDataFactory.build(
         email="extra.user@example.com",
         username="extra_user",
+        blocked=False
     )
     batch = UsersWithTotalsFactory.build(
         total=3,
@@ -250,6 +253,7 @@ def test_ensure_user_from_auth0_creates_user(test_db_session):
         email="ensure.create@example.com",
         username="ensure_create",
         email_verified=True,
+        blocked=False,
     )
 
     user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
@@ -276,6 +280,7 @@ def test_ensure_user_from_auth0_restores_soft_deleted(test_db_session, persisten
         email="restore.user@example.com",
         username="restore_user",
         email_verified=True,
+        blocked=False,
     )
 
     user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
@@ -283,6 +288,32 @@ def test_ensure_user_from_auth0_restores_soft_deleted(test_db_session, persisten
     assert created is False
     assert restored is True
     assert user.is_deleted is False
+
+
+def test_ensure_user_no_restore_if_blocked(test_db_session, persistent_factories):
+    """
+    Test users are not restored if they are blocked in Auth0
+    """
+    existing_user = BiocommonsUserFactory.create_sync(
+        id="auth0|restore_user",
+        email="restore.user@example.com",
+        username="restore_user",
+    )
+    existing_user_id = existing_user.id
+    existing_user.delete(test_db_session, commit=True)
+    user_data = Auth0UserDataFactory.build(
+        user_id=existing_user_id,
+        email="restore.user@example.com",
+        username="restore_user",
+        email_verified=True,
+        blocked=True,
+    )
+
+    user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
+
+    assert created is False
+    assert restored is False
+    assert user.is_deleted is True
 
 
 def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, persistent_factories):
