@@ -1,10 +1,15 @@
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from itsdangerous import URLSafeSerializer
+from starlette.datastructures import FormData
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+
+from auth0.client import UpdateUserData
+from db.models import BiocommonsUser
+from db.st_admin import DeletedUserView
 
 
 @pytest.fixture
@@ -140,3 +145,48 @@ async def test_auth_callback_success_sets_session_and_redirects(mocker, mock_set
 
     assert isinstance(resp, type(resp))  # RedirectResponse type
     assert "user" in mock_request.session
+
+
+@pytest.mark.asyncio
+async def test_restore_row_action_calls_auth0_and_updates_db():
+    mock_db_session = MagicMock()
+    mock_auth0_client = MagicMock()
+    mock_request = MagicMock()
+
+    admin_id = "auth0|admin123"
+    mock_request.state.user = {"sub": admin_id}
+
+    restoration_reason = "Mistakenly deleted"
+    mock_request.form = AsyncMock(return_value=FormData({"reason-input": restoration_reason}))
+
+    target_user_id = "auth0|user456"
+    admin_user = BiocommonsUser(id=admin_id, email="admin@example.com", username="admin")
+
+    target_user = BiocommonsUser(
+        id=target_user_id,
+        email="user@example.com",
+        username="user",
+        is_deleted=True
+    )
+
+    with patch("db.st_admin.get_db_session", return_value=iter([mock_db_session])), \
+            patch("db.st_admin.get_management_token", return_value="fake-token"), \
+            patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client), \
+            patch("db.st_admin.get_settings"), \
+            patch.object(BiocommonsUser, "get_by_id", return_value=admin_user), \
+            patch.object(BiocommonsUser, "get_deleted_by_id", return_value=target_user):
+
+        view = DeletedUserView(BiocommonsUser)
+        response = await view.restore_row_action(mock_request, target_user_id)
+
+        assert response == "User restored successfully"
+
+        # Verify Auth0 was called to unblock
+        mock_auth0_client.update_user.assert_called_once_with(
+            user_id=target_user_id,
+            update_data=UpdateUserData(blocked=False)
+        )
+
+        assert target_user.is_deleted is False
+        assert target_user.deletion_reason == restoration_reason
+        assert target_user.deleted_by == admin_user
