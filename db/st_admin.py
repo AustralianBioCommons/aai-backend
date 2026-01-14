@@ -4,19 +4,22 @@ from typing import Any, Optional
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import FastAPI
+from sqlalchemy import Select
 from sqlmodel import select
-from starlette.datastructures import URL
+from starlette.datastructures import URL, FormData
 from starlette.exceptions import HTTPException
 from starlette.middleware import Middleware
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.routing import Route
-from starlette_admin import BaseAdmin, EnumField, HasMany, HasOne
+from starlette_admin import BaseAdmin, EnumField, HasMany, HasOne, row_action
 from starlette_admin.auth import AdminUser, AuthProvider, login_not_required
 from starlette_admin.contrib.sqlmodel import Admin, ModelView
 
+from auth.management import get_management_token
 from auth.validator import verify_jwt
+from auth0.client import get_auth0_client
 from config import get_settings
 from db.models import (
     Auth0Role,
@@ -30,7 +33,7 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from db.setup import get_engine
+from db.setup import get_db_session, get_engine
 from db.types import PlatformEnum
 
 logger = logging.getLogger('uvicorn.error')
@@ -52,6 +55,56 @@ class UserView(DefaultView):
 
     async def repr(self, obj: Any, request: Request) -> str:
         return obj.email
+
+
+class DeletedUserView(UserView):
+    fields = ["email", "username", "deleted_at", HasOne("deleted_by", identity="user"), "deletion_reason"]
+
+    async def repr(self, obj: Any, request: Request) -> str:
+        return obj.email
+
+    def get_details_query(self, request: Request) -> Select:
+        return select(self.model).execution_options(include_deleted=True).where(BiocommonsUser.is_deleted.is_(True))
+
+    def get_list_query(self, request: Request) -> Select:
+        return select(self.model).execution_options(include_deleted=True).where(BiocommonsUser.is_deleted.is_(True))
+
+    @row_action(
+        name="restore_user",
+        text="Restore User",
+        confirmation="Are you sure you want to restore this user?",
+        icon_class="fa fa-trash-restore",
+        submit_btn_text="Restore",
+        submit_btn_class="btn btn-success",
+        action_btn_class="btn btn-info",
+        form="""
+        <form>
+            <div class="mt-3">
+                <input type="text" class="form-control" name="reason-input" placeholder="Reason for restoration">
+            </div>
+        </form>
+        """
+    )
+    async def restore_row_action(self, request: Request, pk: Any) -> Any:
+        logger.info("Setting up Auth0 client")
+        settings = get_settings()
+        management_token = get_management_token(settings=settings)
+        auth0_client = get_auth0_client(settings=settings, management_token=management_token)
+        db_session_gen = get_db_session()
+        db_session = next(db_session_gen)
+        try:
+            admin_id = request.state.user["sub"]
+            admin = BiocommonsUser.get_by_id_or_404(admin_id, db_session)
+            logger.info(f"Restoring user {pk}")
+            user = BiocommonsUser.get_deleted_by_id(session=db_session, identity=pk)
+            if user is None:
+                raise HTTPException(status_code=404, detail=f"User {pk} not found")
+            data: FormData = await request.form()
+            reason = data.get("reason-input")
+            user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
+            return "User restored successfully"
+        finally:
+            db_session.close()
 
 
 class PlatformView(DefaultView):
@@ -178,7 +231,6 @@ class EmailNotificationView(DefaultView):
         return obj.subject
 
 
-
 def setup_starlette_admin(app: FastAPI):
     settings = get_settings()
     if not settings.enable_admin_dashboard:
@@ -193,6 +245,7 @@ def setup_starlette_admin(app: FastAPI):
         middlewares=[Middleware(SessionMiddleware, secret_key=settings.jwt_secret_key)]
     )
     admin.add_view(UserView(BiocommonsUser, identity="user", icon="fa fa-user"))
+    admin.add_view(DeletedUserView(BiocommonsUser, identity="deleted_user", icon="fa fa-user-slash", name="Deleted Users", label="Deleted Users"))
     admin.add_view(PlatformView(Platform, identity="platform", icon="fa fa-server"))
     admin.add_view(PlatformMembershipView(PlatformMembership, identity="platform_membership", icon="fa fa-user-plus"))
     admin.add_view(GroupView(BiocommonsGroup, identity="group", icon="fa fa-users"))

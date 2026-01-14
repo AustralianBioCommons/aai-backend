@@ -115,7 +115,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         Delete the user, when actioned by an admin. Soft delete the user in Auth0 and then in the database.
         """
-        logger.info(f"Deleting user {self.id} from Auth0")
+        logger.info(f"Blocking user {self.id} from Auth0")
         auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
         logger.info("Deleting user refresh tokens")
         # Deleting refresh tokens is not essential, so allow deletion to continue on error
@@ -125,6 +125,23 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             logger.warning(f"Error deleting user refresh tokens for user {self.id}: {e}")
         logger.info("Marking user as deleted in DB")
         self.delete(session, commit=True, reason=reason, deleted_by=deleted_by)
+        return self
+
+    def admin_restore(self, restored_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
+        """
+        Restore the user when actioned by an admin.
+        """
+        if not self.is_deleted:
+            raise ValueError(f"User {self.id} is not deleted")
+        logger.info(f"Unblocking user in Auth0: {self.id}")
+        auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=False))
+        logger.info("Restoring user in database")
+        self.is_deleted = False
+        self.deleted_by = restored_by
+        self.deletion_reason = reason
+        self.deleted_at = datetime.now(timezone.utc)
+        session.add(self)
+        session.commit()
         return self
 
     def delete(self, session: Session, commit: bool = False, reason: str | None = None, deleted_by: Self | None = None) -> "BiocommonsUser":
