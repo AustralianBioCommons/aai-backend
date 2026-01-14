@@ -178,6 +178,8 @@ class BiocommonsRegisterData(BaseModel):
     connection: str = "Username-Password-Authentication"
     username: BiocommonsUsername
     name: Optional[str] = None
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
     user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 
@@ -248,6 +250,8 @@ class BiocommonsRegisterData(BaseModel):
             username=registration.username,
             password=registration.password,
             name=f"{registration.first_name} {registration.last_name}",
+            given_name=registration.first_name,
+            family_name=registration.last_name,
             email_verified=False,
             connection="Username-Password-Authentication",
             app_metadata=BiocommonsAppMetadata(
@@ -366,6 +370,8 @@ class UserProfileData(BaseModel):
     email_verified: bool
     username: BiocommonsUsername
     picture: str
+    given_name: str | None = None
+    family_name: str | None = None
     platform_memberships: list[UserProfilePlatformData]
     group_memberships: list[UserProfileGroupData]
 
@@ -390,6 +396,8 @@ class UserProfileData(BaseModel):
             email_verified=auth0_user_info.email_verified,
             username=user.username,
             picture=auth0_user_info.picture,
+            given_name=auth0_user_info.given_name,
+            family_name=auth0_user_info.family_name,
             platform_memberships=platform_memberships,
             group_memberships=group_memberships,
         )
