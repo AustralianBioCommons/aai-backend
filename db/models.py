@@ -114,6 +114,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     def admin_delete(self, deleted_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
         """
         Delete the user, when actioned by an admin. Soft delete the user in Auth0 and then in the database.
+        Preserve memberships to platforms and groups.
         """
         logger.info(f"Blocking user {self.id} from Auth0")
         auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=True))
@@ -124,7 +125,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         except HTTPStatusError as e:
             logger.warning(f"Error deleting user refresh tokens for user {self.id}: {e}")
         logger.info("Marking user as deleted in DB")
-        self.delete(session, commit=True, reason=reason, deleted_by=deleted_by)
+        self.delete(session, commit=True, reason=reason, deleted_by=deleted_by, delete_memberships=False)
         return self
 
     def admin_restore(self, restored_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
@@ -144,16 +145,17 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         session.commit()
         return self
 
-    def delete(self, session: Session, commit: bool = False, reason: str | None = None, deleted_by: Self | None = None) -> "BiocommonsUser":
+    def delete(self, session: Session, commit: bool = False, reason: str | None = None, deleted_by: Self | None = None, delete_memberships: bool = True) -> "BiocommonsUser":
         """
-        Soft delete the user and cascade the soft delete to related memberships.
+        Soft delete the user and cascade the soft delete to related memberships if delete_memberships is True.
         """
-        for membership in list(self.platform_memberships or []):
-            if not membership.is_deleted:
-                membership.delete(session, commit=False)
-        for membership in list(self.group_memberships or []):
-            if not membership.is_deleted:
-                membership.delete(session, commit=False)
+        if delete_memberships:
+            for membership in list(self.platform_memberships or []):
+                if not membership.is_deleted:
+                    membership.delete(session, commit=False)
+            for membership in list(self.group_memberships or []):
+                if not membership.is_deleted:
+                    membership.delete(session, commit=False)
 
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
