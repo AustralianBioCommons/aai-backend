@@ -1484,3 +1484,61 @@ def test_soft_delete_restore(test_db_session, persistent_factories):
     restored = test_db_session.get(BiocommonsUser, user_id)
     assert restored is not None
     assert not restored.is_deleted
+
+
+def test_admin_delete(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    user_id = user.id
+    admin = BiocommonsUserFactory.create_sync()
+    test_db_session.commit()
+
+    user.admin_delete(deleted_by=admin, reason="Deletion test", session=test_db_session, auth0_client=mock_auth0_client)
+    refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+    assert refreshed_user is not None
+    assert refreshed_user.is_deleted
+    assert refreshed_user.deleted_by_id == admin.id
+    assert refreshed_user.deletion_reason == "Deletion test"
+
+
+def test_admin_restore(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(is_deleted=True)
+    user_id = user.id
+    admin = BiocommonsUserFactory.create_sync()
+    test_db_session.commit()
+
+    user.admin_restore(restored_by=admin, reason="Restoration test", session=test_db_session, auth0_client=mock_auth0_client)
+    refreshed_user = BiocommonsUser.get_by_id(user_id=user_id, session=test_db_session)
+    assert refreshed_user is not None
+    assert not refreshed_user.is_deleted
+    assert refreshed_user.deleted_by_id == admin.id
+    assert refreshed_user.deletion_reason == "Restoration test"
+
+
+def test_admin_delete_preserves_memberships(test_db_session, persistent_factories, mock_auth0_client):
+    """
+    Test group and platform memberships are preserved when admin soft-deletes a user, so
+    they will be in place if user is restored
+    """
+    user = BiocommonsUserFactory.create_sync()
+    user_id = user.id
+    admin = BiocommonsUserFactory.create_sync()
+    group = BiocommonsGroupFactory.create_sync()
+    group_membership = GroupMembershipFactory.create_sync(group=group, user=user, approval_status=ApprovalStatusEnum.APPROVED)
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    platform_membership = PlatformMembershipFactory.create_sync(platform=platform, user=user, approval_status=ApprovalStatusEnum.APPROVED)
+    test_db_session.commit()
+
+    user.admin_delete(deleted_by=admin, reason="Deletion test", session=test_db_session, auth0_client=mock_auth0_client)
+    refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+    test_db_session.refresh(group_membership)
+    test_db_session.refresh(platform_membership)
+    assert refreshed_user is not None
+    assert refreshed_user.is_deleted
+    assert refreshed_user.deleted_by_id == admin.id
+    assert refreshed_user.deletion_reason == "Deletion test"
+    assert refreshed_user.group_memberships == [group_membership]
+    assert refreshed_user.platform_memberships == [platform_membership]
+    assert not group_membership.is_deleted
+    assert group_membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert not platform_membership.is_deleted
+    assert platform_membership.approval_status == ApprovalStatusEnum.APPROVED
