@@ -30,9 +30,13 @@ if TYPE_CHECKING:
     from db import models
 
 # From Auth0 password settings
-ALLOWED_SPECIAL_CHARS = "!@#$%^&*"
+# List of special characters from:
+# https://owasp.org/www-community/password-special-characters
+ALLOWED_SPECIAL_CHARS = r""" !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
+# Define the regex for special characters explicitly (escaping some of them is tricky)
+SPECIAL_CHARS_PATTERN = r'[ !"#$%&\'()*+,\-./:;<=>?@[\\\]^_`{|}~]'
 VALID_PASSWORD_REGEX = re.compile(
-    f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[{ALLOWED_SPECIAL_CHARS}]).{{8,}}$"
+    f"^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?{SPECIAL_CHARS_PATTERN}).{{8,}}$"
 )
 PASSWORD_FORMAT_MESSAGE = (
     "Password must contain at least one uppercase letter, one lowercase letter, one number, "
