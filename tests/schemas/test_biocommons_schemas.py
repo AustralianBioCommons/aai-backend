@@ -48,8 +48,8 @@ def test_valid_password(password: str):
     ("AbcdEfgh!", PASSWORD_FORMAT_MESSAGE),
     # Missing special character
     ("abCD1234", PASSWORD_FORMAT_MESSAGE),
-    # Invalid special characters
-    ("Password123.", PASSWORD_FORMAT_MESSAGE),
+    # Invalid special characters (not in OWASP list)
+    ("Password123🙂", PASSWORD_FORMAT_MESSAGE),
 ])
 def test_invalid_password(password: str, expected_error: str):
     """Test that invalid passwords raise appropriate validation errors."""
