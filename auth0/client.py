@@ -105,9 +105,9 @@ class UpdateUserData(BaseModel):
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None
+    name: Optional[str] = None
     family_name: Optional[str] = None
     given_name: Optional[str] = None
-    name: Optional[str] = None
     nickname: Optional[str] = None
     password: Optional[BiocommonsPassword] = None
     picture: Optional[HttpUrl] = None

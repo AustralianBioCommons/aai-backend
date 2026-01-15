@@ -90,6 +90,18 @@ BiocommonsFullName = ValidatedString(min_length=1, max_length=300,
         "max_length": "Full name must be 300 characters or less.",
     },
 )
+BiocommonsFirstName = ValidatedString(min_length=1, max_length=150,
+    messages={
+        "min_length": "First name must be at least 1 character.",
+        "max_length": "First name must be 150 characters or less.",
+    },
+)
+BiocommonsLastName = ValidatedString(min_length=1, max_length=150,
+    messages={
+        "min_length": "Last name must be at least 1 character.",
+        "max_length": "Last name must be 150 characters or less.",
+    },
+)
 
 
 def _validate_biocommons_email(email: str) -> str:
@@ -288,6 +300,8 @@ class Auth0UserData(BaseModel):
     email_verified: bool
     identities: List[Auth0Identity]
     name: str
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
     nickname: str
     picture: HttpUrl
     updated_at: datetime

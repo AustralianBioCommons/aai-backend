@@ -3,7 +3,7 @@ import hmac
 import http
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Dict
+from typing import Annotated, Any, Dict, Optional
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
@@ -36,7 +36,9 @@ from db.types import ApprovalStatusEnum
 from schemas.biocommons import (
     Auth0UserData,
     BiocommonsEmail,
+    BiocommonsFirstName,
     BiocommonsFullName,
+    BiocommonsLastName,
     BiocommonsUsername,
     PasswordChangeRequest,
     UserProfileData,
@@ -458,15 +460,43 @@ async def update_username(
     return resp
 
 
+class FullNameUpdateRequest(BaseModel):
+    """Request model for updating user's full name."""
+    full_name: Optional[BiocommonsFullName] = None
+    first_name: Optional[BiocommonsFirstName] = None
+    last_name: Optional[BiocommonsLastName] = None
+
+
 @router.post("/profile/full-name/update",
              response_model=Auth0UserData)
 async def update_full_name(
-    full_name: Annotated[BiocommonsFullName, Body(embed=True)],
+    payload: Annotated[FullNameUpdateRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):
-    """Update the full name for the current user."""
-    update_data = UpdateUserData(name=full_name)
+    """Update the full name and/or first/last name for the current user."""
+    if not payload.full_name and not payload.first_name and not payload.last_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one of full_name, first_name, or last_name must be provided."
+        )
+
+    update_data = UpdateUserData()
+
+    if payload.full_name:
+        update_data.name = payload.full_name
+    if payload.first_name is not None:
+        update_data.given_name = payload.first_name
+    if payload.last_name is not None:
+        update_data.family_name = payload.last_name
+    if not payload.full_name and (payload.first_name or payload.last_name):
+        name_parts = []
+        if payload.first_name:
+            name_parts.append(payload.first_name)
+        if payload.last_name:
+            name_parts.append(payload.last_name)
+        update_data.name = " ".join(name_parts)
+
     return auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
 
 

@@ -618,6 +618,7 @@ def test_update_username_auth0_error(test_client, test_db_session, mocker, persi
 
 
 def test_update_full_name(test_client, mocker, persistent_factories):
+    """Test updating user's full name."""
     user = BiocommonsUserFactory.create_sync()
     mock_data = Auth0UserDataFactory.build(sub=user.id, name="New Name")
     mocker.patch("routers.user.Auth0Client.update_user", return_value=mock_data)
@@ -632,6 +633,52 @@ def test_update_full_name(test_client, mocker, persistent_factories):
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "New Name"
+
+
+def test_update_first_and_last_name(test_client, mocker, persistent_factories):
+    """Test updating user's first and last name separately."""
+    user = BiocommonsUserFactory.create_sync()
+    mock_data = Auth0UserDataFactory.build(
+        sub=user.id,
+        name="Jane Smith",
+        given_name="Jane",
+        family_name="Smith"
+    )
+    mock_update = mocker.patch("routers.user.Auth0Client.update_user", return_value=mock_data)
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/profile/full-name/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"first_name": "Jane", "last_name": "Smith"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Jane Smith"
+    assert data["given_name"] == "Jane"
+    assert data["family_name"] == "Smith"
+
+    call_args = mock_update.call_args
+    update_data = call_args.kwargs["update_data"]
+    assert update_data.given_name == "Jane"
+    assert update_data.family_name == "Smith"
+    assert update_data.name == "Jane Smith"
+
+
+def test_update_name_requires_at_least_one_field(test_client, mocker, persistent_factories):
+    """Test that name update requires at least one field to be provided."""
+    user = BiocommonsUserFactory.create_sync()
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/profile/full-name/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={},
+    )
+
+    assert response.status_code == 400
+    assert "at least one" in response.json()["detail"].lower()
 
 
 def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
