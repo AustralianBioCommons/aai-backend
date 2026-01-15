@@ -475,27 +475,25 @@ async def update_full_name(
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):
     """Update the full name and/or first/last name for the current user."""
-    if not payload.full_name and not payload.first_name and not payload.last_name:
+    # Require either full_name OR both first_name AND last_name
+    has_full_name = payload.full_name is not None
+    has_first_name = payload.first_name is not None
+    has_last_name = payload.last_name is not None
+
+    if not has_full_name and not (has_first_name and has_last_name):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one of full_name, first_name, or last_name must be provided."
+            detail="Either full name or both first name and last name must be provided."
         )
 
     update_data = UpdateUserData()
 
-    if payload.full_name:
-        update_data.name = payload.full_name
-    if payload.first_name is not None:
+    if payload.first_name and payload.last_name:
         update_data.given_name = payload.first_name
-    if payload.last_name is not None:
         update_data.family_name = payload.last_name
-    if not payload.full_name and (payload.first_name or payload.last_name):
-        name_parts = []
-        if payload.first_name:
-            name_parts.append(payload.first_name)
-        if payload.last_name:
-            name_parts.append(payload.last_name)
-        update_data.name = " ".join(name_parts)
+        update_data.name = f"{payload.first_name} {payload.last_name}"
+    else:
+        update_data.name = payload.full_name
 
     return auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
 

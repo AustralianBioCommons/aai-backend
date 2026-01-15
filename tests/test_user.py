@@ -667,7 +667,7 @@ def test_update_first_and_last_name(test_client, mocker, persistent_factories):
 
 
 def test_update_name_requires_at_least_one_field(test_client, mocker, persistent_factories):
-    """Test that name update requires at least one field to be provided."""
+    """Test that name update requires either full_name OR both first_name and last_name."""
     user = BiocommonsUserFactory.create_sync()
     _act_as_user(mocker, user)
 
@@ -678,7 +678,7 @@ def test_update_name_requires_at_least_one_field(test_client, mocker, persistent
     )
 
     assert response.status_code == 400
-    assert "at least one" in response.json()["detail"].lower()
+    assert "either full name or both first name and last name must be provided" in response.json()["detail"].lower()
 
 
 def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
