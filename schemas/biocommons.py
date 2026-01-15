@@ -90,6 +90,18 @@ BiocommonsFullName = ValidatedString(min_length=1, max_length=300,
         "max_length": "Full name must be 300 characters or less.",
     },
 )
+BiocommonsFirstName = ValidatedString(min_length=1, max_length=150,
+    messages={
+        "min_length": "First name must be at least 1 character.",
+        "max_length": "First name must be 150 characters or less.",
+    },
+)
+BiocommonsLastName = ValidatedString(min_length=1, max_length=150,
+    messages={
+        "min_length": "Last name must be at least 1 character.",
+        "max_length": "Last name must be 150 characters or less.",
+    },
+)
 
 
 def _validate_biocommons_email(email: str) -> str:
@@ -178,6 +190,8 @@ class BiocommonsRegisterData(BaseModel):
     connection: str = "Username-Password-Authentication"
     username: BiocommonsUsername
     name: Optional[str] = None
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
     user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 
@@ -248,6 +262,8 @@ class BiocommonsRegisterData(BaseModel):
             username=registration.username,
             password=registration.password,
             name=f"{registration.first_name} {registration.last_name}",
+            given_name=registration.first_name,
+            family_name=registration.last_name,
             email_verified=False,
             connection="Username-Password-Authentication",
             app_metadata=BiocommonsAppMetadata(
@@ -284,6 +300,8 @@ class Auth0UserData(BaseModel):
     email_verified: bool
     identities: List[Auth0Identity]
     name: str
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
     nickname: str
     picture: HttpUrl
     updated_at: datetime
@@ -367,6 +385,8 @@ class UserProfileData(BaseModel):
     email_verified: bool
     username: BiocommonsUsername
     picture: str
+    given_name: str | None = None
+    family_name: str | None = None
     platform_memberships: list[UserProfilePlatformData]
     group_memberships: list[UserProfileGroupData]
 
@@ -391,6 +411,8 @@ class UserProfileData(BaseModel):
             email_verified=auth0_user_info.email_verified,
             username=user.username,
             picture=auth0_user_info.picture,
+            given_name=auth0_user_info.given_name,
+            family_name=auth0_user_info.family_name,
             platform_memberships=platform_memberships,
             group_memberships=group_memberships,
         )

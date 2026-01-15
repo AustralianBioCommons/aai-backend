@@ -14,6 +14,8 @@ class UserInfo(BaseModel):
     email: str
     picture: str
     email_verified: bool
+    given_name: str | None = None
+    family_name: str | None = None
 
 
 async def get_auth0_user_info(
