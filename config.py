@@ -1,11 +1,12 @@
 from functools import lru_cache
 from typing import Optional
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    environment: str = "dev"
     auth0_domain: str
     auth0_custom_domain: Optional[str] = None
     auth0_management_id: str
@@ -24,7 +25,7 @@ class Settings(BaseSettings):
     #   to be available before the app starts
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
-    aai_portal_url: str = "https://aaiportal.test.biocommons.org.au"
+    aai_portal_url: Optional[str] = None
     # Default sender for outbound emails
     default_email_sender: str = "amanda@biocommons.org.au"
     # Allowed email domains for SBP registration
@@ -47,11 +48,44 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    @field_validator("environment", mode="before")
+    def normalize_environment(cls, value: str | None) -> str:
+        if value is None:
+            return "dev"
+        normalized = str(value).strip().lower()
+        if normalized in {"dev", "development"}:
+            return "dev"
+        if normalized in {"staging", "stage"}:
+            return "staging"
+        return normalized
+
     @field_validator('auth0_custom_domain', mode="after")
     def strip_trailing_slash(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return value.rstrip("/")
+
+    @field_validator("aai_portal_url", mode="after")
+    def strip_aai_portal_trailing_slash(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.rstrip("/")
+
+    @model_validator(mode="after")
+    def set_default_aai_portal_url(self) -> "Settings":
+        if self.aai_portal_url:
+            return self
+        env_to_url = {
+            "dev": "https://dev.login.aai.test.biocommons.org.au",
+            "staging": "https://staging.portal.aai.test.biocommons.org.au",
+        }
+        default_url = env_to_url.get(self.environment)
+        if not default_url:
+            raise ValueError(
+                "Unknown ENVIRONMENT value and AAI_PORTAL_URL is not set."
+            )
+        self.aai_portal_url = default_url
+        return self
 
 
 @lru_cache()
