@@ -30,6 +30,10 @@ if TYPE_CHECKING:
     from db import models
 
 # From Auth0 password settings
+PASSWORD_MIN_LENGTH = 8
+# Auth0's max password length is 72, it "allows" more characters but silently ignores
+#   them beyond 72. We try to explicitly set a max of 72
+PASSWORD_MAX_LENGTH = 72
 # List of special characters from:
 # https://owasp.org/www-community/password-special-characters
 ALLOWED_SPECIAL_CHARS = r""" !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~"""
@@ -83,9 +87,11 @@ BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[-_
     "max_length": "Username must be 128 characters or less.",
     "pattern": "Username must only contain lowercase letters, numbers, hyphens and underscores."
 })
-BiocommonsPassword = ValidatedString(min_length=8, max_length=72, pattern=VALID_PASSWORD_REGEX, messages={
-    "min_length": "Password must be at least 8 characters.",
-    "max_length": "Password must be 72 characters or less.",
+BiocommonsPassword = ValidatedString(min_length=PASSWORD_MIN_LENGTH,
+                                     max_length=PASSWORD_MAX_LENGTH,
+                                     pattern=VALID_PASSWORD_REGEX, messages={
+    "min_length": f"Password must be at least {PASSWORD_MIN_LENGTH} characters.",
+    "max_length": f"Password must be {PASSWORD_MAX_LENGTH} characters or less.",
     "pattern": PASSWORD_FORMAT_MESSAGE
 })
 BiocommonsFullName = ValidatedString(min_length=1, max_length=300,
