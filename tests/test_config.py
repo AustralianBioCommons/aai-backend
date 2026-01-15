@@ -18,8 +18,8 @@ def _base_settings_kwargs():
 @pytest.mark.parametrize(
     ("environment", "expected_url"),
     [
-        ("dev", "https://dev.login.aai.test.biocommons.org.au"),
-        ("development", "https://dev.login.aai.test.biocommons.org.au"),
+        ("dev", "https://dev.portal.aai.test.biocommons.org.au"),
+        ("development", "https://dev.portal.aai.test.biocommons.org.au"),
         ("staging", "https://staging.portal.aai.test.biocommons.org.au"),
         ("stage", "https://staging.portal.aai.test.biocommons.org.au"),
     ],
