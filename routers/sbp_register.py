@@ -49,7 +49,7 @@ def compose_sbp_registration_email(registration: SBPRegistrationRequest, setting
         <p><strong>User:</strong> {registration.first_name} {registration.last_name} ({registration.email})</p>
         <p><strong>Username:</strong> {registration.username}</p>
         <p><strong>Registration Reason:</strong> {registration.reason}</p>
-        <p>Please <a href='{settings.aai_portal_url}/requests'>log into the AAI Admin Portal</a> to review and approve access.</p>
+        <p>Please <a href='{settings.aai_portal_url}'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
     return subject, body_html
