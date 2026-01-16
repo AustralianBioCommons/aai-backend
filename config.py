@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("environment", mode="before")
-    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production"]:
+    def normalize_environment(self, value: str | None) -> Literal["dev", "staging", "production"]:
         normalized = str(value).strip().lower()
         if normalized in {"dev", "development"}:
             return "dev"
@@ -60,13 +60,13 @@ class Settings(BaseSettings):
         return normalized
 
     @field_validator('auth0_custom_domain', mode="after")
-    def strip_trailing_slash(cls, value: str | None) -> str | None:
+    def strip_trailing_slash(self, value: str | None) -> str | None:
         if value is None:
             return None
         return value.rstrip("/")
 
     @field_validator("aai_portal_url", mode="after")
-    def strip_aai_portal_trailing_slash(cls, value: str | None) -> str | None:
+    def strip_aai_portal_trailing_slash(self, value: str | None) -> str | None:
         if value is None:
             return None
         return value.rstrip("/")
