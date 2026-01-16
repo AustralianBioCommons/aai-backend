@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from config import Settings
 
@@ -48,7 +49,7 @@ def test_default_email_sender_manual():
         ("dev", "dev@aai.test.biocommons.org.au"),
         ("development", "dev@aai.test.biocommons.org.au"),
         ("staging", "staging@aai.test.biocommons.org.au"),
-        ("prod", "prod@aai.test.biocommons.org.au"),
+        ("prod", "production@aai.test.biocommons.org.au"),
     ]
 )
 def test_default_email_sender_defaults_by_environment(environment, expected_email):
@@ -75,5 +76,5 @@ def test_aai_portal_url_override_strips_trailing_slash():
 
 
 def test_unknown_environment_requires_explicit_portal_url():
-    with pytest.raises(ValueError, match="Unknown ENVIRONMENT value"):
+    with pytest.raises(ValidationError, match="Input should be 'dev', 'staging' or 'production'"):
         Settings(_env_file=None, environment="qa", **_base_settings_kwargs())

@@ -1,12 +1,12 @@
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import EmailStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    environment: str = "dev"
+    environment: Literal["dev", "staging", "production"] = "dev"
     auth0_domain: str
     auth0_custom_domain: Optional[str] = None
     auth0_management_id: str
@@ -49,14 +49,14 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("environment", mode="before")
-    def normalize_environment(cls, value: str | None) -> str:
-        if value is None:
-            return "dev"
+    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production"]:
         normalized = str(value).strip().lower()
         if normalized in {"dev", "development"}:
             return "dev"
         if normalized in {"staging", "stage"}:
             return "staging"
+        if normalized in {"prod", "production"}:
+            return "production"
         return normalized
 
     @field_validator('auth0_custom_domain', mode="after")
