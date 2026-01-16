@@ -1,10 +1,8 @@
-import os
 from datetime import datetime, timezone
 
-from pydantic import ValidationError
 from sqlmodel import Session
 
-from config import get_settings
+from biocommons.emails import get_default_sender_email
 from db.models import EmailNotification
 
 
@@ -24,7 +22,7 @@ def enqueue_email(
     """
     notification = EmailNotification(
         to_address=to_address,
-        from_address=from_address or _default_sender(),
+        from_address=from_address or get_default_sender_email(),
         subject=subject,
         body_html=body_html,
         send_after=send_after,
@@ -34,13 +32,3 @@ def enqueue_email(
     session.add(notification)
     session.flush()
     return notification
-
-
-DEFAULT_EMAIL_SENDER_FALLBACK = "amanda@biocommons.org.au"
-
-
-def _default_sender() -> str:
-    try:
-        return get_settings().default_email_sender
-    except ValidationError:
-        return os.environ.get("DEFAULT_EMAIL_SENDER", DEFAULT_EMAIL_SENDER_FALLBACK)

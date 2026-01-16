@@ -1,22 +1,11 @@
 import logging
-import os
 
 import boto3
 from botocore.exceptions import ClientError
-from pydantic import ValidationError
 
-from config import get_settings
+from biocommons.emails import get_default_sender_email
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_EMAIL_SENDER_FALLBACK = "amanda@biocommons.org.au"
-
-
-def _default_sender() -> str:
-    try:
-        return get_settings().default_email_sender
-    except ValidationError:
-        return os.environ.get("DEFAULT_EMAIL_SENDER", DEFAULT_EMAIL_SENDER_FALLBACK)
 
 
 class EmailService:
@@ -24,7 +13,7 @@ class EmailService:
         self.client = boto3.client("ses", region_name=region_name)
 
     def send(self, to_address: str, subject: str, body_html: str, sender: str | None = None):
-        sender = sender or _default_sender()
+        sender = sender or get_default_sender_email()
         try:
             response = self.client.send_email(
                 Source=sender,

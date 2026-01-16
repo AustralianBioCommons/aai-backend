@@ -1,5 +1,11 @@
-from config import Settings
+from config import Settings, get_settings
 from db.models import GroupMembership
+
+
+def get_default_sender_email(settings: Settings | None = None) -> str:
+    if settings is None:
+        settings = get_settings()
+    return settings.default_email_sender or f"{settings.environment}@aai.test.biocommons.org.au"
 
 
 def compose_group_approval_email(request: GroupMembership, settings: Settings) -> tuple[str, str]:
