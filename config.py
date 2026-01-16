@@ -78,6 +78,7 @@ class Settings(BaseSettings):
         env_to_url = {
             "dev": "https://dev.portal.aai.test.biocommons.org.au",
             "staging": "https://staging.portal.aai.test.biocommons.org.au",
+            "production": "https://production.portal.aai.test.biocommons.org.au",
         }
         default_url = env_to_url.get(self.environment)
         if not default_url:
