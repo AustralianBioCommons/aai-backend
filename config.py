@@ -49,7 +49,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("environment", mode="before")
-    def normalize_environment(self, value: str | None) -> Literal["dev", "staging", "production"]:
+    @classmethod
+    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production"]:
         normalized = str(value).strip().lower()
         if normalized in {"dev", "development"}:
             return "dev"
