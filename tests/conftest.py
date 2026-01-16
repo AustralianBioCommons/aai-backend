@@ -168,6 +168,7 @@ def disable_real_email_sending():
 def mock_settings():
     """Fixture that returns mocked Settings object."""
     return Settings(
+        environment="dev",
         auth0_domain="mock-domain",
         auth0_issuer=None,
         auth0_management_id="mock-id",
