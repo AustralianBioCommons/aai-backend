@@ -89,7 +89,10 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def set_default_default_email_sender(self) -> "Settings":
+    def set_default_email_sender(self) -> "Settings":
+        """
+        Set based on environment name if not set explicitly
+        """
         if self.default_email_sender:
             return self
         self.default_email_sender = f"{self.environment}@aai.test.biocommons.org.au"
