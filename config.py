@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # AAI Portal URL for admin links in emails
     aai_portal_url: Optional[str] = None
     # Default sender for outbound emails
-    default_email_sender: EmailStr = None
+    default_email_sender: Optional[EmailStr] = None
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW
