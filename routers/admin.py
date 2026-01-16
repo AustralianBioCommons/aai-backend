@@ -874,6 +874,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         enqueue_email(
             db_session,
             to_address=membership.user.email,
+            from_address=settings.default_email_sender,
             subject=subject,
             body_html=body_html,
         )
