@@ -1,5 +1,14 @@
-from config import Settings
+from pydantic import EmailStr
+
+from config import Settings, get_settings
 from db.models import GroupMembership
+
+
+def get_default_sender_email(settings: Settings | None = None) -> str:
+    if settings is None:
+        settings = get_settings()
+    email: EmailStr = settings.default_email_sender
+    return str(email)
 
 
 def compose_group_approval_email(request: GroupMembership, settings: Settings) -> tuple[str, str]:

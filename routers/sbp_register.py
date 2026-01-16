@@ -77,6 +77,7 @@ def queue_sbp_admin_notifications(
         enqueue_email(
             db_session,
             to_address=email,
+            from_address=settings.default_email_sender,
             subject=subject,
             body_html=body_html,
         )

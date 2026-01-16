@@ -1,12 +1,12 @@
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import field_validator, model_validator
+from pydantic import EmailStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    environment: str = "dev"
+    environment: Literal["dev", "staging", "production"] = "dev"
     auth0_domain: str
     auth0_custom_domain: Optional[str] = None
     auth0_management_id: str
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # AAI Portal URL for admin links in emails
     aai_portal_url: Optional[str] = None
     # Default sender for outbound emails
-    default_email_sender: str = "amanda@biocommons.org.au"
+    default_email_sender: Optional[EmailStr] = None
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW
@@ -49,23 +49,26 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @field_validator("environment", mode="before")
-    def normalize_environment(cls, value: str | None) -> str:
-        if value is None:
-            return "dev"
+    @classmethod
+    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production"]:
         normalized = str(value).strip().lower()
         if normalized in {"dev", "development"}:
             return "dev"
         if normalized in {"staging", "stage"}:
             return "staging"
+        if normalized in {"prod", "production"}:
+            return "production"
         return normalized
 
     @field_validator('auth0_custom_domain', mode="after")
+    @classmethod
     def strip_trailing_slash(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return value.rstrip("/")
 
     @field_validator("aai_portal_url", mode="after")
+    @classmethod
     def strip_aai_portal_trailing_slash(cls, value: str | None) -> str | None:
         if value is None:
             return None
@@ -78,6 +81,7 @@ class Settings(BaseSettings):
         env_to_url = {
             "dev": "https://dev.portal.aai.test.biocommons.org.au",
             "staging": "https://staging.portal.aai.test.biocommons.org.au",
+            "production": "https://production.portal.aai.test.biocommons.org.au",
         }
         default_url = env_to_url.get(self.environment)
         if not default_url:
@@ -85,6 +89,16 @@ class Settings(BaseSettings):
                 "Unknown ENVIRONMENT value and AAI_PORTAL_URL is not set."
             )
         self.aai_portal_url = default_url
+        return self
+
+    @model_validator(mode="after")
+    def set_default_email_sender(self) -> "Settings":
+        """
+        Set based on environment name if not set explicitly
+        """
+        if self.default_email_sender:
+            return self
+        self.default_email_sender = f"{self.environment}@aai.test.biocommons.org.au"
         return self
 
 
