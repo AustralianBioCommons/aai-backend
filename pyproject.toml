@@ -25,6 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "boto3-stubs>=1.42.29",
     "pytest>=8.3.5",
     "pytest-mock>=3.14.0",
     "pytest-asyncio~=1.2",
