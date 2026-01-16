@@ -50,8 +50,6 @@ from tests.db.datagen import (
     PlatformMembershipFactory,
 )
 
-DEFAULT_EMAIL_SENDER = "amanda@biocommons.org.au"
-
 
 @pytest.mark.asyncio
 async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session, persistent_factories):
@@ -642,10 +640,10 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
 
 
 @pytest.mark.asyncio
-async def test_process_email_queue_sends_notifications(test_db_session, mocker):
+async def test_process_email_queue_sends_notifications(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=DEFAULT_EMAIL_SENDER,
+        from_address=mock_settings.default_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -672,7 +670,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mocker):
         "user@example.com",
         "Hello",
         "<p>Test</p>",
-        sender=DEFAULT_EMAIL_SENDER,
+        sender=mock_settings.default_email_sender,
     )
 
 
@@ -708,10 +706,10 @@ async def test_send_email_notification_uses_custom_sender(test_db_session, mocke
 
 
 @pytest.mark.asyncio
-async def test_send_email_notification_retries_transient_errors(test_db_session, mocker):
+async def test_send_email_notification_retries_transient_errors(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=DEFAULT_EMAIL_SENDER,
+        from_address=mock_settings.default_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -743,10 +741,10 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
 
 
 @pytest.mark.asyncio
-async def test_send_email_notification_does_not_retry_non_transient_error(test_db_session, mocker):
+async def test_send_email_notification_does_not_retry_non_transient_error(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=DEFAULT_EMAIL_SENDER,
+        from_address=mock_settings.default_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -780,10 +778,10 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
 
 
 @pytest.mark.asyncio
-async def test_process_email_queue_skips_when_max_attempts_reached(test_db_session, mocker):
+async def test_process_email_queue_skips_when_max_attempts_reached(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=DEFAULT_EMAIL_SENDER,
+        from_address=mock_settings.default_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,
@@ -810,13 +808,13 @@ async def test_process_email_queue_skips_when_max_attempts_reached(test_db_sessi
 
 
 @pytest.mark.asyncio
-async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_session, mocker):
+async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_session, mock_settings, mocker):
     first_attempt = datetime.now(timezone.utc) - timedelta(
         seconds=EMAIL_RETRY_WINDOW_SECONDS + 60
     )
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=DEFAULT_EMAIL_SENDER,
+        from_address=mock_settings.default_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,
