@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # AAI Portal URL for admin links in emails
     aai_portal_url: Optional[str] = None
     # Default sender for outbound emails
-    default_email_sender: str = "amanda@biocommons.org.au"
+    default_email_sender: str = None
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW
@@ -85,6 +85,13 @@ class Settings(BaseSettings):
                 "Unknown ENVIRONMENT value and AAI_PORTAL_URL is not set."
             )
         self.aai_portal_url = default_url
+        return self
+
+    @model_validator(mode="after")
+    def set_default_default_email_sender(self) -> "Settings":
+        if self.default_email_sender:
+            return self
+        self.default_email_sender = f"{self.environment}@aai.test.biocommons.org.au"
         return self
 
 
