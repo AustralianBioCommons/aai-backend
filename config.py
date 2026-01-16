@@ -60,12 +60,14 @@ class Settings(BaseSettings):
         return normalized
 
     @field_validator('auth0_custom_domain', mode="after")
-    def strip_trailing_slash(self, value: str | None) -> str | None:
+    @classmethod
+    def strip_trailing_slash(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return value.rstrip("/")
 
     @field_validator("aai_portal_url", mode="after")
+    @classmethod
     def strip_aai_portal_trailing_slash(self, value: str | None) -> str | None:
         if value is None:
             return None
