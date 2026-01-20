@@ -380,6 +380,18 @@ class Auth0Client:
         resp.raise_for_status()
         return EmailVerificationResponse(**resp.json())
 
+    def trigger_password_change(self, user_email: str, client_id: str, settings: Settings) -> bool:
+        # NOTE: Authentication API, not management API
+        url = f"https://{self.domain}/dbconnections/change_password"
+        resp = self._client.post(
+            url,
+            json={"email": user_email,
+                  "client_id": client_id,
+                  "connection": settings.auth0_db_connection,}
+        )
+        resp.raise_for_status()
+        return True
+
 
 def get_auth0_client(settings: Settings = Depends(get_settings),
                      management_token: str = Depends(get_management_token)):
