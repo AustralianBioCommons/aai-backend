@@ -19,7 +19,7 @@ from jose import jwk, jwt
 from jose.backends.cryptography_backend import CryptographyRSAKey
 
 from auth.user_permissions import user_is_general_admin
-from auth.validator import get_rsa_key, verify_jwt
+from auth.validator import get_rsa_key, verify_action_token, verify_jwt
 from config import Settings
 from db.models import BiocommonsUser
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
@@ -383,3 +383,75 @@ def test_user_is_general_admin_raises_when_db_user_missing(
             db_user=None,
             db_session=test_db_session,
         )
+
+
+def test_verify_action_token_success(mock_settings: Settings):
+    """
+    Test that verify_action_token successfully decodes a valid HS256 token.
+    """
+    secret = "test-management-secret"
+    mock_settings.auth0_management_secret = secret
+    payload = {
+        "sub": "auth0|123",
+        "exp": int((datetime.now() + timedelta(hours=1)).timestamp()),
+        "iat": int(datetime.now().timestamp())
+    }
+    token = jwt.encode(payload, secret, algorithm="HS256")
+
+    decoded = verify_action_token(token, mock_settings)
+    assert decoded["sub"] == "auth0|123"
+
+
+def test_verify_action_token_expired(mock_settings: Settings):
+    """
+    Test that verify_action_token raises 401 when the token is expired.
+    """
+    secret = "test-management-secret"
+    mock_settings.auth0_management_secret = secret
+    payload = {
+        "sub": "auth0|123",
+        "exp": int((datetime.now() - timedelta(hours=1)).timestamp()),
+        "iat": int((datetime.now() - timedelta(hours=2)).timestamp())
+    }
+    token = jwt.encode(payload, secret, algorithm="HS256")
+
+    with pytest.raises(HTTPException) as excinfo:
+        verify_action_token(token, mock_settings)
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "session_token expired"
+
+
+def test_verify_action_token_invalid_signature(mock_settings: Settings):
+    """
+    Test that verify_action_token raises 401 when the signature is invalid.
+    """
+    mock_settings.auth0_management_secret = "correct-secret"
+    payload = {
+        "sub": "auth0|123",
+        "exp": int((datetime.now() + timedelta(hours=1)).timestamp())
+    }
+    # Sign with a different secret
+    token = jwt.encode(payload, "wrong-secret", algorithm="HS256")
+
+    with pytest.raises(HTTPException) as excinfo:
+        verify_action_token(token, mock_settings)
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "invalid session_token"
+
+
+def test_verify_action_token_missing_exp(mock_settings: Settings):
+    """
+    Test that verify_action_token raises 401 when the exp claim is missing.
+    """
+    secret = "test-management-secret"
+    mock_settings.auth0_management_secret = secret
+    payload = {
+        "sub": "auth0|123"
+        # exp missing
+    }
+    token = jwt.encode(payload, secret, algorithm="HS256")
+
+    with pytest.raises(HTTPException) as excinfo:
+        verify_action_token(token, mock_settings)
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "invalid session_token"
