@@ -183,6 +183,7 @@ class BiocommonsAppMetadata(BaseModel):
     """
     registration_from: Optional[AppId] = None
     old_emails: Optional[list[OldEmailRecord]] = None
+    user_needs_migration: Optional[bool] = None
 
     model_config = {
         "extra": "ignore"
