@@ -9,7 +9,12 @@ from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
 
 from auth.management import get_management_token
 from config import Settings, get_settings
-from schemas.biocommons import Auth0UserData, BiocommonsPassword, BiocommonsRegisterData
+from schemas.biocommons import (
+    Auth0UserData,
+    BiocommonsAppMetadata,
+    BiocommonsPassword,
+    BiocommonsRegisterData,
+)
 
 
 class RoleData(BaseModel):
@@ -99,9 +104,8 @@ class UpdateUserData(BaseModel):
     Only include the fields you want to update.
     """
     _connection_required_fields = ["email", "email_verified", "password", "username"]
-    # NOTE: not including user_metadata or app_metadata here,
-    # they work differently in the update so not including
-    # them unless necessary.
+    # NOTE: app_metadata will be merged instead of replaced when updating
+    app_metadata: Optional[BiocommonsAppMetadata] = None
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None
