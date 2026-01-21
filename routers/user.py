@@ -739,6 +739,10 @@ def finish_migrate_password(state: str,
                             session_token: str,
                             settings: Annotated[Settings, Depends(get_settings)],
                             auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],):
+    """
+    Complete the migration process. This should be called by Auth0 when a user
+    starts the actual password change, and clears their user_needs_migration flag.
+    """
     # Will raise if token is invalid
     payload = verify_action_token(session_token, settings=settings)
     try:
