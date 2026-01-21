@@ -724,7 +724,7 @@ def migrate_password(data: MigratePasswordRequest,
     """
     # Will raise if token is invalid
     payload = verify_action_token(data.session_token, settings=settings)
-    email = payload.email
+    email = payload["email"]
     logger.info(f"Initiating password change for {email}")
     auth0_client.trigger_password_change(user_email=email, client_id=data.client_id, settings=settings)
     return {"message": "Password change initiated successfully"}
@@ -737,7 +737,7 @@ def finish_migrate_password(state: str,
                             auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],):
     # Will raise if token is invalid
     payload = verify_action_token(session_token, settings=settings)
-    user_id = payload.sub
+    user_id = payload["sub"]
     # NOTE: due to the way the update user endpoint works (app_metadata is merged, not replaced),
     #  this should not overwrite existing app_metadata
     updated_metadata = BiocommonsAppMetadata(user_needs_migration=False)
