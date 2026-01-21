@@ -709,6 +709,9 @@ async def change_password(
 
 
 class MigratePasswordRequest(BaseModel):
+    """
+    POST data when triggering password change as part of legacy user migration.
+    """
     session_token: str
     client_id: str
 
