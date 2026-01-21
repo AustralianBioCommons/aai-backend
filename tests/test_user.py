@@ -1,5 +1,6 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
+from http import HTTPStatus
 from unittest.mock import AsyncMock
 
 import pytest
@@ -45,6 +46,12 @@ def mock_auth_token(mocker):
     mocker.patch("auth.validator.verify_jwt", return_value=token)
     mocker.patch("auth.management.get_management_token", return_value="mock_token")
     return token
+
+
+@pytest.fixture
+def mock_verify_action_token(mocker):
+    mocked = mocker.patch("routers.user.verify_action_token")
+    return mocked
 
 
 @pytest.fixture
@@ -872,3 +879,131 @@ def test_change_password_disallows_external_identity(test_client, mocker, persis
 
     assert response.status_code == 400
     assert "not supported" in response.json()["message"]
+
+
+def test_migrate_password_success(
+        test_client,
+        mock_verify_action_token,
+        mock_auth0_client,
+        mock_settings
+):
+    """
+    Test that migrate_password successfully triggers password change when token is valid.
+    """
+    # Setup mocks
+    mock_verify_action_token.return_value = {"email": "user@example.com"}
+
+    payload = {
+        "session_token": "valid_token",
+        "client_id": "test_client_id"
+    }
+
+    response = test_client.post("/me/migration/update-password", json=payload)
+
+    # Assertions
+    assert response.status_code == 200
+    assert response.json() == {"message": "Password change initiated successfully"}
+
+    mock_verify_action_token.assert_called_once_with("valid_token", settings=mock_settings)
+    mock_auth0_client.trigger_password_change.assert_called_once_with(
+        user_email="user@example.com",
+        client_id="test_client_id",
+        settings=mock_settings
+    )
+
+
+def test_migrate_password_invalid_token(
+        test_client,
+        mock_verify_action_token,
+        mock_auth0_client
+):
+    """
+    Test that migrate_password fails when verify_action_token raises an exception.
+    """
+    # Setup mock to raise 401 (mimicking verify_action_token behavior)
+    mock_verify_action_token.side_effect = HTTPException(status_code=401, detail="invalid session_token")
+
+    payload = {
+        "session_token": "invalid_token",
+        "client_id": "test_client_id"
+    }
+
+    response = test_client.post("/me/migration/update-password", json=payload)
+
+    # Assertions
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid session_token"
+    mock_auth0_client.trigger_password_change.assert_not_called()
+
+
+def test_migrate_password_auth0_error(
+        test_client,
+        mock_verify_action_token,
+        mock_auth0_client,
+):
+    """
+    Test that errors from Auth0 client are propagated (if not handled explicitly in endpoint).
+    """
+    mock_verify_action_token.return_value = {"email": "user@example.com"}
+    mock_auth0_client.trigger_password_change.side_effect = Exception("Auth0 connection error")
+
+    payload = {
+        "session_token": "valid_token",
+        "client_id": "test_client_id"
+    }
+
+    with pytest.raises(Exception) as excinfo:
+        test_client.post("/me/migration/update-password", json=payload)
+
+    assert str(excinfo.value) == "Auth0 connection error"
+
+
+def test_finish_migrate_password_success(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mock_settings
+):
+    """
+    Test that finish_migrate_password updates user metadata and redirects correctly.
+    """
+    user_id = "auth0|migrate-me"
+    state = "some_auth0_state"
+    mock_verify_action_token.return_value = {"sub": user_id}
+    mock_settings.auth0_custom_domain = "https://auth.example.com"
+
+    params = {
+        "state": state,
+        "session_token": "valid_finish_token"
+    }
+
+    # Use follow_redirects=False to inspect the RedirectResponse
+    response = test_client.get("/me/migration/password-changed", params=params, follow_redirects=False)
+    assert response.status_code == HTTPStatus.TEMPORARY_REDIRECT
+    assert response.headers["location"] == f"https://auth.example.com/continue?state={state}"
+    # Verify Auth0 update call
+    mock_auth0_client.update_user.assert_called_once()
+    call_args = mock_auth0_client.update_user.call_args
+    assert call_args.kwargs["user_id"] == user_id
+    assert call_args.kwargs["update_data"].app_metadata.user_needs_migration is False
+
+
+def test_finish_migrate_password_invalid_token(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client
+):
+    """
+    Test that finish_migrate_password fails when the token is invalid.
+    """
+    mock_verify_action_token.side_effect = HTTPException(status_code=401, detail="invalid session_token")
+
+    params = {
+        "state": "state",
+        "session_token": "expired_token"
+    }
+
+    response = test_client.get("/me/migration/password-changed", params=params)
+
+    assert response.status_code == 401
+    mock_auth0_client.update_user.assert_not_called()
