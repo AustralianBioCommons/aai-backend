@@ -387,7 +387,8 @@ class Auth0Client:
     def trigger_password_change(self, user_email: str, client_id: str, settings: Settings) -> bool:
         # NOTE: Authentication API, not management API
         url = f"https://{self.domain}/dbconnections/change_password"
-        resp = self._client.post(
+        # Don't use _client here, since it's not a management API endpoint
+        resp = httpx.post(
             url,
             json={"email": user_email,
                   "client_id": client_id,
