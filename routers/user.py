@@ -724,8 +724,12 @@ def migrate_password(data: MigratePasswordRequest,
     """
     # Will raise if token is invalid
     payload = verify_action_token(data.session_token, settings=settings)
-    email = payload["email"]
-    logger.info(f"Initiating password change for {email}")
+    try:
+        user_id = payload["sub"]
+        email = payload["email"]
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid session token: {e}")
+    logger.info(f"Initiating password change for user {user_id}")
     auth0_client.trigger_password_change(user_email=email, client_id=data.client_id, settings=settings)
     return {"message": "Password change initiated successfully"}
 
@@ -737,11 +741,14 @@ def finish_migrate_password(state: str,
                             auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],):
     # Will raise if token is invalid
     payload = verify_action_token(session_token, settings=settings)
-    user_id = payload["sub"]
+    try:
+        user_id = payload["sub"]
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid session token: {e}")
     # NOTE: due to the way the update user endpoint works (app_metadata is merged, not replaced),
     #  this should not overwrite existing app_metadata
     updated_metadata = BiocommonsAppMetadata(user_needs_migration=False)
-    logger.info("Updating app_metadata for user")
+    logger.info(f"Updating app_metadata for user: {user_id}")
     auth0_client.update_user(user_id=user_id, update_data=UpdateUserData(app_metadata=updated_metadata))
     logger.info("Returning to Auth0")
     return RedirectResponse(url=f"{settings.auth0_custom_domain}/continue?state={state}")

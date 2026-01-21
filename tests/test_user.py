@@ -958,6 +958,28 @@ def test_migrate_password_auth0_error(
     assert str(excinfo.value) == "Auth0 connection error"
 
 
+def test_migrate_password_missing_claims(
+        test_client,
+        mock_verify_action_token,
+        mock_auth0_client
+):
+    """
+    Test that migrate_password raises 400 when sub or email is missing in the payload.
+    """
+    # Payload missing 'email'
+    mock_verify_action_token.return_value = {"sub": "auth0|123"}
+
+    payload = {
+        "session_token": "token_missing_email",
+        "client_id": "test_client_id"
+    }
+
+    response = test_client.post("/me/migration/update-password", json=payload)
+    assert response.status_code == 400
+    assert "Invalid session token" in response.json()["detail"]
+    mock_auth0_client.trigger_password_change.assert_not_called()
+
+
 def test_finish_migrate_password_success(
     test_client,
     mock_verify_action_token,
@@ -1006,4 +1028,26 @@ def test_finish_migrate_password_invalid_token(
     response = test_client.get("/me/migration/password-changed", params=params)
 
     assert response.status_code == 401
+    mock_auth0_client.update_user.assert_not_called()
+
+
+def test_finish_migrate_password_missing_sub(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client
+):
+    """
+    Test that finish_migrate_password raises 400 when sub is missing in the payload.
+    """
+    # Payload missing 'sub'
+    mock_verify_action_token.return_value = {"email": "user@example.com"}
+
+    params = {
+        "state": "some_state",
+        "session_token": "token_missing_sub"
+    }
+
+    response = test_client.get("/me/migration/password-changed", params=params)
+    assert response.status_code == 400
+    assert "Invalid session token" in response.json()["detail"]
     mock_auth0_client.update_user.assert_not_called()
