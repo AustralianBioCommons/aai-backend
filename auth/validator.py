@@ -3,7 +3,7 @@ from cachetools import TTLCache
 from fastapi import HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwk, jwt
-from jose.exceptions import JWTError
+from jose.exceptions import ExpiredSignatureError, JWTError
 
 from config import Settings
 from schemas.tokens import AccessTokenPayload
@@ -74,3 +74,26 @@ def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True) -
         return get_rsa_key(token, settings, retry_on_failure=False)
 
     return None
+
+
+def verify_action_token(token: str, settings: Settings) -> dict:
+    """
+    Verify a JWT passed by an Auth0 action
+    """
+    # Use Auth0 client secret as decode key
+    secret = settings.auth0_management_secret
+    try:
+        payload = jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            options={
+                "require_exp": True,
+                "verify_exp": True,
+            }
+        )
+    except ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="session_token expired")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="invalid session_token")
+    return payload
