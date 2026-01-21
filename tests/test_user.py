@@ -617,26 +617,8 @@ def test_update_username_auth0_error(test_client, test_db_session, mocker, persi
     assert user.username == "old_username"
 
 
-def test_update_full_name(test_client, mocker, persistent_factories):
-    """Test updating user's full name."""
-    user = BiocommonsUserFactory.create_sync()
-    mock_data = Auth0UserDataFactory.build(sub=user.id, name="New Name")
-    mocker.patch("routers.user.Auth0Client.update_user", return_value=mock_data)
-    _act_as_user(mocker, user)
-
-    response = test_client.post(
-        "/me/profile/full-name/update",
-        headers={"Authorization": "Bearer valid_token"},
-        json={"full_name": "New Name"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "New Name"
-
-
-def test_update_first_and_last_name(test_client, mocker, persistent_factories):
-    """Test updating user's first and last name separately."""
+def test_update_name(test_client, mocker, persistent_factories):
+    """Test updating user's first and last name."""
     user = BiocommonsUserFactory.create_sync()
     mock_data = Auth0UserDataFactory.build(
         sub=user.id,
@@ -648,7 +630,7 @@ def test_update_first_and_last_name(test_client, mocker, persistent_factories):
     _act_as_user(mocker, user)
 
     response = test_client.post(
-        "/me/profile/full-name/update",
+        "/me/profile/name/update",
         headers={"Authorization": "Bearer valid_token"},
         json={"first_name": "Jane", "last_name": "Smith"},
     )
@@ -666,19 +648,19 @@ def test_update_first_and_last_name(test_client, mocker, persistent_factories):
     assert update_data.name == "Jane Smith"
 
 
-def test_update_name_requires_at_least_one_field(test_client, mocker, persistent_factories):
-    """Test that name update requires either full_name OR both first_name and last_name."""
+def test_update_name_requires_both_fields(test_client, mocker, persistent_factories):
+    """Test that name update requires both first_name and last_name."""
     user = BiocommonsUserFactory.create_sync()
     _act_as_user(mocker, user)
 
     response = test_client.post(
-        "/me/profile/full-name/update",
+        "/me/profile/name/update",
         headers={"Authorization": "Bearer valid_token"},
         json={},
     )
 
-    assert response.status_code == 400
-    assert "either full name or both first name and last name must be provided" in response.json()["detail"].lower()
+    assert response.status_code == 422
+    # FastAPI will return validation error for missing required fields
 
 
 def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent_factories, mock_email_service):

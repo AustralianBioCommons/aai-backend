@@ -3,7 +3,7 @@ import hmac
 import http
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Dict, Optional
+from typing import Annotated, Any, Dict
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
@@ -37,7 +37,6 @@ from schemas.biocommons import (
     Auth0UserData,
     BiocommonsEmail,
     BiocommonsFirstName,
-    BiocommonsFullName,
     BiocommonsLastName,
     BiocommonsUsername,
     PasswordChangeRequest,
@@ -461,42 +460,38 @@ async def update_username(
     return resp
 
 
-class FullNameUpdateRequest(BaseModel):
-    """Request model for updating user's full name."""
-    full_name: Optional[BiocommonsFullName] = None
-    first_name: Optional[BiocommonsFirstName] = None
-    last_name: Optional[BiocommonsLastName] = None
+class NameUpdateRequest(BaseModel):
+    """Request model for updating user's name."""
+    first_name: BiocommonsFirstName
+    last_name: BiocommonsLastName
 
 
-@router.post("/profile/full-name/update",
+@router.post("/profile/name/update",
              response_model=Auth0UserData)
-async def update_full_name(
-    payload: Annotated[FullNameUpdateRequest, Body()],
+async def update_name(
+    payload: Annotated[NameUpdateRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
 ):
-    """Update the full name and/or first/last name for the current user."""
-    # Require either full_name OR both first_name AND last_name
-    has_full_name = payload.full_name is not None
-    has_first_name = payload.first_name is not None
-    has_last_name = payload.last_name is not None
+    """Update the first name and last name for the current user."""
+    update_data = UpdateUserData()
+    update_data.given_name = payload.first_name
+    update_data.family_name = payload.last_name
+    update_data.name = f"{payload.first_name} {payload.last_name}"
 
-    if not has_full_name and not (has_first_name and has_last_name):
+    try:
+        return auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
+    except HTTPStatusError as e:
+        logger.error(f"Error updating name: {e}")
+        if e.response.status_code in (401, 403):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update your name. Please try logging in again."
+            )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Either full name or both first name and last name must be provided."
+            detail="Failed to update name."
         )
-
-    update_data = UpdateUserData()
-
-    if payload.first_name and payload.last_name:
-        update_data.given_name = payload.first_name
-        update_data.family_name = payload.last_name
-        update_data.name = f"{payload.first_name} {payload.last_name}"
-    else:
-        update_data.name = payload.full_name
-
-    return auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
 
 
 @router.post("/profile/email/update")
