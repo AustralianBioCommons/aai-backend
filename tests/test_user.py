@@ -891,7 +891,7 @@ def test_migrate_password_success(
     Test that migrate_password successfully triggers password change when token is valid.
     """
     # Setup mocks
-    mock_verify_action_token.return_value = {"email": "user@example.com"}
+    mock_verify_action_token.return_value = {"email": "user@example.com", "sub": "auth0|123"}
 
     payload = {
         "session_token": "valid_token",
@@ -944,7 +944,7 @@ def test_migrate_password_auth0_error(
     """
     Test that errors from Auth0 client are propagated (if not handled explicitly in endpoint).
     """
-    mock_verify_action_token.return_value = {"email": "user@example.com"}
+    mock_verify_action_token.return_value = {"email": "user@example.com", "sub": "auth0|123"}
     mock_auth0_client.trigger_password_change.side_effect = Exception("Auth0 connection error")
 
     payload = {
