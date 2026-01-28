@@ -2,7 +2,7 @@ from typing import Annotated
 
 import httpx
 from fastapi.params import Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from auth.validator import oauth2_scheme
 from config import Settings, get_settings
@@ -16,6 +16,9 @@ class UserInfo(BaseModel):
     email_verified: bool
     given_name: str | None = None
     family_name: str | None = None
+    logins_count: int | None = Field(None, alias="https://biocommons.org.au/logins_count")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 async def get_auth0_user_info(
