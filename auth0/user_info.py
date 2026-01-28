@@ -18,7 +18,7 @@ class UserInfo(BaseModel):
     family_name: str | None = None
     logins_count: int | None = Field(None, alias="https://biocommons.org.au/logins_count")
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
 async def get_auth0_user_info(
