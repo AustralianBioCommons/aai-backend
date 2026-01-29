@@ -23,8 +23,8 @@ class AccessTokenPayload(BaseModel):
     azp: Optional[str] = Field(None, description="Authorized party")
     permissions: list[str] = Field(description="Permissions granted to the user")
 
-    # Set validate_by_name and validate_by_alias so we can specify biocommons_roles as an argument
-    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
+    # Set populate_by_name so we can specify biocommons_roles as an argument
+    model_config = ConfigDict(populate_by_name=True)
 
     def has_admin_role(self, settings: Settings) -> bool:
         for role in self.biocommons_roles:

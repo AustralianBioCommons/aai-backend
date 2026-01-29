@@ -16,7 +16,7 @@ class UserInfo(BaseModel):
     email_verified: bool
     given_name: str | None = None
     family_name: str | None = None
-    logins_count: int | None = Field(None, alias="https://biocommons.org.au/logins_count")
+    show_welcome_message: bool | None = Field(None, alias="https://biocommons.org.au/show_migration_welcome")
 
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
