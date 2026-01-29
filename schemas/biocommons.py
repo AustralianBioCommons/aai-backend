@@ -398,6 +398,7 @@ class UserProfileData(BaseModel):
     picture: str
     given_name: str | None = None
     family_name: str | None = None
+    show_welcome_message: bool | None = None
     platform_memberships: list[UserProfilePlatformData]
     group_memberships: list[UserProfileGroupData]
 
@@ -424,6 +425,7 @@ class UserProfileData(BaseModel):
             picture=auth0_user_info.picture,
             given_name=auth0_user_info.given_name,
             family_name=auth0_user_info.family_name,
+            show_welcome_message=auth0_user_info.show_welcome_message,
             platform_memberships=platform_memberships,
             group_memberships=group_memberships,
         )
