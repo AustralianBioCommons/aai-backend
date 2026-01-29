@@ -324,7 +324,7 @@ class Auth0UserData(BaseModel):
     app_metadata: Optional[BiocommonsAppMetadata] = None
     last_ip: Optional[str] = None
     last_login: Optional[datetime] = None
-    show_welcome_message: Optional[bool] = None
+    logins_count: Optional[int] = None
 
 
 class Auth0UserDataWithMemberships(Auth0UserData):
