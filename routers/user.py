@@ -488,7 +488,7 @@ async def update_name(
 
     if first_initial and last_initial:
         initials = f"{first_initial}{last_initial}"
-        update_data.picture = f"https://cdn.auth0.com/avatars/{initials}.png"
+        update_data.picture = f"https://ui-avatars.com/api/?name={initials}&background=random"
 
     try:
         return auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
