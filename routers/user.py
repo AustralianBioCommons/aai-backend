@@ -482,6 +482,14 @@ async def update_name(
     update_data.family_name = payload.last_name
     update_data.name = f"{payload.first_name} {payload.last_name}"
 
+    # Update picture with Auth0 avatar using initials (ASCII only)
+    first_initial = next((c.lower() for c in payload.first_name if c.isascii() and c.isalpha()), None)
+    last_initial = next((c.lower() for c in payload.last_name if c.isascii() and c.isalpha()), None)
+
+    if first_initial and last_initial:
+        initials = f"{first_initial}{last_initial}"
+        update_data.picture = f"https://ui-avatars.com/api/?name={initials}&background=random"
+
     try:
         return auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
     except HTTPStatusError as e:
