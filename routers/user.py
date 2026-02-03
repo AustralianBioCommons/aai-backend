@@ -34,7 +34,7 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import GROUP_NAMES, ApprovalStatusEnum, GroupEnum
+from db.types import ApprovalStatusEnum
 from schemas.biocommons import (
     Auth0UserData,
     BiocommonsAppMetadata,
@@ -320,11 +320,10 @@ def request_group_access(
     if existing_membership is not None:
         if existing_membership.approval_status == ApprovalStatusEnum.REVOKED:
             group_name = group_id
-            try:
-                group_enum = GroupEnum(group_id)
-                group_name = GROUP_NAMES.get(group_enum, (group_id, ""))[0]
-            except ValueError:
-                pass
+            if existing_membership.group is None:
+                db_session.refresh(existing_membership, attribute_names=["group"])
+            if existing_membership.group is not None:
+                group_name = existing_membership.group.name
             raise HTTPException(
                 status_code=http.HTTPStatus.CONFLICT,
                 detail=(

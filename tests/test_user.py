@@ -16,7 +16,6 @@ from db.models import (
     GroupMembershipHistory,
 )
 from db.types import (
-    GROUP_NAMES,
     ApprovalStatusEnum,
     EmailStatusEnum,
     GroupEnum,
@@ -480,7 +479,7 @@ def test_request_group_membership_revoked_returns_conflict(
         json={"group_id": group_id},
     )
 
-    expected_group_name = GROUP_NAMES[GroupEnum.TSI][0]
+    expected_group_name = group.name
     assert resp.status_code == 409
     assert resp.json()["detail"] == (
         "Your account has been revoked access to "
