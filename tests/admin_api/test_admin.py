@@ -1427,6 +1427,55 @@ def test_resend_verification_email_unauthorized(test_client, as_admin_user, test
     assert resp.status_code == 403
 
 
+def test_admin_update_user_email(
+    test_client_with_email,
+    as_admin_user,
+    test_db_session,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    test_db_session.commit()
+
+    old_email = user.email
+    new_email = "updated.user@example.com"
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=new_email,
+        email_verified=False,
+    )
+    mock_auth0_client.update_user.return_value = auth0_user
+
+    resp = test_client_with_email.post(
+        f"/admin/users/{user.id}/email/update",
+        json={"email": new_email},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"message": "Email updated. Verification email sent."}
+
+    test_db_session.refresh(user)
+    assert user.email == new_email
+    assert user.email_verified is False
+
+    mock_auth0_client.update_user.assert_called_once()
+    _, update_kwargs = mock_auth0_client.update_user.call_args
+    update_data = update_kwargs["update_data"]
+    assert isinstance(update_data, UpdateUserData)
+    assert update_data.email == new_email
+    assert update_data.email_verified is False
+
+    mock_auth0_client.resend_verification_email.assert_called_once_with(user_id=user.id)
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == old_email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
+
+
 def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group, galaxy_platform):
     user = Auth0UserDataFactory.build()
     db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])

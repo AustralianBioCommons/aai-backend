@@ -22,8 +22,11 @@ from auth.user_permissions import (
     require_platform_admin_permission_for_user,
     user_is_general_admin,
 )
-from auth0.client import Auth0Client, get_auth0_client
-from biocommons.emails import compose_group_membership_approved_email
+from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
+from biocommons.emails import (
+    compose_email_change_notification,
+    compose_group_membership_approved_email,
+)
 from config import Settings, get_settings
 from db.models import (
     Auth0Role,
@@ -42,7 +45,12 @@ from db.types import (
     PlatformMembershipData,
 )
 from db.utils import refresh_unverified_users
-from schemas.biocommons import Auth0UserDataWithMemberships, ServiceIdParam, UserIdParam
+from schemas.biocommons import (
+    Auth0UserDataWithMemberships,
+    BiocommonsEmail,
+    ServiceIdParam,
+    UserIdParam,
+)
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
 
@@ -766,6 +774,84 @@ def get_user_details(user_id: Annotated[str, UserIdParam],
         db_data=db_user,
     )
     return details
+
+
+class AdminEmailUpdateRequest(BaseModel):
+    """
+    POST data for admin user email update.
+    """
+    email: BiocommonsEmail = Field(description="New email address for the user")
+
+
+@router.post(
+    "/users/{user_id}/email/update",
+    dependencies=[Depends(require_admin_permission_for_user)],
+)
+def update_user_email(
+    user_id: Annotated[str, UserIdParam],
+    payload: AdminEmailUpdateRequest,
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """
+    Update a user's email address, mark it unverified, and send verification and notification emails.
+    """
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
+    new_email = payload.email.strip()
+    if new_email.lower() == db_user.email.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email address is already set to that value.",
+        )
+
+    conflicting_user = db_session.exec(
+        select(BiocommonsUser).where(
+            func.lower(BiocommonsUser.email) == new_email.lower(),
+            BiocommonsUser.id != user_id,
+        )
+    ).one_or_none()
+    if conflicting_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email is already in use by another user.",
+        )
+
+    old_email = db_user.email
+    update_data = UpdateUserData(
+        email=new_email,
+        email_verified=False,
+        connection=settings.auth0_db_connection,
+    )
+    try:
+        auth0_user = client.update_user(user_id=user_id, update_data=update_data)
+    except ValueError as exc:
+        logger.error("Failed to update user email in Auth0: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to update user email.",
+        ) from exc
+
+    db_user.email = auth0_user.email
+    db_user.email_verified = auth0_user.email_verified
+    db_session.add(db_user)
+
+    subject, body_html = compose_email_change_notification(
+        old_email=old_email,
+        new_email=auth0_user.email,
+        settings=settings,
+    )
+    enqueue_email(
+        session=db_session,
+        to_address=old_email,
+        subject=subject,
+        body_html=body_html,
+        from_address=settings.default_email_sender,
+    )
+    db_session.commit()
+
+    client.resend_verification_email(user_id=user_id)
+    return {"message": "Email updated. Verification email sent."}
 
 
 class AdminDeleteData(BaseModel):

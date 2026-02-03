@@ -39,3 +39,24 @@ def compose_group_membership_approved_email(
         <p>If you have any questions, please reply to this email.</p>
     """
     return subject, body_html
+
+
+def compose_email_change_notification(
+    old_email: str,
+    new_email: str,
+    settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their email address was updated.
+    """
+    portal_url = settings.aai_portal_url.rstrip("/")
+    subject = "Your Biocommons Access email address was updated"
+    body_html = f"""
+        <p>Hello,</p>
+        <p>The email address on your Biocommons Access account was updated.</p>
+        <p><strong>Old email:</strong> {old_email}<br/>
+        <strong>New email:</strong> {new_email}</p>
+        <p>If you did not expect this change, please visit the
+        <a href="{portal_url}">AAI Portal</a> or contact support.</p>
+    """
+    return subject, body_html
