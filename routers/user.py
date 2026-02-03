@@ -34,7 +34,7 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import ApprovalStatusEnum
+from db.types import GROUP_NAMES, ApprovalStatusEnum, GroupEnum
 from schemas.biocommons import (
     Auth0UserData,
     BiocommonsAppMetadata,
@@ -318,10 +318,24 @@ def request_group_access(
     )
     membership: GroupMembership
     if existing_membership is not None:
+        if existing_membership.approval_status == ApprovalStatusEnum.REVOKED:
+            group_name = group_id
+            try:
+                group_enum = GroupEnum(group_id)
+                group_name = GROUP_NAMES.get(group_enum, (group_id, ""))[0]
+            except ValueError:
+                pass
+            raise HTTPException(
+                status_code=http.HTTPStatus.CONFLICT,
+                detail=(
+                    "Your account has been revoked access to "
+                    f"{group_name}, please contact support to access."
+                ),
+            )
         if existing_membership.approval_status != ApprovalStatusEnum.REJECTED:
             raise HTTPException(
                 status_code=http.HTTPStatus.CONFLICT,
-                detail=f"User {user.access_token.sub} already has a membership for {group_id}"
+                detail=f"User {user.access_token.sub} already has a membership for {group_id}",
             )
         membership = existing_membership
         membership.approval_status = ApprovalStatusEnum.PENDING
