@@ -776,6 +776,13 @@ def get_user_details(user_id: Annotated[str, UserIdParam],
     return details
 
 
+class AdminEmailUpdateRequest(BaseModel):
+    """
+    POST data for admin user email update.
+    """
+    email: BiocommonsEmail = Field(description="New email address for the user")
+
+
 @router.post(
     "/users/{user_id}/email/update",
     dependencies=[Depends(require_admin_permission_for_user)],
@@ -852,13 +859,6 @@ class AdminDeleteData(BaseModel):
     POST data for user deletion endpoint. Reason for deletion is optional.
     """
     reason: str | None = None
-
-
-class AdminEmailUpdateRequest(BaseModel):
-    """
-    POST data for admin user email update.
-    """
-    email: BiocommonsEmail = Field(description="New email address for the user")
 
 
 @router.post("/users/{user_id}/delete",

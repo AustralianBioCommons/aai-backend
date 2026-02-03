@@ -50,10 +50,10 @@ def compose_email_change_notification(
     Notify a user that their email address was updated.
     """
     portal_url = settings.aai_portal_url.rstrip("/")
-    subject = "Your AAI email address was updated"
+    subject = "Your Biocommons Access email address was updated"
     body_html = f"""
         <p>Hello,</p>
-        <p>The email address on your AAI account was updated.</p>
+        <p>The email address on your Biocommons Access account was updated.</p>
         <p><strong>Old email:</strong> {old_email}<br/>
         <strong>New email:</strong> {new_email}</p>
         <p>If you did not expect this change, please visit the
