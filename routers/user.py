@@ -318,10 +318,23 @@ def request_group_access(
     )
     membership: GroupMembership
     if existing_membership is not None:
+        if existing_membership.approval_status == ApprovalStatusEnum.REVOKED:
+            group_name = group_id
+            if existing_membership.group is None:
+                db_session.refresh(existing_membership, attribute_names=["group"])
+            if existing_membership.group is not None:
+                group_name = existing_membership.group.name
+            raise HTTPException(
+                status_code=http.HTTPStatus.CONFLICT,
+                detail=(
+                    "Your account has been revoked access to "
+                    f"{group_name}, please contact support to access."
+                ),
+            )
         if existing_membership.approval_status != ApprovalStatusEnum.REJECTED:
             raise HTTPException(
                 status_code=http.HTTPStatus.CONFLICT,
-                detail=f"User {user.access_token.sub} already has a membership for {group_id}"
+                detail=f"User {user.access_token.sub} already has a membership for {group_id}",
             )
         membership = existing_membership
         membership.approval_status = ApprovalStatusEnum.PENDING

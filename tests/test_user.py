@@ -15,7 +15,12 @@ from db.models import (
     GroupMembership,
     GroupMembershipHistory,
 )
-from db.types import ApprovalStatusEnum, EmailStatusEnum, PlatformEnum
+from db.types import (
+    ApprovalStatusEnum,
+    EmailStatusEnum,
+    GroupEnum,
+    PlatformEnum,
+)
 from routers.user import get_user_data, update_user_metadata
 from schemas.biocommons import Auth0Identity, BiocommonsAppMetadata
 from tests.datagen import (
@@ -450,6 +455,36 @@ def test_request_group_membership_after_rejection(
     assert len(queued_emails) == 1
     assert queued_emails[0].to_address == admin_info.email
     assert queued_emails[0].status == EmailStatusEnum.PENDING
+
+
+def test_request_group_membership_revoked_returns_conflict(
+    test_client_with_email,
+    normal_user,
+    as_normal_user,
+    test_db_session,
+    persistent_factories,
+):
+    group_id = GroupEnum.TSI.value
+    group = BiocommonsGroupFactory.create_sync(group_id=group_id)
+    user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+    GroupMembershipFactory.create_sync(
+        group=group,
+        user=user,
+        approval_status=ApprovalStatusEnum.REVOKED.value,
+    )
+    test_db_session.commit()
+
+    resp = test_client_with_email.post(
+        "/me/groups/request",
+        json={"group_id": group_id},
+    )
+
+    expected_group_name = group.name
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == (
+        "Your account has been revoked access to "
+        f"{expected_group_name}, please contact support to access."
+    )
 
 
 def test_get_groups(test_client, test_db_session, mocker, persistent_factories):
