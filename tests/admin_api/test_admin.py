@@ -1476,6 +1476,176 @@ def test_admin_update_user_email(
     assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
+def test_admin_update_user_username(
+    test_client_with_email,
+    as_admin_user,
+    test_db_session,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    """Test successful username update by admin."""
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    test_db_session.commit()
+
+    old_username = user.username
+    new_username = "newusername"
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        username=new_username,
+    )
+    mock_auth0_client.update_user.return_value = auth0_user
+
+    resp = test_client_with_email.post(
+        f"/admin/users/{user.id}/username/update",
+        json={"username": new_username},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"message": "User's username updated successfully."}
+
+    test_db_session.refresh(user)
+    assert user.username == new_username
+
+    mock_auth0_client.update_user.assert_called_once()
+    _, update_kwargs = mock_auth0_client.update_user.call_args
+    update_data = update_kwargs["update_data"]
+    assert isinstance(update_data, UpdateUserData)
+    assert update_data.username == new_username
+    assert update_data.connection is not None
+
+    # Verify notification email was queued
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
+    assert old_username in queued_emails[0].body_html
+    assert new_username in queued_emails[0].body_html
+
+
+def test_admin_update_user_username_duplicate_in_db(
+    test_client_with_email,
+    as_admin_user,
+    test_db_session,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    """Test username update fails when username already exists in database."""
+    user1 = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    BiocommonsUserFactory.create_sync(username="existinguser")
+    test_db_session.commit()
+
+    resp = test_client_with_email.post(
+        f"/admin/users/{user1.id}/username/update",
+        json={"username": "existinguser"},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["message"] == "Username is already taken"
+    assert len(data["field_errors"]) == 1
+    assert data["field_errors"][0]["field"] == "username"
+    assert data["field_errors"][0]["message"] == "Username is already taken"
+
+    # Verify Auth0 was never called
+    mock_auth0_client.update_user.assert_not_called()
+
+
+def test_admin_update_user_username_duplicate_in_auth0(
+    test_client_with_email,
+    as_admin_user,
+    test_db_session,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    """Test username update fails when Auth0 returns 409 conflict."""
+    from httpx import HTTPStatusError, Request, Response
+
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    test_db_session.commit()
+
+    old_username = user.username
+
+    # Mock Auth0 to return 409 conflict
+    error_response = Response(409, json={"message": "Username already exists"})
+    mock_auth0_client.update_user.side_effect = HTTPStatusError(
+        message="409 Conflict",
+        request=Request("PATCH", "url"),
+        response=error_response
+    )
+
+    resp = test_client_with_email.post(
+        f"/admin/users/{user.id}/username/update",
+        json={"username": "duplicateuser"},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["message"] == "Username is already taken"
+    assert len(data["field_errors"]) == 1
+    assert data["field_errors"][0]["field"] == "username"
+
+    # Verify DB user was not updated
+    test_db_session.refresh(user)
+    assert user.username == old_username
+
+    # Verify no email was queued
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 0
+
+
+def test_admin_update_user_username_auth0_400_error(
+    test_client_with_email,
+    as_admin_user,
+    test_db_session,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    """Test username update handles Auth0 400 error."""
+    from httpx import HTTPStatusError, Request, Response
+
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    test_db_session.commit()
+
+    old_username = user.username
+
+    # Mock Auth0 to return 400 error
+    error_response = Response(400, json={"message": "Invalid username format"})
+    mock_auth0_client.update_user.side_effect = HTTPStatusError(
+        message="400 Bad Request",
+        request=Request("PATCH", "url"),
+        response=error_response
+    )
+
+    resp = test_client_with_email.post(
+        f"/admin/users/{user.id}/username/update",
+        json={"username": "bad-username"},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["message"] == "Invalid username format"
+
+    # Verify DB user was not updated
+    test_db_session.refresh(user)
+    assert user.username == old_username
+
+
 def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group, galaxy_platform):
     user = Auth0UserDataFactory.build()
     db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])
