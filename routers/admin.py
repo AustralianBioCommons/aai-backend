@@ -6,8 +6,10 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
+from httpx import HTTPStatusError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 from starlette import status
@@ -26,6 +28,7 @@ from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
+    compose_username_change_notification,
 )
 from config import Settings, get_settings
 from db.models import (
@@ -48,6 +51,7 @@ from db.utils import refresh_unverified_users
 from schemas.biocommons import (
     Auth0UserDataWithMemberships,
     BiocommonsEmail,
+    BiocommonsUsername,
     ServiceIdParam,
     UserIdParam,
 )
@@ -862,6 +866,107 @@ def update_user_email(
 
     client.resend_verification_email(user_id=user_id)
     return {"message": "Email updated. Verification email sent."}
+
+
+class AdminUsernameUpdateRequest(BaseModel):
+    """
+    POST data for admin user username update.
+    """
+    username: BiocommonsUsername = Field(description="New username for the user")
+
+
+@router.post(
+    "/users/{user_id}/username/update",
+    dependencies=[Depends(require_admin_permission_for_user)],
+    responses={
+        200: {"model": dict},
+        400: {"model": FieldErrorResponse},
+    },
+)
+def update_user_username(
+    user_id: Annotated[str, UserIdParam],
+    payload: AdminUsernameUpdateRequest,
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    response: Response,
+):
+    """
+    Update a user's username and send a notification email.
+    """
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
+    new_username = payload.username.strip()
+
+    # Check if username already exists in local database
+    existing_user = db_session.exec(
+        select(BiocommonsUser)
+        .where(
+            BiocommonsUser.username == new_username,
+            BiocommonsUser.id != user_id,
+        )
+    ).first()
+
+    if existing_user:
+        response.status_code = 400
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        return FieldErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+
+    old_username = db_user.username
+    # Update in Auth0 (need to include connection when updating username)
+    update_data = UpdateUserData(username=new_username, connection=settings.auth0_db_connection)
+    try:
+        auth0_user = client.update_user(user_id=user_id, update_data=update_data)
+    except HTTPStatusError as e:
+        logger.error(f"Error updating username: {e}")
+        response.status_code = 400
+        if e.response.status_code == 409:
+            # Username already exists in Auth0
+            field_errors = [FieldError(field="username", message="Username is already taken")]
+            return FieldErrorResponse(
+                message="Username is already taken",
+                field_errors=field_errors
+            )
+        if e.response.status_code == 400:
+            error_details = e.response.json()
+            return FieldErrorResponse(
+                message=error_details.get("message", "Invalid username")
+            )
+        return FieldErrorResponse(message="Unknown error.")
+
+    # Update database
+    db_user.username = auth0_user.username
+    db_session.add(db_user)
+    try:
+        db_session.commit()
+    except IntegrityError:
+        db_session.rollback()
+        logger.error(f"Database integrity error: username {new_username} already exists in database")
+        response.status_code = 400
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        return FieldErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+
+    # Send notification email after successful update
+    subject, body_html = compose_username_change_notification(
+        old_username=old_username,
+        new_username=auth0_user.username,
+        settings=settings,
+    )
+    enqueue_email(
+        session=db_session,
+        to_address=db_user.email,
+        subject=subject,
+        body_html=body_html,
+        from_address=settings.default_email_sender,
+    )
+    db_session.commit()
+
+    return {"message": "User's username updated successfully."}
 
 
 class AdminDeleteData(BaseModel):

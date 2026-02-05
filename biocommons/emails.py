@@ -60,3 +60,24 @@ def compose_email_change_notification(
         <a href="{portal_url}">AAI Portal</a> or contact support.</p>
     """
     return subject, body_html
+
+
+def compose_username_change_notification(
+    old_username: str,
+    new_username: str,
+    settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their username was updated.
+    """
+    portal_url = settings.aai_portal_url.rstrip("/")
+    subject = "Your Biocommons Access username was updated"
+    body_html = f"""
+        <p>Hello,</p>
+        <p>The username on your Biocommons Access account was updated by your service administrator.</p>
+        <p><strong>Old username:</strong> {old_username}<br/>
+        <strong>New username:</strong> {new_username}</p>
+        <p>If you did not expect this change, please visit the
+        <a href="{portal_url}">AAI Portal</a> or contact support.</p>
+    """
+    return subject, body_html
