@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
@@ -51,6 +51,7 @@ from schemas.biocommons import (
     ServiceIdParam,
     UserIdParam,
 )
+from schemas.responses import FieldError, FieldErrorResponse
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
 
@@ -785,6 +786,10 @@ class AdminEmailUpdateRequest(BaseModel):
 
 @router.post(
     "/users/{user_id}/email/update",
+    responses={
+        200: {"model": dict},
+        400: {"model": FieldErrorResponse},
+    },
     dependencies=[Depends(require_admin_permission_for_user)],
 )
 def update_user_email(
@@ -793,6 +798,7 @@ def update_user_email(
     client: Annotated[Auth0Client, Depends(get_auth0_client)],
     db_session: Annotated[Session, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
+    response: Response,
 ):
     """
     Update a user's email address, mark it unverified, and send verification and notification emails.
@@ -800,9 +806,11 @@ def update_user_email(
     db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
     new_email = payload.email.strip()
     if new_email.lower() == db_user.email.lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email address is already set to that value.",
+        response.status_code = 400
+        field_errors = [FieldError(field="email", message="Email address is already set to that value")]
+        return FieldErrorResponse(
+            message="Email address is already set to that value",
+            field_errors=field_errors
         )
 
     conflicting_user = db_session.exec(
@@ -812,9 +820,11 @@ def update_user_email(
         )
     ).one_or_none()
     if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
+        response.status_code = 400
+        field_errors = [FieldError(field="email", message="Email is already in use by another user")]
+        return FieldErrorResponse(
+            message="Email is already in use by another user",
+            field_errors=field_errors
         )
 
     old_email = db_user.email

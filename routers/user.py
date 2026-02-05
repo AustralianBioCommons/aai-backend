@@ -518,12 +518,19 @@ async def update_name(
         )
 
 
-@router.post("/profile/email/update")
+@router.post(
+    "/profile/email/update",
+    responses={
+        200: {"model": dict},
+        400: {"model": FieldErrorResponse},
+    },
+)
 async def update_email(
     payload: Annotated[EmailChangeRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     email_service: Annotated[EmailService, Depends(get_email_service)],
+    response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
     conflicting_user = db_session.exec(
@@ -534,9 +541,11 @@ async def update_email(
         )
     ).one_or_none()
     if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
+        response.status_code = 400
+        field_errors = [FieldError(field="email", message="Email is already in use by another user")]
+        return FieldErrorResponse(
+            message="Email is already in use by another user",
+            field_errors=field_errors
         )
     now = datetime.now(timezone.utc)
     # Clear existing OTPs

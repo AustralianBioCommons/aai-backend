@@ -1476,6 +1476,34 @@ def test_admin_update_user_email(
     assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
+def test_admin_update_user_email_rejects_duplicate(
+    test_client_with_email,
+    as_admin_user,
+    test_db_session,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    _ = BiocommonsUserFactory.create_sync(email="existing@example.com")
+    test_db_session.commit()
+
+    resp = test_client_with_email.post(
+        f"/admin/users/{user.id}/email/update",
+        json={"email": "existing@example.com"},
+    )
+
+    assert resp.status_code == 400
+    data = resp.json()
+    assert data["message"] == "Email is already in use by another user"
+    assert len(data["field_errors"]) == 1
+    assert data["field_errors"][0]["field"] == "email"
+    assert data["field_errors"][0]["message"] == "Email is already in use by another user"
+
+
 def test_get_user_details(test_client, test_db_session, as_admin_user, mock_auth0_client, persistent_factories, tsi_group, galaxy_platform):
     user = Auth0UserDataFactory.build()
     db_user = BiocommonsUserFactory.create_sync(id=user.user_id, group_memberships=[], platform_memberships=[])
