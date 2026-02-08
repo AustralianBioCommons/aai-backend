@@ -51,7 +51,6 @@ from db.utils import refresh_unverified_users
 from schemas.biocommons import (
     Auth0UserDataWithMemberships,
     BiocommonsEmail,
-    BiocommonsPassword,
     BiocommonsUsername,
     ServiceIdParam,
     UserIdParam,
@@ -789,13 +788,6 @@ class AdminEmailUpdateRequest(BaseModel):
     email: BiocommonsEmail = Field(description="New email address for the user")
 
 
-class AdminPasswordUpdateRequest(BaseModel):
-    """
-    POST data for admin password update.
-    """
-    new_password: BiocommonsPassword = Field(description="New password for the user")
-
-
 @router.post(
     "/users/{user_id}/email/update",
     dependencies=[Depends(require_admin_permission_for_user)],
@@ -1048,40 +1040,6 @@ def send_password_reset_email(
             detail="Failed to send password reset email.",
         ) from exc
     return {"message": "Password reset email sent."}
-
-
-@router.post(
-    "/users/{user_id}/password/update",
-    dependencies=[Depends(require_admin_permission_for_user)],
-)
-def update_user_password(
-    user_id: Annotated[str, UserIdParam],
-    payload: AdminPasswordUpdateRequest,
-    client: Annotated[Auth0Client, Depends(get_auth0_client)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    auth0_user = client.get_user(user_id)
-    if not any(
-        identity.connection == settings.auth0_db_connection
-        for identity in auth0_user.identities
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Password changes are not supported for this account.",
-        )
-    update_data = UpdateUserData(
-        password=payload.new_password,
-        connection=settings.auth0_db_connection,
-    )
-    try:
-        client.update_user(user_id=user_id, update_data=update_data)
-    except ValueError as exc:
-        logger.error(f"Failed to update password for {user_id}: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to update password.",
-        ) from exc
-    return {"message": "Password updated successfully."}
 
 
 @router.post("/users/{user_id}/platforms/{platform_id}/approve",
