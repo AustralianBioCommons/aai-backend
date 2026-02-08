@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     auth0_management_id: str
     auth0_management_secret: str
     auth0_audience: str
-    auth0_client_id: str
+    # Client ID for the Auth0 application used for password reset emails
+    auth0_client_id: Optional[str] = None
     # Optional: issuer may be different to the auth0_domain if
     #   a custom domain is used
     auth0_issuer: Optional[str] = None

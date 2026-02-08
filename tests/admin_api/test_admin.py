@@ -21,6 +21,7 @@ from db.models import (
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from main import app
 from routers.admin import PaginationParams, UserQueryParams
+from schemas.biocommons import Auth0Identity
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -1425,6 +1426,168 @@ def test_resend_verification_email_unauthorized(test_client, as_admin_user, test
     user = _create_user_with_platform_membership(db_session=test_db_session, platform_id=platform.id)
     resp = test_client.post(f"/admin/users/{user.id}/verification-email/resend")
     assert resp.status_code == 403
+
+
+def _make_auth0_identity(connection: str, user_id: str) -> Auth0Identity:
+    return Auth0Identity(
+        connection=connection,
+        provider="auth0",
+        user_id=user_id,
+        isSocial=False,
+    )
+
+
+def test_send_password_reset_email(
+    test_client,
+    as_admin_user,
+    test_db_session,
+    galaxy_platform,
+    mock_auth0_client,
+    mock_settings,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    mock_settings.auth0_client_id = "client-id"
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=user.email,
+        identities=[
+            _make_auth0_identity(
+                connection=mock_settings.auth0_db_connection,
+                user_id=user.id,
+            )
+        ],
+    )
+    mock_auth0_client.get_user.return_value = auth0_user
+
+    resp = test_client.post(f"/admin/users/{user.id}/password-reset-email")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"message": "Password reset email sent."}
+    mock_auth0_client.get_user.assert_called_once_with(user.id)
+    mock_auth0_client.trigger_password_change.assert_called_once_with(
+        user_email=user.email,
+        client_id="client-id",
+        settings=mock_settings,
+    )
+
+
+def test_send_password_reset_email_missing_client_id(
+    test_client,
+    as_admin_user,
+    test_db_session,
+    galaxy_platform,
+    mock_auth0_client,
+    mock_settings,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    mock_settings.auth0_client_id = None
+
+    resp = test_client.post(f"/admin/users/{user.id}/password-reset-email")
+
+    assert resp.status_code == 500
+    assert resp.json() == {"detail": "AUTH0_CLIENT_ID is not configured."}
+    mock_auth0_client.get_user.assert_not_called()
+    mock_auth0_client.trigger_password_change.assert_not_called()
+
+
+def test_send_password_reset_email_non_db_connection(
+    test_client,
+    as_admin_user,
+    test_db_session,
+    galaxy_platform,
+    mock_auth0_client,
+    mock_settings,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    mock_settings.auth0_client_id = "client-id"
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=user.email,
+        identities=[_make_auth0_identity(connection="google-oauth2", user_id=user.id)],
+    )
+    mock_auth0_client.get_user.return_value = auth0_user
+
+    resp = test_client.post(f"/admin/users/{user.id}/password-reset-email")
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Password resets are not supported for this account."}
+    mock_auth0_client.trigger_password_change.assert_not_called()
+
+
+def test_admin_update_user_password(
+    test_client,
+    as_admin_user,
+    test_db_session,
+    galaxy_platform,
+    mock_auth0_client,
+    mock_settings,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=user.email,
+        identities=[
+            _make_auth0_identity(
+                connection=mock_settings.auth0_db_connection,
+                user_id=user.id,
+            )
+        ],
+    )
+    mock_auth0_client.get_user.return_value = auth0_user
+    mock_auth0_client.update_user.return_value = auth0_user
+
+    resp = test_client.post(
+        f"/admin/users/{user.id}/password/update",
+        json={"new_password": "ValidPassword123!"},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"message": "Password updated successfully."}
+    mock_auth0_client.update_user.assert_called_once()
+    update_call = mock_auth0_client.update_user.call_args.kwargs["update_data"]
+    assert update_call.password == "ValidPassword123!"
+    assert update_call.connection == mock_settings.auth0_db_connection
+
+
+def test_admin_update_user_password_non_db_connection(
+    test_client,
+    as_admin_user,
+    test_db_session,
+    galaxy_platform,
+    mock_auth0_client,
+    mock_settings,
+):
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    auth0_user = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=user.email,
+        identities=[_make_auth0_identity(connection="google-oauth2", user_id=user.id)],
+    )
+    mock_auth0_client.get_user.return_value = auth0_user
+
+    resp = test_client.post(
+        f"/admin/users/{user.id}/password/update",
+        json={"new_password": "ValidPassword123!"},
+    )
+
+    assert resp.status_code == 400
+    assert resp.json() == {"detail": "Password changes are not supported for this account."}
+    mock_auth0_client.update_user.assert_not_called()
 
 
 def test_admin_update_user_email(
