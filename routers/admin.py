@@ -999,6 +999,44 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
     return {"message": "Verification email resent."}
 
 
+@router.post(
+    "/users/{user_id}/password-reset-email",
+    dependencies=[Depends(require_admin_permission_for_user)],
+)
+def send_password_reset_email(
+    user_id: Annotated[str, UserIdParam],
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    auth0_user = client.get_user(user_id)
+    if not any(
+        identity.connection == settings.auth0_db_connection
+        for identity in auth0_user.identities
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password resets are not supported for this account.",
+        )
+    if not auth0_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User does not have an email address.",
+        )
+    try:
+        client.trigger_password_change(
+            user_email=auth0_user.email,
+            client_id=settings.auth0_management_id,
+            settings=settings,
+        )
+    except HTTPStatusError as exc:
+        logger.error(f"Failed to send password reset email for {user_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to send password reset email.",
+        ) from exc
+    return {"message": "Password reset email sent."}
+
+
 @router.post("/users/{user_id}/platforms/{platform_id}/approve",
              dependencies=[Depends(require_admin_permission_for_platform)],
              response_model=MembershipUpdateResponse,)
