@@ -1008,11 +1008,6 @@ def send_password_reset_email(
     client: Annotated[Auth0Client, Depends(get_auth0_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
-    if not settings.auth0_client_id:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="AUTH0_CLIENT_ID is not configured.",
-        )
     auth0_user = client.get_user(user_id)
     if not any(
         identity.connection == settings.auth0_db_connection
@@ -1030,7 +1025,7 @@ def send_password_reset_email(
     try:
         client.trigger_password_change(
             user_email=auth0_user.email,
-            client_id=settings.auth0_client_id,
+            client_id=settings.auth0_management_id,
             settings=settings,
         )
     except HTTPStatusError as exc:

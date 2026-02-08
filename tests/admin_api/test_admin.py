@@ -1449,7 +1449,6 @@ def test_send_password_reset_email(
         db_session=test_db_session,
         platform_id=galaxy_platform.id,
     )
-    mock_settings.auth0_client_id = "client-id"
     auth0_user = Auth0UserDataFactory.build(
         user_id=user.id,
         email=user.email,
@@ -1469,31 +1468,9 @@ def test_send_password_reset_email(
     mock_auth0_client.get_user.assert_called_once_with(user.id)
     mock_auth0_client.trigger_password_change.assert_called_once_with(
         user_email=user.email,
-        client_id="client-id",
+        client_id=mock_settings.auth0_management_id,
         settings=mock_settings,
     )
-
-
-def test_send_password_reset_email_missing_client_id(
-    test_client,
-    as_admin_user,
-    test_db_session,
-    galaxy_platform,
-    mock_auth0_client,
-    mock_settings,
-):
-    user = _create_user_with_platform_membership(
-        db_session=test_db_session,
-        platform_id=galaxy_platform.id,
-    )
-    mock_settings.auth0_client_id = None
-
-    resp = test_client.post(f"/admin/users/{user.id}/password-reset-email")
-
-    assert resp.status_code == 500
-    assert resp.json() == {"detail": "AUTH0_CLIENT_ID is not configured."}
-    mock_auth0_client.get_user.assert_not_called()
-    mock_auth0_client.trigger_password_change.assert_not_called()
 
 
 def test_send_password_reset_email_non_db_connection(
@@ -1508,7 +1485,6 @@ def test_send_password_reset_email_non_db_connection(
         db_session=test_db_session,
         platform_id=galaxy_platform.id,
     )
-    mock_settings.auth0_client_id = "client-id"
     auth0_user = Auth0UserDataFactory.build(
         user_id=user.id,
         email=user.email,
