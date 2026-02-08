@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     auth0_management_id: str
     auth0_management_secret: str
     auth0_audience: str
+    auth0_client_id: str
     # Optional: issuer may be different to the auth0_domain if
     #   a custom domain is used
     auth0_issuer: Optional[str] = None
