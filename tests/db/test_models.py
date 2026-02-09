@@ -15,6 +15,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    BiocommonsUserHistory,
     GroupMembership,
     GroupMembershipHistory,
     Platform,
@@ -103,6 +104,49 @@ def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_cl
     assert user.id == user_data.user_id
     assert user.email == user_data.email
     assert user.username == user_data.username
+
+
+def test_biocommons_user_save_history_creates_history_entry(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(deleted_by_id=None)
+    test_db_session.commit()
+
+    user.save_history(session=test_db_session, change="test_change", reason="Test reason", commit=True)
+    test_db_session.refresh(user)
+    assert len(user.history) == 1
+    history_entry = user.history[0]
+    assert history_entry.user_id == user.id
+    assert history_entry.user == user
+    assert history_entry.updated_by_id is None
+    assert history_entry.updated_at is not None
+    assert history_entry.change == "test_change"
+    assert history_entry.reason == "Test reason"
+
+
+def test_biocommons_user_update_username_creates_history(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="old_username")
+    test_db_session.commit()
+
+    user.update_username("new_username", session=test_db_session, commit=True)
+    test_db_session.refresh(user)
+
+    assert user.username == "new_username"
+    past_usernames = test_db_session.exec(select(BiocommonsUserHistory).where(BiocommonsUserHistory.user_id == user.id)).all()
+    assert len(past_usernames) == 1
+    assert past_usernames[0].username == "old_username"
+    assert past_usernames[0].change == "username_update"
+
+
+def test_biocommons_user_update_username_fails_if_past_username_exists(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="current_username")
+    past_user = BiocommonsUserFactory.create_sync(username="other_username")
+
+    # Create a history entry for the old username
+    history = BiocommonsUserHistory(user_id=past_user.id, username="used_username")
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    with pytest.raises(ValueError, match="Username used_username is already in use"):
+        user.update_username("used_username", session=test_db_session)
 
 
 def test_is_any_platform_admin_returns_true_for_matching_role(test_db_session, persistent_factories):
