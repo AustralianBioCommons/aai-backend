@@ -320,7 +320,7 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     @classmethod
     def create_from_user(cls, user: "BiocommonsUser",  change: str | None = None,
                          reason: str | None = None,
-                         updated_by: Self | None = None,) -> Self:
+                         updated_by: BiocommonsUser | None = None,) -> Self:
         history = cls(user_id=user.id, email=user.email, username=user.username,
                       change=change, reason=reason, updated_by=updated_by)
         return history
@@ -1167,6 +1167,7 @@ class EmailChangeOtp(BaseModel, table=True):
 
 # Update all model references
 BiocommonsUser.model_rebuild()
+BiocommonsUserHistory.model_rebuild()
 Platform.model_rebuild()
 PlatformMembership.model_rebuild()
 PlatformMembershipHistory.model_rebuild()
