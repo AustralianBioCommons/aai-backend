@@ -147,6 +147,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.deleted_by = restored_by
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
+        self.save_history(session=session, change="user_restoration", reason=reason, updated_by=restored_by)
         session.add(self)
         session.commit()
         return self
