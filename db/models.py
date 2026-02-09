@@ -257,6 +257,14 @@ class BiocommonsUser(SoftDeleteModel, table=True):
                 return True
         return False
 
+    def update_email(self, new_email: str, verified: bool, session: Session, updated_by: Self | None = None, commit: bool = False) -> None:
+        self.save_history(session, change="email_update", updated_by=updated_by, commit=False)
+        self.email = new_email
+        self.email_verified = verified
+        session.add(self)
+        if commit:
+            session.commit()
+
     def update_username(self, new_username: str, session: Session, updated_by: Self | None = None,  commit: bool = False):
         """
         Update the user's username, checking if the new username has already been used.
