@@ -1559,6 +1559,54 @@ def test_admin_restore(test_db_session, mock_auth0_client, persistent_factories)
     assert refreshed_user.deletion_reason == "Restoration test"
 
 
+def test_biocommons_user_delete_creates_history(test_db_session, persistent_factories):
+    """
+    Test that a user history entry is created when deleting a user
+    """
+    user = BiocommonsUserFactory.create_sync()
+    admin = BiocommonsUserFactory.create_sync()
+    test_db_session.commit()
+    user_id = user.id
+
+    user.delete(test_db_session, deleted_by=admin, reason="Test deletion", commit=True)
+
+    history = test_db_session.exec(
+        select(BiocommonsUserHistory)
+        .where(BiocommonsUserHistory.user_id == user_id)
+        .order_by(BiocommonsUserHistory.updated_at.desc())
+    ).first()
+
+    assert history is not None
+    assert history.change == "user_deletion"
+    assert history.reason == "Test deletion"
+    assert history.updated_by_id == admin.id
+
+
+def test_biocommons_user_admin_restore_creates_history(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(is_deleted=True)
+    admin = BiocommonsUserFactory.create_sync()
+    test_db_session.commit()
+    user_id = user.id
+
+    user.admin_restore(
+        restored_by=admin,
+        reason="Test restoration",
+        session=test_db_session,
+        auth0_client=mock_auth0_client
+    )
+
+    history = test_db_session.exec(
+        select(BiocommonsUserHistory)
+        .where(BiocommonsUserHistory.user_id == user_id)
+        .order_by(BiocommonsUserHistory.updated_at.desc())
+    ).first()
+
+    assert history is not None
+    assert history.change == "user_restoration"
+    assert history.reason == "Test restoration"
+    assert history.updated_by_id == admin.id
+
+
 def test_admin_delete_preserves_memberships(test_db_session, persistent_factories, mock_auth0_client):
     """
     Test group and platform memberships are preserved when admin soft-deletes a user, so
