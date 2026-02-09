@@ -166,6 +166,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
         self.deleted_by = deleted_by
+        self.save_history(session, change="user_deletion", reason=reason, updated_by=deleted_by)
         super().delete(session, commit=commit)
         return self
 
