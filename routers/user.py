@@ -460,7 +460,7 @@ async def update_username(
         return FieldErrorResponse(message="Unknown error.")
 
     # Update database
-    db_user.update_username(username, session=db_session, commit=False)
+    db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
     try:
         db_session.commit()
     except IntegrityError:

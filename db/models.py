@@ -255,7 +255,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
                 return True
         return False
 
-    def update_username(self, new_username: str, session: Session, commit: bool = False):
+    def update_username(self, new_username: str, session: Session, updated_by: Self | None = None,  commit: bool = False):
         """
         Update the user's username, checking if the new username has already been used.
         Save the user history to preserve the old username.
@@ -264,18 +264,20 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             raise ValueError(f"Username {new_username} is already in use")
 
         # Save history before updating
-        self.save_history(session, change="username_update", commit=False)
+        self.save_history(session, change="username_update", updated_by=updated_by, commit=False)
         self.username = new_username
         session.add(self)
         if commit:
             session.commit()
 
-    def save_history(self, session: Session, change: str | None = None, reason: str | None = None, commit: bool = False) -> Self:
+    def save_history(self, session: Session, change: str | None = None, reason: str | None = None,
+                     updated_by: Self | None = None,
+                     commit: bool = False) -> Self:
         """
         Save a history entry for the current user. NB: should be called
         *before* updating the user with new info
         """
-        history = BiocommonsUserHistory.create_from_user(self, change=change, reason=reason)
+        history = BiocommonsUserHistory.create_from_user(self, change=change, reason=reason, updated_by=updated_by)
         session.add(history)
         if commit:
             session.commit()
@@ -305,10 +307,11 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
         return session.exec(query).one_or_none() is not None
 
     @classmethod
-    def create_from_user(cls, user: "BiocommonsUser",  change: str | None = None, reason: str | None = None) -> Self:
-        history = cls(user_id=user.id, email=user.email, username=user.username, change=change, reason=reason)
-        if user.deleted_by_id is not None:
-            history.updated_by_id = user.deleted_by_id
+    def create_from_user(cls, user: "BiocommonsUser",  change: str | None = None,
+                         reason: str | None = None,
+                         updated_by: Self | None = None,) -> Self:
+        history = cls(user_id=user.id, email=user.email, username=user.username,
+                      change=change, reason=reason, updated_by=updated_by)
         return history
 
 

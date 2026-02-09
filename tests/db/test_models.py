@@ -126,14 +126,15 @@ def test_biocommons_user_update_username_creates_history(test_db_session, persis
     user = BiocommonsUserFactory.create_sync(username="old_username")
     test_db_session.commit()
 
-    user.update_username("new_username", session=test_db_session, commit=True)
+    user.update_username("new_username", updated_by=user, session=test_db_session, commit=True)
     test_db_session.refresh(user)
 
     assert user.username == "new_username"
-    past_usernames = test_db_session.exec(select(BiocommonsUserHistory).where(BiocommonsUserHistory.user_id == user.id)).all()
-    assert len(past_usernames) == 1
-    assert past_usernames[0].username == "old_username"
-    assert past_usernames[0].change == "username_update"
+    history = test_db_session.exec(select(BiocommonsUserHistory).where(BiocommonsUserHistory.user_id == user.id)).all()
+    assert len(history) == 1
+    assert history[0].username == "old_username"
+    assert history[0].change == "username_update"
+    assert history[0].updated_by_id == user.id
 
 
 def test_biocommons_user_update_username_fails_if_past_username_exists(test_db_session, persistent_factories):
