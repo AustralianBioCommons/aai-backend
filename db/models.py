@@ -5,7 +5,7 @@ from typing import Optional, Self
 
 from httpx import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, String, Text, UniqueConstraint, desc
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint, desc
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
@@ -298,6 +298,10 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     """
     Record history of a user (email and username changes, deletions, etc.
     """
+    __table_args = (
+        Index("ix_user_id_time", "user_id", "updated_at")
+    )
+
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: str = Field(foreign_key="biocommons_user.id")
     user: "BiocommonsUser" = Relationship(
@@ -308,7 +312,7 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
     updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "BiocommonsUserHistory.updated_by_id"})
     email: str | None = Field(default=None)
-    username: str | None = Field(default=None)
+    username: str | None = Field(default=None, index=True)
     change: str | None = Field(default=None)
     reason: str | None = Field(default=None)
 
