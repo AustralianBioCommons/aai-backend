@@ -271,6 +271,10 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             session.commit()
 
     def save_history(self, session: Session, change: str | None = None, reason: str | None = None, commit: bool = False) -> Self:
+        """
+        Save a history entry for the current user. NB: should be called
+        *before* updating the user with new info
+        """
         history = BiocommonsUserHistory.create_from_user(self, change=change, reason=reason)
         session.add(history)
         if commit:
