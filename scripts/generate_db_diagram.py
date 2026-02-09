@@ -7,6 +7,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    BiocommonsUserHistory,
     EmailChangeOtp,
     EmailNotification,
     GroupMembership,
@@ -18,6 +19,7 @@ from db.models import (
 
 models = [
     BiocommonsUser,
+    BiocommonsUserHistory,
     BiocommonsGroup,
     GroupMembership,
     GroupMembershipHistory,
