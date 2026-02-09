@@ -10,6 +10,7 @@ from httpx import HTTPStatusError, Request, Response
 from sqlmodel import select
 
 from db.models import (
+    BiocommonsUserHistory,
     EmailChangeOtp,
     EmailNotification,
     GroupMembership,
@@ -761,14 +762,6 @@ def test_email_continue_updates_user(test_client, test_db_session, mocker, persi
     )
     mocker.patch("routers.user.Auth0Client.update_user", return_value=updated_user)
     mocker.patch("routers.user.Auth0Client.get_user", return_value=current_auth0_user)
-    metadata_updates = []
-
-    async def fake_metadata_update(user_id, token, metadata):
-        metadata_updates.append(metadata)
-        return metadata
-
-    mocker.patch("routers.user.update_user_metadata", side_effect=fake_metadata_update)
-    mocker.patch("routers.user.get_management_token", return_value="mgmt-token")
 
     response = test_client.post(
         "/me/profile/email/continue",
@@ -783,8 +776,13 @@ def test_email_continue_updates_user(test_client, test_db_session, mocker, persi
     test_db_session.refresh(user)
     assert user.email == "new@example.com"
     assert user.email_verified
-    assert metadata_updates
-    assert metadata_updates[0]["old_emails"][0]["old_email"] == "old@example.com"
+
+    history = test_db_session.exec(
+        select(BiocommonsUserHistory).where(BiocommonsUserHistory.user_id == user.id)
+    ).one()
+    assert history.email == "old@example.com"
+    assert history.change == "email_update"
+
     remaining_active = test_db_session.exec(
         select(EmailChangeOtp).where(
             EmailChangeOtp.user_id == user.id,
