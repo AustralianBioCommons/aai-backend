@@ -460,10 +460,10 @@ async def update_username(
         return FieldErrorResponse(message="Unknown error.")
 
     # Update database
-    db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
     try:
+        db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
         db_session.commit()
-    except IntegrityError:
+    except (ValueError, IntegrityError):
         db_session.rollback()
         logger.error(f"Database integrity error: username {username} already exists in database")
         response.status_code = 400
