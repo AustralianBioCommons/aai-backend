@@ -729,6 +729,26 @@ def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent
     assert spy.call_count == 1
 
 
+def test_email_update_rejects_duplicate_email(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
+    user = BiocommonsUserFactory.create_sync(email="user1@example.com", email_verified=True)
+    _ = BiocommonsUserFactory.create_sync(email="existing@example.com", email_verified=True)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/profile/email/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"email": "existing@example.com"},
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["message"] == "Email is already in use by another user"
+    assert len(data["field_errors"]) == 1
+    assert data["field_errors"][0]["field"] == "email"
+    assert data["field_errors"][0]["message"] == "Email is already in use by another user"
+
+
 def test_email_continue_updates_user(test_client, test_db_session, mocker, persistent_factories):
     user = BiocommonsUserFactory.create_sync(email="old@example.com", email_verified=True)
     test_db_session.flush()
