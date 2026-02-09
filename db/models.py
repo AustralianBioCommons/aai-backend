@@ -298,8 +298,8 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     """
     Record history of a user (email and username changes, deletions, etc.
     """
-    __table_args = (
-        Index("ix_user_id_time", "user_id", "updated_at")
+    __table_args__ = (
+        Index("ix_user_id_time", "user_id", "updated_at"),
     )
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
