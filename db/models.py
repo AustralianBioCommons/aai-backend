@@ -314,7 +314,7 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     @classmethod
     def is_username_used(cls, username: str, session: Session):
         query = select(BiocommonsUserHistory).where(BiocommonsUserHistory.username == username)
-        return session.exec(query).one_or_none() is not None
+        return session.exec(query).first() is not None
 
     @classmethod
     def create_from_user(cls, user: "BiocommonsUser",  change: str | None = None,
