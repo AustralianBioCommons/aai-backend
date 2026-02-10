@@ -460,11 +460,10 @@ async def update_username(
         return FieldErrorResponse(message="Unknown error.")
 
     # Update database
-    db_user.username = username
-    db_session.add(db_user)
     try:
+        db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
         db_session.commit()
-    except IntegrityError:
+    except (ValueError, IntegrityError):
         db_session.rollback()
         logger.error(f"Database integrity error: username {username} already exists in database")
         response.status_code = 400
@@ -656,7 +655,6 @@ async def continue_email_update(
     db_session.add(otp_entry)
     db_session.commit()
 
-    old_email = db_user.email
     update_data = UpdateUserData(
         email=otp_entry.target_email,
         email_verified=True,
@@ -664,27 +662,12 @@ async def continue_email_update(
     )
     resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
 
-    management_token = get_management_token(settings=settings)
-    auth0_full_user = auth0_client.get_user(user_id=user.access_token.sub)
-    metadata = (
-        auth0_full_user.app_metadata.model_dump(mode="json", exclude_none=True)
-        if auth0_full_user.app_metadata
-        else {}
+    db_user.update_email(
+        new_email=resp.email,
+        verified=resp.email_verified,
+        updated_by=db_user,
+        session=db_session, commit=True
     )
-    old_emails = metadata.get("old_emails", [])
-    old_emails.append(
-        {
-            "old_email": old_email,
-            "until_datetime": now.isoformat(),
-        }
-    )
-    metadata["old_emails"] = old_emails
-    await update_user_metadata(user_id=user.access_token.sub, token=management_token, metadata=metadata)
-
-    db_user.email = resp.email
-    db_user.email_verified = resp.email_verified
-    db_session.add(db_user)
-    db_session.commit()
     return resp
 
 

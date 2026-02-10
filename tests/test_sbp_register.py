@@ -4,6 +4,7 @@ from sqlmodel import select
 
 from db.models import (
     BiocommonsUser,
+    BiocommonsUserHistory,
     EmailNotification,
     PlatformEnum,
     PlatformMembership,
@@ -18,7 +19,7 @@ from tests.datagen import (
     SBPRegistrationDataFactory,
     random_auth0_id,
 )
-from tests.db.datagen import Auth0RoleFactory, PlatformFactory
+from tests.db.datagen import Auth0RoleFactory, BiocommonsUserFactory, PlatformFactory
 
 
 @pytest.fixture
@@ -141,7 +142,7 @@ def test_successful_registration(
 
 
 def test_registration_duplicate_user(
-    test_client, valid_registration_data, mock_auth0_client
+    test_client, valid_registration_data, mock_auth0_client, test_db_session,
 ):
     error = httpx.HTTPStatusError(
         "User already exists",
@@ -159,8 +160,34 @@ def test_registration_duplicate_user(
     assert response.json()["message"] == "Email is already taken"
 
 
+def test_registration_username_history_conflict(
+    test_client, valid_registration_data, test_db_session, mock_auth0_client
+):
+    """Test handling of username conflict when username is in history"""
+    # Create a user to attach history to
+    user = BiocommonsUserFactory.build()
+    test_db_session.add(user)
+    test_db_session.commit()
+
+    # Create a history entry for the username
+    history = BiocommonsUserHistory(
+        user_id=user.id,
+        username=valid_registration_data["username"],
+        email="old@example.com",
+        change="username_change"
+    )
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    response = test_client.post("/sbp/register", json=valid_registration_data)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username is already taken"
+    assert not mock_auth0_client.create_user.called
+
+
 def test_registration_duplicate_username(
-    test_client, valid_registration_data, mock_auth0_client
+    test_client, valid_registration_data, mock_auth0_client, test_db_session
 ):
     """Test that duplicate username returns specific error message"""
     error = httpx.HTTPStatusError(
@@ -180,7 +207,7 @@ def test_registration_duplicate_username(
 
 
 def test_registration_duplicate_both(
-    test_client, valid_registration_data, mock_auth0_client
+    test_client, valid_registration_data, mock_auth0_client, test_db_session
 ):
     """Test that duplicate username and email returns specific error message"""
     error = httpx.HTTPStatusError(
@@ -200,7 +227,7 @@ def test_registration_duplicate_both(
 
 
 def test_registration_auth0_error(
-    test_client, mock_auth0_client, valid_registration_data
+    test_client, mock_auth0_client, valid_registration_data, test_db_session
 ):
     error = httpx.HTTPStatusError(
         "Server error",
