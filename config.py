@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     aai_portal_url: Optional[str] = None
     # Default sender for outbound emails
     default_email_sender: Optional[EmailStr] = None
+    # Sender override for emails that should come from a no-reply address
+    no_reply_email_sender: Optional[EmailStr] = None
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW
