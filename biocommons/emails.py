@@ -30,13 +30,13 @@ def compose_group_membership_approved_email(
     Notify a user that their group/bundle access was approved.
     """
     short_name = group_short_name or group_name
-    portal_url = settings.aai_portal_url.rstrip("/")
-    subject = f"Access approved for {short_name}"
+    subject = f"{short_name} Service Bundle access approved"
     body_html = f"""
         <p>Hello,</p>
-        <p>Your request to join <strong>{group_name}</strong> ({short_name} bundle) has been approved.</p>
-        <p>You now have access to all services included with this bundle. Sign in to the <a href="{portal_url}">AAI Portal</a> to review the bundle details and launch its platforms.</p>
-        <p>If you have any questions, please reply to this email.</p>
+        <p>Your request to join the <strong>{group_name}</strong> service bundle has been approved.</p>
+        <p>If you are logged into either of the BioPlatforms Data Portal or Galaxy Australia, please log out and log back in again to ensure your access rights are updated.</p>
+        <p>Thank you,</p>
+        <p>The BioCommons Access team.</p>
     """
     return subject, body_html
 
