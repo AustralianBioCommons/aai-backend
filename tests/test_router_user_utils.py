@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from biocommons import emails
 from routers import user
 
 
@@ -21,7 +22,11 @@ def test_hash_otp_matches_sha256(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_render_otp_email_includes_code_and_target() -> None:
     code = "999999"
     email = "test@example.com"
-    body = user._render_otp_email(code, email)
+    _subject, body = emails.compose_email_change_otp_email(
+        code=code,
+        target_email=email,
+        expiration_minutes=user.OTP_EXPIRATION_MINUTES,
+    )
     assert code in body
     assert email in body
     assert str(user.OTP_EXPIRATION_MINUTES) in body

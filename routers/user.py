@@ -22,7 +22,10 @@ from auth.user_permissions import get_db_user, get_session_user, user_is_general
 from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
-from biocommons.emails import compose_group_approval_email
+from biocommons.emails import (
+    compose_email_change_otp_email,
+    compose_group_approval_email,
+)
 from biocommons.groups import GroupId
 from config import Settings, get_settings
 from db.models import (
@@ -106,26 +109,12 @@ OTP_WINDOW_SECONDS = 60
 MAX_WINDOW_ATTEMPTS = 10
 MAX_TOTAL_ATTEMPTS = 10
 OTP_LENGTH = 6
-OTP_EMAIL_SUBJECT = "Confirm your new AAI email address"
-
-
 def _generate_otp_code() -> str:
     return "".join(str(secrets.randbelow(10)) for _ in range(OTP_LENGTH))
 
 
 def _hash_otp(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
-def _render_otp_email(code: str, target_email: str) -> str:
-    return (
-        "<p>Hello,</p>"
-        "<p>We received a request to change the email address on your AAI account.</p>"
-        f"<p>Your verification code is <strong>{code}</strong>.</p>"
-        f"<p>This code will expire in {OTP_EXPIRATION_MINUTES} minutes.</p>"
-        "<p>If you did not request this, you can safely ignore this email.</p>"
-        f"<p>Target email: {target_email}</p>"
-    )
 
 
 def _ensure_datetime_is_aware(value: datetime) -> datetime:
@@ -573,10 +562,15 @@ async def update_email(
     db_session.commit()
 
     try:
+        subject, body_html = compose_email_change_otp_email(
+            code=code,
+            target_email=payload.email,
+            expiration_minutes=OTP_EXPIRATION_MINUTES,
+        )
         email_service.send(
             to_address=payload.email,
-            subject=OTP_EMAIL_SUBJECT,
-            body_html=_render_otp_email(code, payload.email),
+            subject=subject,
+            body_html=body_html,
         )
     except ClientError as exc:
         message = exc.response.get("Error", {}).get("Message") or str(exc)
