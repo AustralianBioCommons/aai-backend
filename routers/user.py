@@ -106,7 +106,7 @@ OTP_WINDOW_SECONDS = 60
 MAX_WINDOW_ATTEMPTS = 10
 MAX_TOTAL_ATTEMPTS = 10
 OTP_LENGTH = 6
-OTP_EMAIL_SUBJECT = "Confirm your new AAI email address"
+OTP_EMAIL_SUBJECT = "Confirm your new BioCommons Access email address"
 
 
 def _generate_otp_code() -> str:
@@ -119,12 +119,17 @@ def _hash_otp(code: str) -> str:
 
 def _render_otp_email(code: str, target_email: str) -> str:
     return (
-        "<p>Hello,</p>"
-        "<p>We received a request to change the email address on your AAI account.</p>"
+        "<p>Dear,</p>"
+        "<p>We received a request to change the email address of your "
+        f"BioCommons Access account to {target_email}.</p>"
         f"<p>Your verification code is <strong>{code}</strong>.</p>"
-        f"<p>This code will expire in {OTP_EXPIRATION_MINUTES} minutes.</p>"
-        "<p>If you did not request this, you can safely ignore this email.</p>"
-        f"<p>Target email: {target_email}</p>"
+        f"<p>This code is valid for {OTP_EXPIRATION_MINUTES} minutes.</p>"
+        "<p>Thank you,</p>"
+        "<p>The BioCommons Access team.</p>"
+        "<p>If you experience any issues, please refer to the FAQs or contact "
+        "support via the BioCommons Access support page "
+        "<a href=\"https://www.biocommons.org.au/access-support\">"
+        "www.biocommons.org.au/access-support</a>.</p>"
     )
 
 
