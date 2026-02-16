@@ -8,5 +8,5 @@ class SBPRegistrationRequest(BaseModel):
     last_name: str
     username: BiocommonsUsername
     email: EmailStr
-    reason: str
+    request_reason: str
     password: BiocommonsPassword

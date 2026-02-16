@@ -29,7 +29,7 @@ def valid_registration_data(mock_settings):
         first_name="Test",
         last_name="User",
         email=f"testuser@{allowed_domain}",
-        reason="Need access to SBP resources",
+        request_reason="Need access to SBP resources",
         password="SecurePass123!",
     ).model_dump()
 
@@ -132,7 +132,7 @@ def test_successful_registration(
     assert history.approval_status == "pending"
 
     called_data = mock_auth0_client.create_user.call_args[0][0]
-    assert called_data.user_metadata.sbp.registration_reason == valid_registration_data["reason"]
+    assert called_data.user_metadata.sbp.registration_reason == valid_registration_data["request_reason"]
     assert called_data.app_metadata.registration_from == "sbp"
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued_emails) == 1

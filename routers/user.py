@@ -283,6 +283,7 @@ async def get_admin_groups(
 
 class GroupAccessRequestData(BaseModel):
     group_id: GroupId
+    request_reason: str
 
 
 @router.post("/groups/request")
@@ -328,6 +329,7 @@ def request_group_access(
         membership = existing_membership
         membership.approval_status = ApprovalStatusEnum.PENDING
         membership.rejection_reason = None
+        membership.request_reason = request_data.request_reason
         membership.updated_by = None
         membership.updated_at = datetime.now(timezone.utc)
         membership.save(session=db_session, commit=False)
@@ -338,7 +340,8 @@ def request_group_access(
             group=group,
             user=db_user,
             approval_status=ApprovalStatusEnum.PENDING,
-            updated_by=None
+            updated_by=None,
+            request_reason=request_data.request_reason,
         )
         membership.save(session=db_session, commit=False)
         logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
