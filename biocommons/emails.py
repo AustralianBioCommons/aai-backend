@@ -16,6 +16,7 @@ def compose_group_approval_email(request: GroupMembership, settings: Settings) -
     body_html = f"""
         <p>A new user has requested access to the {request.group.name} group.</p>
         <p><strong>User:</strong> {request.user.email}</p>
+        <p><strong>Reason for request:</strong> {request.request_reason}</p>
         <p>Please <a href='{settings.aai_portal_url}'>log into the BioCommons account dashboard</a> to review and approve access.</p>
     """
     return subject, body_html
