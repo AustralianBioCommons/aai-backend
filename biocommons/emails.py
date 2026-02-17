@@ -36,7 +36,7 @@ def compose_group_membership_approved_email(
     body_html = f"""
         <p>Hello,</p>
         <p>Your request to join <strong>{group_name}</strong> ({short_name} bundle) has been approved.</p>
-        <p>You now have access to all services included with this bundle. Sign in to the <a href="{portal_url}">AAI Portal</a> to review the bundle details and launch its platforms.</p>
+        <p>You now have access to all services included with this bundle. Sign in to the <a href="{portal_url}"> BioCommons Access Portal</a> to review the bundle details and launch its platforms.</p>
         <p>If you have any questions, please reply to this email.</p>
     """
     return subject, body_html
@@ -58,7 +58,7 @@ def compose_email_change_notification(
         <p><strong>Old email:</strong> {old_email}<br/>
         <strong>New email:</strong> {new_email}</p>
         <p>If you did not expect this change, please visit the
-        <a href="{portal_url}">AAI Portal</a> or contact support.</p>
+        <a href="{portal_url}">BioCommons Access Portal</a> or contact support.</p>
     """
     return subject, body_html
 
@@ -79,7 +79,7 @@ def compose_username_change_notification(
         <p><strong>Old username:</strong> {old_username}<br/>
         <strong>New username:</strong> {new_username}</p>
         <p>If you did not expect this change, please visit the
-        <a href="{portal_url}">AAI Portal</a> or contact support.</p>
+        <a href="{portal_url}">BioCommons Access Portal</a> or contact support.</p>
     """
     return subject, body_html
 
