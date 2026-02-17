@@ -189,7 +189,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         auth0_client.add_roles_to_user(user_id=self.id, role_id=role.id)
 
     def add_platform_membership(
-        self, platform: PlatformEnum, db_session: Session, auth0_client: Auth0Client, auto_approve: bool = False
+        self, platform: PlatformEnum, db_session: Session, auth0_client: Auth0Client, auto_approve: bool = False, request_reason: str | None = None
     ) -> "PlatformMembership":
         """
         Create a platform membership for this user. If auto_approve is True,
@@ -206,6 +206,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if auto_approve
             else ApprovalStatusEnum.PENDING,
             updated_by=None,
+            request_reason=request_reason,
         )
         db_session.add(membership)
         db_session.flush()
@@ -213,13 +214,14 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         return membership
 
     def add_group_membership(
-        self, group_id: str, db_session: Session, auto_approve: bool = False
+        self, group_id: str, db_session: Session, auto_approve: bool = False, request_reason: str | None = None
     ) -> "GroupMembership":
         membership = GroupMembership(
             group_id=group_id,
             user_id=self.id,
             approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
             updated_by_id=None,
+            request_reason=request_reason,
         )
         db_session.add(membership)
         membership.save_history(db_session)
@@ -401,6 +403,10 @@ class PlatformMembership(SoftDeleteModel, table=True):
         default=None,
         sa_column=Column(String(1024), nullable=True)
     )
+    request_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(255), nullable=True)
+    )
 
     @classmethod
     def get_by_user_id(
@@ -543,6 +549,7 @@ class PlatformMembership(SoftDeleteModel, table=True):
             updated_by=updated_by,
             updated_at=updated_at,
             revocation_reason=self.revocation_reason,
+            request_reason=self.request_reason,
         )
 
 
@@ -614,6 +621,10 @@ class GroupMembership(SoftDeleteModel, table=True):
     rejection_reason: str | None = Field(
         default=None,
         sa_column=Column(String(255), nullable=True),
+    )
+    request_reason: str | None = Field(
+        default=None,
+        sa_column=Column(String(255), nullable=True)
     )
 
     @classmethod
@@ -808,6 +819,7 @@ class GroupMembership(SoftDeleteModel, table=True):
             updated_at=updated_at,
             revocation_reason=self.revocation_reason,
             rejection_reason=self.rejection_reason,
+            request_reason=self.request_reason,
         )
 
 

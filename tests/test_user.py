@@ -386,6 +386,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
         "/me/groups/request",
         json={
             "group_id": group.group_id,
+            "request_reason": "Need access for research",
         }
     )
     assert resp.status_code == 200
@@ -393,6 +394,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     # Check membership request is created along with history entry
     membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
+    assert membership.request_reason == "Need access for research"
     history = GroupMembershipHistory.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
@@ -433,6 +435,7 @@ def test_request_group_membership_after_rejection(
         "/me/groups/request",
         json={
             "group_id": group.group_id,
+            "request_reason": "Resubmitting after addressing feedback",
         }
     )
 
@@ -442,6 +445,7 @@ def test_request_group_membership_after_rejection(
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.PENDING
     assert membership.rejection_reason is None
+    assert membership.request_reason == "Resubmitting after addressing feedback"
     assert membership.updated_by is None
 
     history = GroupMembershipHistory.get_by_user_id_and_group_id(
@@ -476,7 +480,10 @@ def test_request_group_membership_revoked_returns_conflict(
 
     resp = test_client_with_email.post(
         "/me/groups/request",
-        json={"group_id": group_id},
+        json={
+            "group_id": group_id,
+            "request_reason": "Need access to resources",
+        },
     )
 
     expected_group_name = group.name

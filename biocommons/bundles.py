@@ -21,11 +21,11 @@ class BiocommonsBundle(BaseModel):
     # Non-default extra_platforms that are included as part of the bundle
     extra_platforms: list[PlatformEnum]
 
-    def _add_group_membership(self, user: BiocommonsUser, session: Session):
+    def _add_group_membership(self, user: BiocommonsUser, session: Session, request_reason: str | None = None):
         # Verify group exists
         BiocommonsGroup.get_by_id_or_404(group_id=self.group_id.value, session=session)
         group_membership = user.add_group_membership(
-            group_id=self.group_id.value, db_session=session, auto_approve=self.group_auto_approve
+            group_id=self.group_id.value, db_session=session, auto_approve=self.group_auto_approve, request_reason=request_reason
         )
         session.add(group_membership)
 
@@ -43,12 +43,13 @@ class BiocommonsBundle(BaseModel):
         auth0_client: Auth0Client,
         db_session: Session,
         commit: bool = False,
+        request_reason: str | None = None,
     ):
         """
         Create group and platform memberships for the bundle user
         """
         # Create group membership
-        self._add_group_membership(user=user, session=db_session)
+        self._add_group_membership(user=user, session=db_session, request_reason=request_reason)
         # Add extra platform memberships based on bundle configuration
         self._add_platform_memberships(user=user, session=db_session, auth0_client=auth0_client)
         db_session.flush()
