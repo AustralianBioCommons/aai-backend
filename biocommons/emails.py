@@ -1,7 +1,8 @@
 from pydantic import EmailStr
 
+from auth0.client import Auth0Client
 from config import Settings, get_settings
-from db.models import GroupMembership
+from db.models import BiocommonsGroup
 
 
 def get_default_sender_email(settings: Settings | None = None) -> str:
@@ -11,13 +12,92 @@ def get_default_sender_email(settings: Settings | None = None) -> str:
     return str(email)
 
 
-def compose_group_approval_email(request: GroupMembership, settings: Settings) -> tuple[str, str]:
-    subject = f"New request to join {request.group.name}"
+def format_first_name(
+    *,
+    full_name: str | None,
+    given_name: str | None,
+    fallback: str = "Admin",
+) -> str:
+    if given_name:
+        cleaned = given_name.strip()
+        if cleaned:
+            return cleaned
+    if full_name:
+        cleaned = full_name.strip()
+        if cleaned:
+            return cleaned.split()[0]
+    return fallback
+
+
+def format_full_name(
+    *,
+    full_name: str | None,
+    given_name: str | None,
+    family_name: str | None,
+    fallback: str,
+) -> str:
+    if full_name:
+        cleaned = full_name.strip()
+        if cleaned:
+            return cleaned
+    parts = [part.strip() for part in (given_name, family_name) if part and part.strip()]
+    if parts:
+        return " ".join(parts)
+    return fallback
+
+
+def get_group_admin_contacts(
+    *,
+    group: BiocommonsGroup,
+    auth0_client: Auth0Client,
+) -> list[tuple[str, str]]:
+    """
+    Return admin contact tuples of (email, first_name), deduped by email.
+    """
+    contacts: dict[str, str] = {}
+    for role in group.admin_roles:
+        role_admins = auth0_client.get_all_role_users(role_id=role.id)
+        for admin in role_admins:
+            email = admin.email
+            full_name = admin.name
+            given_name = None
+            needs_profile = email is None or not (full_name and full_name.strip())
+            if needs_profile:
+                full_admin = auth0_client.get_user(admin.user_id)
+                email = email or full_admin.email
+                full_name = full_name or full_admin.name
+                given_name = full_admin.given_name
+            if not email:
+                continue
+            first_name = format_first_name(
+                full_name=full_name,
+                given_name=given_name,
+            )
+            if email not in contacts or contacts[email] == "Admin":
+                contacts[email] = first_name
+    return list(contacts.items())
+
+
+def compose_group_approval_email(
+    *,
+    admin_first_name: str,
+    bundle_name: str,
+    requester_full_name: str,
+    requester_email: str,
+    request_reason: str | None,
+    settings: Settings,
+) -> tuple[str, str]:
+    subject = f"{bundle_name} Service Bundle request"
+    reason = request_reason.strip() if request_reason else "Not provided"
     body_html = f"""
-        <p>A new user has requested access to the {request.group.name} group.</p>
-        <p><strong>User:</strong> {request.user.email}</p>
-        <p><strong>Reason for request:</strong> {request.request_reason}</p>
-        <p>Please <a href='{settings.aai_portal_url}'>log into the BioCommons account dashboard</a> to review and approve access.</p>
+        <p>Dear {admin_first_name},</p>
+        <p>You have received a new request for access to the {bundle_name} Service Bundle.</p>
+        <p><strong>Name:</strong> {requester_full_name}</p>
+        <p><strong>Email:</strong> {requester_email}</p>
+        <p><strong>Reason:</strong> {reason}</p>
+        <p>Please log into the <a href="{settings.aai_portal_url}">BioCommons Access bundle dashboard</a> to review and approve or decline this request.</p>
+        <p>Thank you,</p>
+        <p>The BioCommons Access team.</p>
     """
     return subject, body_html
 

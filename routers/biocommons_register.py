@@ -8,7 +8,11 @@ from sqlmodel import Session
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
-from biocommons.emails import compose_group_approval_email
+from biocommons.emails import (
+    compose_group_approval_email,
+    format_full_name,
+    get_group_admin_contacts,
+)
 from config import Settings, get_settings
 from db.models import BiocommonsUser, GroupMembership
 from db.setup import get_db_session
@@ -96,13 +100,28 @@ def _notify_bundle_group_admins(
 
     db_session.refresh(membership, attribute_names=["group", "user"])
 
-    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
-    if not admin_emails:
+    admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
+    if not admin_contacts:
         logger.info("No admins found for group %s; skipping notification", membership.group_id)
         return
 
-    subject, body_html = compose_group_approval_email(request=membership, settings=settings)
-    for email in admin_emails:
+    auth0_user = auth0_client.get_user(membership.user_id)
+    requester_email = auth0_user.email or membership.user.email
+    requester_full_name = format_full_name(
+        full_name=auth0_user.name,
+        given_name=auth0_user.given_name,
+        family_name=auth0_user.family_name,
+        fallback=requester_email or membership.user.email,
+    )
+    for email, admin_first_name in admin_contacts:
+        subject, body_html = compose_group_approval_email(
+            admin_first_name=admin_first_name,
+            bundle_name=membership.group.name,
+            requester_full_name=requester_full_name,
+            requester_email=requester_email or membership.user.email,
+            request_reason=membership.request_reason,
+            settings=settings,
+        )
         enqueue_email(
             db_session,
             to_address=email,
