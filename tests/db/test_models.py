@@ -150,6 +150,30 @@ def test_biocommons_user_update_username_fails_if_past_username_exists(test_db_s
         user.update_username("used_username", session=test_db_session)
 
 
+def test_is_username_used_returns_true_if_active_user_exists(test_db_session, persistent_factories):
+    BiocommonsUserFactory.create_sync(username="active_user")
+    test_db_session.commit()
+
+    assert BiocommonsUserHistory.is_username_used("active_user", test_db_session) is True
+
+
+def test_is_username_used_returns_true_if_history_exists(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="current_username")
+    # Create a history entry for the old username
+    history = BiocommonsUserHistory(user_id=user.id, username="old_username")
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    assert BiocommonsUserHistory.is_username_used("old_username", test_db_session) is True
+
+
+def test_is_username_used_returns_false_if_unused(test_db_session, persistent_factories):
+    BiocommonsUserFactory.create_sync(username="other_user")
+    test_db_session.commit()
+
+    assert BiocommonsUserHistory.is_username_used("unused_username", test_db_session) is False
+
+
 def test_is_any_platform_admin_returns_true_for_matching_role(test_db_session, persistent_factories):
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/platform/admin")
     PlatformFactory.create_sync(
