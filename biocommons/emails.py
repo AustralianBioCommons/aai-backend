@@ -85,9 +85,12 @@ def compose_group_approval_email(
     requester_full_name: str,
     requester_email: str,
     request_reason: str | None,
+    requester_user_id: str,
     settings: Settings,
 ) -> tuple[str, str]:
     subject = f"{bundle_name} Service Bundle request"
+    portal_url = settings.aai_portal_url.rstrip("/")
+    user_detail_url = f"{portal_url}/user/{requester_user_id}"
     reason = request_reason.strip() if request_reason else "Not provided"
     body_html = f"""
         <p>Dear {admin_first_name},</p>
@@ -95,7 +98,7 @@ def compose_group_approval_email(
         <p><strong>Name:</strong> {requester_full_name}</p>
         <p><strong>Email:</strong> {requester_email}</p>
         <p><strong>Reason:</strong> {reason}</p>
-        <p>Please log into the <a href="{settings.aai_portal_url}">BioCommons Access bundle dashboard</a> to review and approve or decline this request.</p>
+        <p>Please click <a href="{user_detail_url}">here</a> to approve or decline this request via the user detail page.</p>
         <p>Thank you,</p>
         <p>The BioCommons Access team.</p>
     """
