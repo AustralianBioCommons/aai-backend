@@ -317,9 +317,12 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     reason: str | None = Field(default=None)
 
     @classmethod
-    def is_username_used(cls, username: str, session: Session):
+    def is_username_used(cls, username: str, session: Session) -> bool:
         query = select(BiocommonsUserHistory).where(BiocommonsUserHistory.username == username)
-        return session.exec(query).first() is not None
+        in_history = session.exec(query).first() is not None
+        active_user_query = select(BiocommonsUser).where(BiocommonsUser.username == username)
+        in_active_users = session.exec(active_user_query).first() is not None
+        return in_history or in_active_users
 
     @classmethod
     def create_from_user(cls, user: "BiocommonsUser",  change: str | None = None,
