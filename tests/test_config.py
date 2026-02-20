@@ -45,6 +45,19 @@ def test_default_email_sender_manual():
     assert settings.default_email_sender == custom_email
 
 
+def test_no_reply_email_sender_manual():
+    """
+    Test manually setting the no-reply email sender works.
+    """
+    custom_email = "no-reply@aai.test.biocommons.org.au"
+    settings = Settings(
+        _env_file=None,
+        no_reply_email_sender=custom_email,
+        **_base_settings_kwargs()
+    )
+    assert settings.no_reply_email_sender == custom_email
+
+
 @pytest.mark.parametrize(
     ("environment", "expected_email"),
     [
