@@ -25,6 +25,8 @@ from auth0.user_info import UserInfo, get_auth0_user_info
 from biocommons.emails import (
     compose_email_change_otp_email,
     compose_group_approval_email,
+    get_group_admin_contacts,
+    get_requester_identity,
 )
 from biocommons.groups import GroupId
 from config import Settings, get_settings
@@ -346,9 +348,31 @@ def request_group_access(
         membership.save(session=db_session, commit=False)
         logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
     logger.info("Queueing emails to group admins for approval")
-    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
-    for email in admin_emails:
-        subject, body_html = compose_group_approval_email(request=membership, settings=settings)
+    admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
+    try:
+        requester_email, requester_full_name = get_requester_identity(
+            auth0_client=auth0_client,
+            user_id=user.access_token.sub,
+            fallback_email=membership.user.email,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch Auth0 user data for %s; using fallback values: %s",
+            user.access_token.sub,
+            exc,
+        )
+        requester_email = membership.user.email
+        requester_full_name = requester_email or "Unknown user"
+    for email, admin_first_name in admin_contacts:
+        subject, body_html = compose_group_approval_email(
+            admin_first_name=admin_first_name,
+            bundle_name=membership.group.name,
+            requester_full_name=requester_full_name,
+            requester_email=requester_email or membership.user.email,
+            request_reason=membership.request_reason,
+            requester_user_id=membership.user_id,
+            settings=settings,
+        )
         enqueue_email(
             db_session,
             to_address=email,

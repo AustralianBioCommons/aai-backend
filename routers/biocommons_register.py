@@ -8,7 +8,11 @@ from sqlmodel import Session
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
-from biocommons.emails import compose_group_approval_email
+from biocommons.emails import (
+    compose_group_approval_email,
+    get_group_admin_contacts,
+    get_requester_identity,
+)
 from config import Settings, get_settings
 from db.models import BiocommonsUser, GroupMembership
 from db.setup import get_db_session
@@ -96,13 +100,35 @@ def _notify_bundle_group_admins(
 
     db_session.refresh(membership, attribute_names=["group", "user"])
 
-    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
-    if not admin_emails:
+    admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
+    if not admin_contacts:
         logger.info("No admins found for group %s; skipping notification", membership.group_id)
         return
 
-    subject, body_html = compose_group_approval_email(request=membership, settings=settings)
-    for email in admin_emails:
+    try:
+        requester_email, requester_full_name = get_requester_identity(
+            auth0_client=auth0_client,
+            user_id=membership.user_id,
+            fallback_email=membership.user.email,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch Auth0 user data for %s; using fallback values: %s",
+            membership.user_id,
+            exc,
+        )
+        requester_email = membership.user.email
+        requester_full_name = requester_email or "Unknown user"
+    for email, admin_first_name in admin_contacts:
+        subject, body_html = compose_group_approval_email(
+            admin_first_name=admin_first_name,
+            bundle_name=membership.group.name,
+            requester_full_name=requester_full_name,
+            requester_email=requester_email,
+            request_reason=membership.request_reason,
+            requester_user_id=membership.user_id,
+            settings=settings,
+        )
         enqueue_email(
             db_session,
             to_address=email,

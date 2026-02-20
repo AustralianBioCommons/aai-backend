@@ -29,6 +29,7 @@ from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
     compose_username_change_notification,
+    format_first_name,
 )
 from config import Settings, get_settings
 from db.models import (
@@ -1105,9 +1106,20 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
     )
     if status_changed and membership.user and membership.user.email:
+        first_name = "there"
+        try:
+            auth0_user = client.get_user(membership.user.id)
+            first_name = format_first_name(
+                full_name=auth0_user.name,
+                given_name=auth0_user.given_name,
+                fallback="there",
+            )
+        except Exception:
+            pass
         subject, body_html = compose_group_membership_approved_email(
             group_name=group_record.name,
             group_short_name=group_record.short_name,
+            first_name=first_name,
             settings=settings,
         )
         enqueue_email(
