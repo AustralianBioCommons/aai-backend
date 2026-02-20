@@ -1,3 +1,5 @@
+import html
+
 from pydantic import EmailStr
 
 from auth0.client import Auth0Client
@@ -44,6 +46,23 @@ def format_full_name(
     if parts:
         return " ".join(parts)
     return fallback
+
+
+def get_requester_identity(
+    *,
+    auth0_client: Auth0Client,
+    user_id: str,
+    fallback_email: str | None,
+) -> tuple[str | None, str]:
+    auth0_user = auth0_client.get_user(user_id)
+    requester_email = auth0_user.email or fallback_email
+    requester_full_name = format_full_name(
+        full_name=auth0_user.name,
+        given_name=auth0_user.given_name,
+        family_name=auth0_user.family_name,
+        fallback=requester_email or fallback_email or "Unknown user",
+    )
+    return requester_email, requester_full_name
 
 
 def get_group_admin_contacts(
@@ -115,11 +134,16 @@ def compose_group_membership_approved_email(
     Notify a user that their group/bundle access was approved.
     """
     short_name = group_short_name or group_name
-    short_suffix = f" ({short_name})" if short_name and short_name != group_name else ""
-    subject = f"{group_name} Service Bundle access approved"
+    safe_group_name = html.escape(group_name or "")
+    safe_short_name = html.escape(short_name or "")
+    safe_first_name = html.escape(first_name or "")
+    short_suffix = (
+        f" ({safe_short_name})" if safe_short_name and safe_short_name != safe_group_name else ""
+    )
+    subject = f"{safe_group_name} Service Bundle access approved"
     body_html = f"""
-        <p>Dear {first_name},</p>
-        <p>Your request to join the {group_name}{short_suffix} service bundle has been approved.</p>
+        <p>Dear {safe_first_name},</p>
+        <p>Your request to join the {safe_group_name}{short_suffix} service bundle has been approved.</p>
         <p>If you are logged into either of the BioPlatforms Data Portal or Galaxy Australia, please log out and log back in again to ensure your access rights are updated.</p>
         <p>Thank you,</p>
         <p>The BioCommons Access team.</p>

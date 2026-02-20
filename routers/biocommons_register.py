@@ -10,8 +10,8 @@ from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
 from biocommons.emails import (
     compose_group_approval_email,
-    format_full_name,
     get_group_admin_contacts,
+    get_requester_identity,
 )
 from config import Settings, get_settings
 from db.models import BiocommonsUser, GroupMembership
@@ -105,14 +105,20 @@ def _notify_bundle_group_admins(
         logger.info("No admins found for group %s; skipping notification", membership.group_id)
         return
 
-    auth0_user = auth0_client.get_user(membership.user_id)
-    requester_email = auth0_user.email or membership.user.email
-    requester_full_name = format_full_name(
-        full_name=auth0_user.name,
-        given_name=auth0_user.given_name,
-        family_name=auth0_user.family_name,
-        fallback=requester_email or membership.user.email,
-    )
+    try:
+        requester_email, requester_full_name = get_requester_identity(
+            auth0_client=auth0_client,
+            user_id=membership.user_id,
+            fallback_email=membership.user.email,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch Auth0 user data for %s; using fallback values: %s",
+            membership.user_id,
+            exc,
+        )
+        requester_email = membership.user.email
+        requester_full_name = requester_email or "Unknown user"
     for email, admin_first_name in admin_contacts:
         subject, body_html = compose_group_approval_email(
             admin_first_name=admin_first_name,
