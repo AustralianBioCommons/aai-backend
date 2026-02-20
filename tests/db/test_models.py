@@ -15,6 +15,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    BiocommonsUserHistory,
     GroupMembership,
     GroupMembershipHistory,
     Platform,
@@ -103,6 +104,74 @@ def test_get_or_create_biocommons_user_from_auth0(test_db_session, mock_auth0_cl
     assert user.id == user_data.user_id
     assert user.email == user_data.email
     assert user.username == user_data.username
+
+
+def test_biocommons_user_save_history_creates_history_entry(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(deleted_by_id=None)
+    test_db_session.commit()
+
+    user.save_history(session=test_db_session, change="test_change", reason="Test reason", commit=True)
+    test_db_session.refresh(user)
+    assert len(user.history) == 1
+    history_entry = user.history[0]
+    assert history_entry.user_id == user.id
+    assert history_entry.user == user
+    assert history_entry.updated_by_id is None
+    assert history_entry.updated_at is not None
+    assert history_entry.change == "test_change"
+    assert history_entry.reason == "Test reason"
+
+
+def test_biocommons_user_update_username_creates_history(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="old_username")
+    test_db_session.commit()
+
+    user.update_username("new_username", updated_by=user, session=test_db_session, commit=True)
+    test_db_session.refresh(user)
+
+    assert user.username == "new_username"
+    history = test_db_session.exec(select(BiocommonsUserHistory).where(BiocommonsUserHistory.user_id == user.id)).all()
+    assert len(history) == 1
+    assert history[0].username == "old_username"
+    assert history[0].change == "username_update"
+    assert history[0].updated_by_id == user.id
+
+
+def test_biocommons_user_update_username_fails_if_past_username_exists(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="current_username")
+    past_user = BiocommonsUserFactory.create_sync(username="other_username")
+
+    # Create a history entry for the old username
+    history = BiocommonsUserHistory(user_id=past_user.id, username="used_username")
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    with pytest.raises(ValueError, match="Username used_username is already in use"):
+        user.update_username("used_username", session=test_db_session)
+
+
+def test_is_username_used_returns_true_if_active_user_exists(test_db_session, persistent_factories):
+    BiocommonsUserFactory.create_sync(username="active_user")
+    test_db_session.commit()
+
+    assert BiocommonsUserHistory.is_username_used("active_user", test_db_session) is True
+
+
+def test_is_username_used_returns_true_if_history_exists(test_db_session, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(username="current_username")
+    # Create a history entry for the old username
+    history = BiocommonsUserHistory(user_id=user.id, username="old_username")
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    assert BiocommonsUserHistory.is_username_used("old_username", test_db_session) is True
+
+
+def test_is_username_used_returns_false_if_unused(test_db_session, persistent_factories):
+    BiocommonsUserFactory.create_sync(username="other_user")
+    test_db_session.commit()
+
+    assert BiocommonsUserHistory.is_username_used("unused_username", test_db_session) is False
 
 
 def test_is_any_platform_admin_returns_true_for_matching_role(test_db_session, persistent_factories):
@@ -1512,6 +1581,54 @@ def test_admin_restore(test_db_session, mock_auth0_client, persistent_factories)
     assert not refreshed_user.is_deleted
     assert refreshed_user.deleted_by_id == admin.id
     assert refreshed_user.deletion_reason == "Restoration test"
+
+
+def test_biocommons_user_delete_creates_history(test_db_session, persistent_factories):
+    """
+    Test that a user history entry is created when deleting a user
+    """
+    user = BiocommonsUserFactory.create_sync()
+    admin = BiocommonsUserFactory.create_sync()
+    test_db_session.commit()
+    user_id = user.id
+
+    user.delete(test_db_session, deleted_by=admin, reason="Test deletion", commit=True)
+
+    history = test_db_session.exec(
+        select(BiocommonsUserHistory)
+        .where(BiocommonsUserHistory.user_id == user_id)
+        .order_by(BiocommonsUserHistory.updated_at.desc())
+    ).first()
+
+    assert history is not None
+    assert history.change == "user_deletion"
+    assert history.reason == "Test deletion"
+    assert history.updated_by_id == admin.id
+
+
+def test_biocommons_user_admin_restore_creates_history(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync(is_deleted=True)
+    admin = BiocommonsUserFactory.create_sync()
+    test_db_session.commit()
+    user_id = user.id
+
+    user.admin_restore(
+        restored_by=admin,
+        reason="Test restoration",
+        session=test_db_session,
+        auth0_client=mock_auth0_client
+    )
+
+    history = test_db_session.exec(
+        select(BiocommonsUserHistory)
+        .where(BiocommonsUserHistory.user_id == user_id)
+        .order_by(BiocommonsUserHistory.updated_at.desc())
+    ).first()
+
+    assert history is not None
+    assert history.change == "user_restoration"
+    assert history.reason == "Test restoration"
+    assert history.updated_by_id == admin.id
 
 
 def test_admin_delete_preserves_memberships(test_db_session, persistent_factories, mock_auth0_client):

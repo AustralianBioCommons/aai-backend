@@ -6,7 +6,7 @@ from starlette.exceptions import HTTPException
 
 from biocommons.bundles import BUNDLES
 from biocommons.default import DEFAULT_PLATFORMS
-from db.models import BiocommonsUser, EmailNotification
+from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
 from db.types import EmailStatusEnum, PlatformEnum
 from routers.biocommons_register import create_user_in_db
 from schemas.biocommons import BiocommonsRegisterData
@@ -16,7 +16,12 @@ from tests.datagen import (
     BiocommonsRegistrationRequestFactory,
     RoleUserDataFactory,
 )
-from tests.db.datagen import Auth0RoleFactory, BiocommonsGroupFactory, PlatformFactory
+from tests.db.datagen import (
+    Auth0RoleFactory,
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    PlatformFactory,
+)
 
 
 @pytest.fixture
@@ -397,6 +402,43 @@ def test_biocommons_registration_auth0_conflict_error(
     assert response.json()["message"] == "Username is already taken"
 
 
+def test_biocommons_registration_username_history_conflict(
+    test_client, test_db_session, mock_auth0_client, mock_recaptcha_verify
+):
+    """Test handling of username conflict when username is in history in the database"""
+    # Create a user to attach history to
+    user = BiocommonsUserFactory.build()
+    test_db_session.add(user)
+    test_db_session.commit()
+
+    # Create a history entry for the username
+    history = BiocommonsUserHistory(
+        user_id=user.id,
+        username="historyuser",
+        email="old@example.com",
+        change="username_change"
+    )
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    registration_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": "new@example.com",
+        "username": "historyuser",
+        "password": "StrongPass1!",
+        "bundle": "tsi",
+        "recaptcha_token": "mock-token",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 400
+    assert response.json()["message"] == "Username is already taken"
+    # Auth0 API should not have been called
+    assert mock_auth0_client.create_user.call_count == 0
+
+
 def test_biocommons_registration_email_conflict_error(
     test_client, tsi_group, mock_auth0_client, test_db_session, mock_recaptcha_verify,
 ):
@@ -460,7 +502,7 @@ def test_biocommons_registration_both_conflict_error(
     assert response.json()["message"] == "Username and email are already taken"
 
 
-def test_biocommons_registration_missing_group_error(test_client, mock_auth0_client, mock_recaptcha_verify,):
+def test_biocommons_registration_missing_group_error(test_client, mock_auth0_client, mock_recaptcha_verify, test_db_session):
     """Test error when required group doesn't exist in database"""
     registration_data = {
         "first_name": "Test",

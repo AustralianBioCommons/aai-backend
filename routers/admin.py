@@ -802,6 +802,7 @@ def update_user_email(
     payload: AdminEmailUpdateRequest,
     client: Annotated[Auth0Client, Depends(get_auth0_client)],
     db_session: Annotated[Session, Depends(get_db_session)],
+    admin_db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
     settings: Annotated[Settings, Depends(get_settings)],
     response: Response,
 ):
@@ -847,9 +848,13 @@ def update_user_email(
             detail="Failed to update user email.",
         ) from exc
 
-    db_user.email = auth0_user.email
-    db_user.email_verified = auth0_user.email_verified
-    db_session.add(db_user)
+    db_user.update_email(
+        new_email=auth0_user.email,
+        verified=auth0_user.email_verified,
+        updated_by=admin_db_user,
+        session=db_session,
+        commit=False,
+    )
 
     subject, body_html = compose_email_change_notification(
         old_email=old_email,

@@ -25,6 +25,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    BiocommonsUserHistory,
     EmailChangeOtp,
     EmailNotification,
     GroupMembership,
@@ -105,6 +106,18 @@ class DeletedUserView(UserView):
             return "User restored successfully"
         finally:
             db_session.close()
+
+
+class BiocommonsUserHistoryView(DefaultView):
+    fields = [
+        HasOne("user", identity="user"),
+        "updated_at",
+        HasOne("updated_by", identity="user"),
+        "email",
+        "username",
+        "change",
+        "reason"
+    ]
 
 
 class PlatformView(DefaultView):
@@ -245,6 +258,7 @@ def setup_starlette_admin(app: FastAPI):
         middlewares=[Middleware(SessionMiddleware, secret_key=settings.jwt_secret_key)]
     )
     admin.add_view(UserView(BiocommonsUser, identity="user", icon="fa fa-user"))
+    admin.add_view(BiocommonsUserHistoryView(BiocommonsUserHistory, identity="user_history", icon="fa fa-hourglass"))
     admin.add_view(DeletedUserView(BiocommonsUser, identity="deleted_user", icon="fa fa-user-slash", name="Deleted Users", label="Deleted Users"))
     admin.add_view(PlatformView(Platform, identity="platform", icon="fa fa-server"))
     admin.add_view(PlatformMembershipView(PlatformMembership, identity="platform_membership", icon="fa fa-user-plus"))
