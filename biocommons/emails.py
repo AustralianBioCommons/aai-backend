@@ -10,7 +10,7 @@ from db.models import BiocommonsGroup
 def get_default_sender_email(settings: Settings | None = None) -> str:
     if settings is None:
         settings = get_settings()
-    email: EmailStr = settings.default_email_sender
+    email: EmailStr = settings.no_reply_email_sender or settings.default_email_sender
     return str(email)
 
 
