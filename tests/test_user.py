@@ -7,9 +7,10 @@ import pytest
 import respx
 from fastapi import HTTPException
 from httpx import HTTPStatusError, Request, Response
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from db.models import (
+    BiocommonsUser,
     BiocommonsUserHistory,
     EmailChangeOtp,
     EmailNotification,
@@ -639,8 +640,9 @@ def test_update_username(test_client, test_db_session, mocker, persistent_factor
 
 def test_update_username_auth0_error(test_client, test_db_session, mocker, persistent_factories):
     """Test that update_username handles 400 error from Auth0 correctly."""
-
     user = BiocommonsUserFactory.create_sync(username="old_username")
+    test_db_session.commit()
+    user_id = user.id
 
     # Mock the Auth0 client to raise a 400 error
     error_response = Response(400, json={"message": "Username already exists"})
@@ -662,9 +664,11 @@ def test_update_username_auth0_error(test_client, test_db_session, mocker, persi
     assert response.status_code == 400
     assert response.json()["message"] == "Username already exists"
 
-    # Verify DB user was not updated
-    test_db_session.refresh(user)
-    assert user.username == "old_username"
+    # Verify username wasn't updated (needs fresh session due to rollback)
+    with Session(test_db_session.get_bind()) as fresh_session:
+        fresh_user = fresh_session.get(BiocommonsUser, user_id)
+        assert fresh_user is not None
+        assert fresh_user.username == "old_username"
 
 
 def test_update_name(test_client, mocker, persistent_factories):
