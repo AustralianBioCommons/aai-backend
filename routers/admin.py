@@ -4,10 +4,12 @@ import math
 from datetime import datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
+from httpx import HTTPStatusError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 from starlette import status
@@ -26,6 +28,8 @@ from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
+    compose_username_change_notification,
+    format_first_name,
 )
 from config import Settings, get_settings
 from db.models import (
@@ -48,9 +52,11 @@ from db.utils import refresh_unverified_users
 from schemas.biocommons import (
     Auth0UserDataWithMemberships,
     BiocommonsEmail,
+    BiocommonsUsername,
     ServiceIdParam,
     UserIdParam,
 )
+from schemas.responses import FieldError, FieldErrorResponse
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
 
@@ -785,6 +791,10 @@ class AdminEmailUpdateRequest(BaseModel):
 
 @router.post(
     "/users/{user_id}/email/update",
+    responses={
+        200: {"model": dict},
+        400: {"model": FieldErrorResponse},
+    },
     dependencies=[Depends(require_admin_permission_for_user)],
 )
 def update_user_email(
@@ -794,6 +804,7 @@ def update_user_email(
     db_session: Annotated[Session, Depends(get_db_session)],
     admin_db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
     settings: Annotated[Settings, Depends(get_settings)],
+    response: Response,
 ):
     """
     Update a user's email address, mark it unverified, and send verification and notification emails.
@@ -801,9 +812,11 @@ def update_user_email(
     db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
     new_email = payload.email.strip()
     if new_email.lower() == db_user.email.lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email address is already set to that value.",
+        response.status_code = 400
+        field_errors = [FieldError(field="email", message="Email address is already set to that value")]
+        return FieldErrorResponse(
+            message="Email address is already set to that value",
+            field_errors=field_errors
         )
 
     conflicting_user = db_session.exec(
@@ -813,9 +826,11 @@ def update_user_email(
         )
     ).one_or_none()
     if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
+        response.status_code = 400
+        field_errors = [FieldError(field="email", message="Email is already in use by another user")]
+        return FieldErrorResponse(
+            message="Email is already in use by another user",
+            field_errors=field_errors
         )
 
     old_email = db_user.email
@@ -859,6 +874,107 @@ def update_user_email(
     return {"message": "Email updated. Verification email sent."}
 
 
+class AdminUsernameUpdateRequest(BaseModel):
+    """
+    POST data for admin user username update.
+    """
+    username: BiocommonsUsername = Field(description="New username for the user")
+
+
+@router.post(
+    "/users/{user_id}/username/update",
+    dependencies=[Depends(require_admin_permission_for_user)],
+    responses={
+        200: {"model": dict},
+        400: {"model": FieldErrorResponse},
+    },
+)
+def update_user_username(
+    user_id: Annotated[str, UserIdParam],
+    payload: AdminUsernameUpdateRequest,
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    response: Response,
+):
+    """
+    Update a user's username and send a notification email.
+    """
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
+    new_username = payload.username.strip()
+
+    # Check if username already exists in local database
+    existing_user = db_session.exec(
+        select(BiocommonsUser)
+        .where(
+            BiocommonsUser.username == new_username,
+            BiocommonsUser.id != user_id,
+        )
+    ).first()
+
+    if existing_user:
+        response.status_code = 400
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        return FieldErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+
+    old_username = db_user.username
+    # Update in Auth0 (need to include connection when updating username)
+    update_data = UpdateUserData(username=new_username, connection=settings.auth0_db_connection)
+    try:
+        auth0_user = client.update_user(user_id=user_id, update_data=update_data)
+    except HTTPStatusError as e:
+        logger.error(f"Error updating username: {e}")
+        response.status_code = 400
+        if e.response.status_code == 409:
+            # Username already exists in Auth0
+            field_errors = [FieldError(field="username", message="Username is already taken")]
+            return FieldErrorResponse(
+                message="Username is already taken",
+                field_errors=field_errors
+            )
+        if e.response.status_code == 400:
+            error_details = e.response.json()
+            return FieldErrorResponse(
+                message=error_details.get("message", "Invalid username")
+            )
+        return FieldErrorResponse(message="Unknown error.")
+
+    # Update database
+    db_user.username = auth0_user.username
+    db_session.add(db_user)
+    try:
+        db_session.commit()
+    except IntegrityError:
+        db_session.rollback()
+        logger.error(f"Database integrity error: username {new_username} already exists in database")
+        response.status_code = 400
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        return FieldErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+
+    # Send notification email after successful update
+    subject, body_html = compose_username_change_notification(
+        old_username=old_username,
+        new_username=auth0_user.username,
+        settings=settings,
+    )
+    enqueue_email(
+        session=db_session,
+        to_address=db_user.email,
+        subject=subject,
+        body_html=body_html,
+        from_address=settings.default_email_sender,
+    )
+    db_session.commit()
+
+    return {"message": "User's username updated successfully."}
+
+
 class AdminDeleteData(BaseModel):
     """
     POST data for user deletion endpoint. Reason for deletion is optional.
@@ -896,6 +1012,44 @@ def resend_verification_email(user_id: Annotated[str, UserIdParam],
                               client: Annotated[Auth0Client, Depends(get_auth0_client)]):
     client.resend_verification_email(user_id)
     return {"message": "Verification email resent."}
+
+
+@router.post(
+    "/users/{user_id}/password-reset-email",
+    dependencies=[Depends(require_admin_permission_for_user)],
+)
+def send_password_reset_email(
+    user_id: Annotated[str, UserIdParam],
+    client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    auth0_user = client.get_user(user_id)
+    if not any(
+        identity.connection == settings.auth0_db_connection
+        for identity in auth0_user.identities
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password resets are not supported for this account.",
+        )
+    if not auth0_user.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User does not have an email address.",
+        )
+    try:
+        client.trigger_password_change(
+            user_email=auth0_user.email,
+            client_id=settings.auth0_management_id,
+            settings=settings,
+        )
+    except HTTPStatusError as exc:
+        logger.error(f"Failed to send password reset email for {user_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to send password reset email.",
+        ) from exc
+    return {"message": "Password reset email sent."}
 
 
 @router.post("/users/{user_id}/platforms/{platform_id}/approve",
@@ -957,15 +1111,29 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         db_session=db_session,
     )
     if status_changed and membership.user and membership.user.email:
+        first_name = "there"
+        try:
+            auth0_user = client.get_user(membership.user.id)
+            first_name = format_first_name(
+                full_name=auth0_user.name,
+                given_name=auth0_user.given_name,
+                fallback="there",
+            )
+        except Exception:
+            pass
         subject, body_html = compose_group_membership_approved_email(
             group_name=group_record.name,
             group_short_name=group_record.short_name,
+            first_name=first_name,
             settings=settings,
         )
         enqueue_email(
             db_session,
             to_address=membership.user.email,
-            from_address=settings.default_email_sender,
+            from_address=(
+                settings.no_reply_email_sender
+                or settings.default_email_sender
+            ),
             subject=subject,
             body_html=body_html,
         )

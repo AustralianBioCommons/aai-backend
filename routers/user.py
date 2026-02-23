@@ -22,7 +22,12 @@ from auth.user_permissions import get_db_user, get_session_user, user_is_general
 from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
-from biocommons.emails import compose_group_approval_email
+from biocommons.emails import (
+    compose_email_change_otp_email,
+    compose_group_approval_email,
+    get_group_admin_contacts,
+    get_requester_identity,
+)
 from biocommons.groups import GroupId
 from config import Settings, get_settings
 from db.models import (
@@ -106,26 +111,12 @@ OTP_WINDOW_SECONDS = 60
 MAX_WINDOW_ATTEMPTS = 10
 MAX_TOTAL_ATTEMPTS = 10
 OTP_LENGTH = 6
-OTP_EMAIL_SUBJECT = "Confirm your new AAI email address"
-
-
 def _generate_otp_code() -> str:
     return "".join(str(secrets.randbelow(10)) for _ in range(OTP_LENGTH))
 
 
 def _hash_otp(code: str) -> str:
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
-def _render_otp_email(code: str, target_email: str) -> str:
-    return (
-        "<p>Hello,</p>"
-        "<p>We received a request to change the email address on your AAI account.</p>"
-        f"<p>Your verification code is <strong>{code}</strong>.</p>"
-        f"<p>This code will expire in {OTP_EXPIRATION_MINUTES} minutes.</p>"
-        "<p>If you did not request this, you can safely ignore this email.</p>"
-        f"<p>Target email: {target_email}</p>"
-    )
 
 
 def _ensure_datetime_is_aware(value: datetime) -> datetime:
@@ -294,6 +285,7 @@ async def get_admin_groups(
 
 class GroupAccessRequestData(BaseModel):
     group_id: GroupId
+    request_reason: str
 
 
 @router.post("/groups/request")
@@ -339,6 +331,7 @@ def request_group_access(
         membership = existing_membership
         membership.approval_status = ApprovalStatusEnum.PENDING
         membership.rejection_reason = None
+        membership.request_reason = request_data.request_reason
         membership.updated_by = None
         membership.updated_at = datetime.now(timezone.utc)
         membership.save(session=db_session, commit=False)
@@ -349,14 +342,37 @@ def request_group_access(
             group=group,
             user=db_user,
             approval_status=ApprovalStatusEnum.PENDING,
-            updated_by=None
+            updated_by=None,
+            request_reason=request_data.request_reason,
         )
         membership.save(session=db_session, commit=False)
         logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
     logger.info("Queueing emails to group admins for approval")
-    admin_emails = membership.group.get_admins(auth0_client=auth0_client)
-    for email in admin_emails:
-        subject, body_html = compose_group_approval_email(request=membership, settings=settings)
+    admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
+    try:
+        requester_email, requester_full_name = get_requester_identity(
+            auth0_client=auth0_client,
+            user_id=user.access_token.sub,
+            fallback_email=membership.user.email,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch Auth0 user data for %s; using fallback values: %s",
+            user.access_token.sub,
+            exc,
+        )
+        requester_email = membership.user.email
+        requester_full_name = requester_email or "Unknown user"
+    for email, admin_first_name in admin_contacts:
+        subject, body_html = compose_group_approval_email(
+            admin_first_name=admin_first_name,
+            bundle_name=membership.group.name,
+            requester_full_name=requester_full_name,
+            requester_email=requester_email or membership.user.email,
+            request_reason=membership.request_reason,
+            requester_user_id=membership.user_id,
+            settings=settings,
+        )
         enqueue_email(
             db_session,
             to_address=email,
@@ -517,12 +533,19 @@ async def update_name(
         )
 
 
-@router.post("/profile/email/update")
+@router.post(
+    "/profile/email/update",
+    responses={
+        200: {"model": dict},
+        400: {"model": FieldErrorResponse},
+    },
+)
 async def update_email(
     payload: Annotated[EmailChangeRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     email_service: Annotated[EmailService, Depends(get_email_service)],
+    response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
     conflicting_user = db_session.exec(
@@ -533,9 +556,11 @@ async def update_email(
         )
     ).one_or_none()
     if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
+        response.status_code = 400
+        field_errors = [FieldError(field="email", message="Email is already in use by another user")]
+        return FieldErrorResponse(
+            message="Email is already in use by another user",
+            field_errors=field_errors
         )
     now = datetime.now(timezone.utc)
     # Clear existing OTPs
@@ -563,10 +588,15 @@ async def update_email(
     db_session.commit()
 
     try:
+        subject, body_html = compose_email_change_otp_email(
+            code=code,
+            target_email=payload.email,
+            expiration_minutes=OTP_EXPIRATION_MINUTES,
+        )
         email_service.send(
             to_address=payload.email,
-            subject=OTP_EMAIL_SUBJECT,
-            body_html=_render_otp_email(code, payload.email),
+            subject=subject,
+            body_html=body_html,
         )
     except ClientError as exc:
         message = exc.response.get("Error", {}).get("Message") or str(exc)

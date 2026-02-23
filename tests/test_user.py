@@ -387,6 +387,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
         "/me/groups/request",
         json={
             "group_id": group.group_id,
+            "request_reason": "Need access for research",
         }
     )
     assert resp.status_code == 200
@@ -394,6 +395,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     # Check membership request is created along with history entry
     membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
+    assert membership.request_reason == "Need access for research"
     history = GroupMembershipHistory.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
@@ -434,6 +436,7 @@ def test_request_group_membership_after_rejection(
         "/me/groups/request",
         json={
             "group_id": group.group_id,
+            "request_reason": "Resubmitting after addressing feedback",
         }
     )
 
@@ -443,6 +446,7 @@ def test_request_group_membership_after_rejection(
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.PENDING
     assert membership.rejection_reason is None
+    assert membership.request_reason == "Resubmitting after addressing feedback"
     assert membership.updated_by is None
 
     history = GroupMembershipHistory.get_by_user_id_and_group_id(
@@ -477,7 +481,10 @@ def test_request_group_membership_revoked_returns_conflict(
 
     resp = test_client_with_email.post(
         "/me/groups/request",
-        json={"group_id": group_id},
+        json={
+            "group_id": group_id,
+            "request_reason": "Need access to resources",
+        },
     )
 
     expected_group_name = group.name
@@ -728,6 +735,26 @@ def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent
     assert entry is not None
     assert entry.target_email == "new@example.com"
     assert spy.call_count == 1
+
+
+def test_email_update_rejects_duplicate_email(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
+    user = BiocommonsUserFactory.create_sync(email="user1@example.com", email_verified=True)
+    _ = BiocommonsUserFactory.create_sync(email="existing@example.com", email_verified=True)
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        "/me/profile/email/update",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"email": "existing@example.com"},
+    )
+
+    assert response.status_code == 400
+    data = response.json()
+    assert data["message"] == "Email is already in use by another user"
+    assert len(data["field_errors"]) == 1
+    assert data["field_errors"][0]["field"] == "email"
+    assert data["field_errors"][0]["message"] == "Email is already in use by another user"
 
 
 def test_email_continue_updates_user(test_client, test_db_session, mocker, persistent_factories):

@@ -40,6 +40,7 @@ class PlatformMembershipData(BaseModel):
     updated_by: str
     updated_at: AwareDatetime
     revocation_reason: str | None = None
+    request_reason: str | None = None
 
 
 class GroupMembershipData(BaseModel):
@@ -53,6 +54,7 @@ class GroupMembershipData(BaseModel):
     updated_at: AwareDatetime
     revocation_reason: str | None = None
     rejection_reason: str | None = None
+    request_reason: str | None = None
 
 
 class GroupEnum(str, Enum):

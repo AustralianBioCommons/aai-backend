@@ -240,7 +240,7 @@ class BiocommonsRegisterData(BaseModel):
             username=registration.username,
             name=f"{registration.first_name} {registration.last_name}",
             user_metadata=BiocommonsUserMetadata(
-                sbp=SBPMetadata(registration_reason=registration.reason),
+                sbp=SBPMetadata(registration_reason=registration.request_reason),
             ),
             app_metadata=BiocommonsAppMetadata(
                 registration_from="sbp"

@@ -48,7 +48,7 @@ def compose_sbp_registration_email(registration: SBPRegistrationRequest, setting
         <p>A new user has registered for the Structural Biology Platform.</p>
         <p><strong>User:</strong> {registration.first_name} {registration.last_name} ({registration.email})</p>
         <p><strong>Username:</strong> {registration.username}</p>
-        <p><strong>Registration Reason:</strong> {registration.reason}</p>
+        <p><strong>Registration Reason:</strong> {registration.request_reason}</p>
         <p>Please <a href='{settings.aai_portal_url}'>log into the AAI Admin Portal</a> to review and approve access.</p>
     """
 
@@ -131,7 +131,12 @@ async def register_sbp_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        _create_sbp_user_record(auth0_user_data, auth0_client=auth0_client, session=db_session)
+        _create_sbp_user_record(
+            auth0_user_data,
+            auth0_client=auth0_client,
+            session=db_session,
+            request_reason=registration.request_reason,
+        )
 
         # Queue approval email for SBP platform admins
         queue_sbp_admin_notifications(
@@ -181,13 +186,19 @@ async def register_sbp_user(
         )
 
 
-def _create_sbp_user_record(auth0_user_data: Auth0UserData, auth0_client: Auth0Client, session: Session) -> BiocommonsUser:
+def _create_sbp_user_record(
+    auth0_user_data: Auth0UserData,
+    auth0_client: Auth0Client,
+    session: Session,
+    request_reason: str | None = None,
+) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
     sbp_membership = db_user.add_platform_membership(
         platform=PlatformEnum.SBP,
         db_session=session,
         auth0_client=auth0_client,
-        auto_approve=False
+        auto_approve=False,
+        request_reason=request_reason,
     )
     session.add(db_user)
     session.add(sbp_membership)
