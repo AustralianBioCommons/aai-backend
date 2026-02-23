@@ -67,14 +67,20 @@ def session_fixture(test_db_engine):
 
 
 @pytest.fixture()
-def test_db_session(session):
+def test_db_session(session, test_db_engine):
     """
-    Override the get_db_session dependency to return the test DB.
+    Override the get_db_session dependency to return a NEW Session per request.
+    This prevents endpoint rollbacks from interfering with the test's session.
     """
     from db.setup import get_db_session
 
     def get_db_session_override():
-        yield session
+        request_session = Session(test_db_engine)
+        try:
+            yield request_session
+        finally:
+            request_session.close()
+
     app.dependency_overrides[get_db_session] = get_db_session_override
     try:
         yield session
