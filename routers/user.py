@@ -450,15 +450,31 @@ async def update_username(
             field_errors=field_errors
         )
 
+    # Update database first, commit after Auth0 update succeeds
+    try:
+        db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
+        # Flush tro check constraints
+        db_session.flush()  # ensure constraints run and the UPDATE is issued, but not committed
+    except (ValueError, IntegrityError):
+        db_session.rollback()
+        logger.error(f"Database integrity error: username {username} already exists in database")
+        response.status_code = 400
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        return FieldErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+
     # Update in Auth0 (need to include connection when updating username)
     update_data = UpdateUserData(username=username, connection=settings.auth0_db_connection)
     try:
         resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
     except HTTPStatusError as e:
-        logger.error(f"Error updating username: {e}")
+        logger.error(f"Error updating username in Auth0: {e}")
+        db_session.rollback()  # reverts the uncommitted username change
+
         response.status_code = 400
         if e.response.status_code == 409:
-            # Username already exists in Auth0
             field_errors = [FieldError(field="username", message="Username is already taken")]
             return FieldErrorResponse(
                 message="Username is already taken",
@@ -475,20 +491,7 @@ async def update_username(
             )
         return FieldErrorResponse(message="Unknown error.")
 
-    # Update database
-    db_user.username = username
-    db_session.add(db_user)
-    try:
-        db_session.commit()
-    except IntegrityError:
-        db_session.rollback()
-        logger.error(f"Database integrity error: username {username} already exists in database")
-        response.status_code = 400
-        field_errors = [FieldError(field="username", message="Username is already taken")]
-        return FieldErrorResponse(
-            message="Username is already taken",
-            field_errors=field_errors
-        )
+    db_session.commit()
     return resp
 
 
@@ -677,7 +680,6 @@ async def continue_email_update(
     db_session.add(otp_entry)
     db_session.commit()
 
-    old_email = db_user.email
     update_data = UpdateUserData(
         email=otp_entry.target_email,
         email_verified=True,
@@ -685,27 +687,12 @@ async def continue_email_update(
     )
     resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
 
-    management_token = get_management_token(settings=settings)
-    auth0_full_user = auth0_client.get_user(user_id=user.access_token.sub)
-    metadata = (
-        auth0_full_user.app_metadata.model_dump(mode="json", exclude_none=True)
-        if auth0_full_user.app_metadata
-        else {}
+    db_user.update_email(
+        new_email=resp.email,
+        verified=resp.email_verified,
+        updated_by=db_user,
+        session=db_session, commit=True
     )
-    old_emails = metadata.get("old_emails", [])
-    old_emails.append(
-        {
-            "old_email": old_email,
-            "until_datetime": now.isoformat(),
-        }
-    )
-    metadata["old_emails"] = old_emails
-    await update_user_metadata(user_id=user.access_token.sub, token=management_token, metadata=metadata)
-
-    db_user.email = resp.email
-    db_user.email_verified = resp.email_verified
-    db_session.add(db_user)
-    db_session.commit()
     return resp
 
 

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from polyfactory import BaseFactory
-from sqlmodel import Session, StaticPool, create_engine
+from sqlmodel import Session, create_engine
 
 from auth.management import get_management_token
 from auth.ses import get_email_service
@@ -38,14 +38,14 @@ def suppress_third_party_warnings():
 
 
 @pytest.fixture(scope="function")
-def test_db_engine():
+def test_db_engine(tmp_path):
     from db import models  # noqa: F401
     from db.core import BaseModel
+
+    db_file = tmp_path / "test.sqlite"
     engine = create_engine(
-        # Use in-memory DB by default
-        "sqlite://",
+        f"sqlite:///{db_file}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
     BaseModel.metadata.create_all(engine)
     try:
@@ -56,27 +56,31 @@ def test_db_engine():
 
 @pytest.fixture(name="session")
 def session_fixture(test_db_engine):
-    connection = test_db_engine.connect()
-    transaction = connection.begin()
-    session = Session(bind=connection)
+    """
+    Session for the test thread (assertions/seeding).
+    """
+    session = Session(test_db_engine)
     try:
         yield session
     finally:
-        if transaction.is_active:
-            transaction.rollback()
         session.close()
-        connection.close()
 
 
 @pytest.fixture()
-def test_db_session(session):
+def test_db_session(session, test_db_engine):
     """
-    Override the get_db_session dependency to return the test DB.
+    Override the get_db_session dependency to return a NEW Session per request.
+    This prevents endpoint rollbacks from interfering with the test's session.
     """
     from db.setup import get_db_session
 
     def get_db_session_override():
-        yield session
+        request_session = Session(test_db_engine)
+        try:
+            yield request_session
+        finally:
+            request_session.close()
+
     app.dependency_overrides[get_db_session] = get_db_session_override
     try:
         yield session

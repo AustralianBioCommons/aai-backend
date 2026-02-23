@@ -482,6 +482,7 @@ def test_delete_user(test_client, test_db_session, as_admin_user, mock_auth0_cli
     admin_user = as_admin_user
     resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": "Testing user deletion"})
     assert resp.status_code == 200
+    test_db_session.expire_all()
     user_query = select(func.count()).select_from(BiocommonsUser).where(BiocommonsUser.id == user_id)
     # Should be hidden from normal queries
     assert test_db_session.exec(user_query).one() == 0
@@ -502,6 +503,7 @@ def test_delete_user_empty_reason(test_client, test_db_session, as_admin_user, m
     admin_user = as_admin_user
     resp = test_client.post(f"/admin/users/{user.id}/delete", json={"reason": None})
     assert resp.status_code == 200
+    test_db_session.expire_all()
     # Check user is updated with deletion info
     refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
     assert refreshed_user.deleted_at == frozen_time
@@ -542,6 +544,7 @@ def test_delete_user_continue_when_refresh_token_delete_fails(test_client, test_
     assert update_user_route.called
     assert delete_token_route.called
     # Check user is still deleted from DB
+    test_db_session.expire_all()
     refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
     assert refreshed_user.is_deleted
 

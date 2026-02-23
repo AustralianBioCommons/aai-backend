@@ -4,11 +4,11 @@ from email_validator import EmailNotValidError, validate_email
 from fastapi import APIRouter, Depends, HTTPException
 from httpx import HTTPStatusError
 from sqlmodel import Session
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsUser, Platform, PlatformEnum
+from db.models import BiocommonsUser, BiocommonsUserHistory, Platform, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
@@ -92,6 +92,7 @@ def queue_sbp_admin_notifications(
 )
 async def register_sbp_user(
     registration: SBPRegistrationRequest,
+    response: Response,
     db_session: Session = Depends(get_db_session),
     auth0_client: Auth0Client = Depends(get_auth0_client),
     settings: Settings = Depends(get_settings),
@@ -114,6 +115,16 @@ async def register_sbp_user(
     user_data = BiocommonsRegisterData.from_sbp_registration(
         registration=registration
     )
+    # Check if username has already been used previously
+    username_used = BiocommonsUserHistory.is_username_used(user_data.username, session=db_session)
+    if username_used:
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        error_response = RegistrationErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+        response.status_code = 400
+        return error_response
 
     try:
         logger.info("Registering user with Auth0")

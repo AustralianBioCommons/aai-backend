@@ -65,10 +65,32 @@ def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple
         if user is not None:
             restored = True
             user.restore(session, commit=False)
+
+            user.save_history(
+                session,
+                change="restored_from_auth0",
+                reason="User restored during Auth0 sync",
+                updated_by=None
+            )
         else:
             created = True
             user = BiocommonsUser.from_auth0_data(user_data)
     session.add(user)
+
+    # Save history entry if updating from Auth0 sync
+    if not created:
+        has_changes = user.email != user_data.email
+        if user_data.username is not None and user.username != user_data.username:
+            has_changes = True
+
+        if has_changes:
+            user.save_history(
+                session,
+                change="auth0_sync",
+                reason="User data updated from Auth0",
+                updated_by=None
+            )
+
     user.email = user_data.email
     if user_data.username is not None:
         user.username = user_data.username

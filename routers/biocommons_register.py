@@ -14,7 +14,7 @@ from biocommons.emails import (
     get_requester_identity,
 )
 from config import Settings, get_settings
-from db.models import BiocommonsUser, GroupMembership
+from db.models import BiocommonsUser, BiocommonsUserHistory, GroupMembership
 from db.setup import get_db_session
 from register.tokens import validate_recaptcha
 from routers.errors import RegistrationRoute
@@ -164,6 +164,16 @@ async def register_biocommons_user(
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_biocommons_registration(registration)
+    # Check if username has already been used previously
+    username_used = BiocommonsUserHistory.is_username_used(user_data.username, session=db_session)
+    if username_used:
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        error_response = RegistrationErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+        response.status_code = 400
+        return error_response
 
     try:
         logger.info("Registering user with Auth0")

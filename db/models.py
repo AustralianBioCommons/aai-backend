@@ -5,7 +5,7 @@ from typing import Optional, Self
 
 from httpx import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, String, Text, UniqueConstraint
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint, desc
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
@@ -52,6 +52,12 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     group_memberships: list["GroupMembership"] = Relationship(
         back_populates="user",
         sa_relationship_kwargs={"foreign_keys": "GroupMembership.user_id"},
+    )
+    history: list["BiocommonsUserHistory"] = Relationship(
+        back_populates="user",
+        sa_relationship_kwargs={
+            "foreign_keys": "BiocommonsUserHistory.user_id",
+            "order_by": lambda: desc(BiocommonsUserHistory.updated_at)},
     )
 
     @classmethod
@@ -141,6 +147,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.deleted_by = restored_by
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
+        self.save_history(session=session, change="user_restoration", reason=reason, updated_by=restored_by)
         session.add(self)
         session.commit()
         return self
@@ -160,6 +167,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
         self.deleted_by = deleted_by
+        self.save_history(session, change="user_deletion", reason=reason, updated_by=deleted_by)
         super().delete(session, commit=commit)
         return self
 
@@ -250,6 +258,81 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if role.name in access_token.biocommons_roles:
                 return True
         return False
+
+    def update_email(self, new_email: str, verified: bool, session: Session, updated_by: Self | None = None, commit: bool = False) -> None:
+        self.save_history(session, change="email_update", updated_by=updated_by, commit=False)
+        self.email = new_email
+        self.email_verified = verified
+        session.add(self)
+        if commit:
+            session.commit()
+
+    def update_username(self, new_username: str, session: Session, updated_by: Self | None = None,  commit: bool = False):
+        """
+        Update the user's username, checking if the new username has already been used.
+        Save the user history to preserve the old username.
+        """
+        if BiocommonsUserHistory.is_username_used(new_username, session):
+            raise ValueError(f"Username {new_username} is already in use")
+
+        # Save history before updating
+        self.save_history(session, change="username_update", updated_by=updated_by, commit=False)
+        self.username = new_username
+        session.add(self)
+        if commit:
+            session.commit()
+
+    def save_history(self, session: Session, change: str | None = None, reason: str | None = None,
+                     updated_by: Self | None = None,
+                     commit: bool = False) -> 'BiocommonsUserHistory':
+        """
+        Save a history entry for the current user. NB: should be called
+        *before* updating the user with new info
+        """
+        history = BiocommonsUserHistory.create_from_user(self, change=change, reason=reason, updated_by=updated_by)
+        session.add(history)
+        if commit:
+            session.commit()
+        return history
+
+
+class BiocommonsUserHistory(SoftDeleteModel, table=True):
+    """
+    Record history of a user (email and username changes, deletions, etc.
+    """
+    __table_args__ = (
+        Index("ix_user_id_time", "user_id", "updated_at"),
+    )
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: str = Field(foreign_key="biocommons_user.id")
+    user: "BiocommonsUser" = Relationship(
+        back_populates="history",
+        sa_relationship_kwargs={"foreign_keys": "BiocommonsUserHistory.user_id"},
+    )
+    updated_at: AwareDatetime = Field(default_factory=lambda: datetime.now(timezone.utc), sa_type=DateTime(timezone=True))
+    updated_by_id: str | None = Field(foreign_key="biocommons_user.id", nullable=True)
+    updated_by: "BiocommonsUser" = Relationship(sa_relationship_kwargs={"foreign_keys": "BiocommonsUserHistory.updated_by_id"})
+    email: str | None = Field(default=None)
+    username: str | None = Field(default=None, index=True)
+    change: str | None = Field(default=None)
+    reason: str | None = Field(default=None)
+
+    @classmethod
+    def is_username_used(cls, username: str, session: Session) -> bool:
+        query = select(BiocommonsUserHistory).where(BiocommonsUserHistory.username == username)
+        in_history = session.exec(query).first() is not None
+        active_user_query = select(BiocommonsUser).where(BiocommonsUser.username == username)
+        in_active_users = session.exec(active_user_query).first() is not None
+        return in_history or in_active_users
+
+    @classmethod
+    def create_from_user(cls, user: "BiocommonsUser",  change: str | None = None,
+                         reason: str | None = None,
+                         updated_by: BiocommonsUser | None = None,) -> Self:
+        history = cls(user_id=user.id, email=user.email, username=user.username,
+                      change=change, reason=reason, updated_by=updated_by)
+        return history
 
 
 class PlatformRoleLink(SoftDeleteModel, table=True):
@@ -1103,6 +1186,7 @@ class EmailChangeOtp(BaseModel, table=True):
 
 # Update all model references
 BiocommonsUser.model_rebuild()
+BiocommonsUserHistory.model_rebuild()
 Platform.model_rebuild()
 PlatformMembership.model_rebuild()
 PlatformMembershipHistory.model_rebuild()
