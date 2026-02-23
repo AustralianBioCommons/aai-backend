@@ -450,15 +450,31 @@ async def update_username(
             field_errors=field_errors
         )
 
+    # Update database first, commit after Auth0 update succeeds
+    try:
+        db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
+        # Flush tro check constraints
+        db_session.flush()  # ensure constraints run and the UPDATE is issued, but not committed
+    except (ValueError, IntegrityError):
+        db_session.rollback()
+        logger.error(f"Database integrity error: username {username} already exists in database")
+        response.status_code = 400
+        field_errors = [FieldError(field="username", message="Username is already taken")]
+        return FieldErrorResponse(
+            message="Username is already taken",
+            field_errors=field_errors
+        )
+
     # Update in Auth0 (need to include connection when updating username)
     update_data = UpdateUserData(username=username, connection=settings.auth0_db_connection)
     try:
         resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
     except HTTPStatusError as e:
-        logger.error(f"Error updating username: {e}")
+        logger.error(f"Error updating username in Auth0: {e}")
+        db_session.rollback()  # reverts the uncommitted username change
+
         response.status_code = 400
         if e.response.status_code == 409:
-            # Username already exists in Auth0
             field_errors = [FieldError(field="username", message="Username is already taken")]
             return FieldErrorResponse(
                 message="Username is already taken",
@@ -475,19 +491,7 @@ async def update_username(
             )
         return FieldErrorResponse(message="Unknown error.")
 
-    # Update database
-    try:
-        db_user.update_username(username, updated_by=db_user, session=db_session, commit=False)
-        db_session.commit()
-    except (ValueError, IntegrityError):
-        db_session.rollback()
-        logger.error(f"Database integrity error: username {username} already exists in database")
-        response.status_code = 400
-        field_errors = [FieldError(field="username", message="Username is already taken")]
-        return FieldErrorResponse(
-            message="Username is already taken",
-            field_errors=field_errors
-        )
+    db_session.commit()
     return resp
 
 
