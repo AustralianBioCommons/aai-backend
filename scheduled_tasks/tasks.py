@@ -4,8 +4,7 @@ from uuid import UUID
 
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy import and_, or_
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from auth.management import get_management_token
 from auth.ses import get_email_service
@@ -99,12 +98,12 @@ def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple
 
 
 def _get_group_membership_including_deleted(session: Session, user_id: str, group_id: str) -> GroupMembership | None:
-    stmt = (
-        select(GroupMembership)
-        .execution_options(include_deleted=True)
-        .where(GroupMembership.user_id == user_id, GroupMembership.group_id == group_id)
+    return GroupMembership.get_by_user_id_and_group_id(
+        user_id,
+        group_id,
+        session,
+        include_deleted=True,
     )
-    return session.exec(stmt).one_or_none()
 
 
 async def process_email_queue(
@@ -117,25 +116,11 @@ async def process_email_queue(
     session = next(get_db_session())
     try:
         now = datetime.now(timezone.utc)
-        stmt = (
-            select(EmailNotification)
-            .where(
-                or_(
-                    EmailNotification.status == EmailStatusEnum.PENDING,
-                    and_(
-                        EmailNotification.status == EmailStatusEnum.FAILED,
-                        EmailNotification.send_after.is_not(None),
-                    ),
-                ),
-                or_(
-                    EmailNotification.send_after.is_(None),
-                    EmailNotification.send_after <= now,
-                ),
-            )
-            .order_by(EmailNotification.created_at)
-            .limit(batch_size)
+        notifications = EmailNotification.get_ready_for_delivery(
+            session,
+            now=now,
+            batch_size=batch_size,
         )
-        notifications = session.exec(stmt).all()
         if not notifications:
             logger.info("No email notifications ready for delivery")
             return 0
@@ -251,7 +236,7 @@ async def sync_auth0_users():
             users = auth0_client.get_users(page=current_page, per_page=50, include_totals=True)
         # Soft delete any users no longer present in Auth0
         db_session.flush()
-        existing_users = db_session.exec(select(BiocommonsUser)).all()
+        existing_users = BiocommonsUser.list_all(db_session)
         for db_user in existing_users:
             if db_user.id not in auth0_user_ids:
                 logger.info(f"Soft deleting user {db_user.id} absent from Auth0")
@@ -327,7 +312,7 @@ async def sync_auth0_roles():
             db_roles_by_name[db_role.name] = db_role
         # Soft delete roles missing from Auth0
         db_session.flush()
-        existing_roles = db_session.exec(select(Auth0Role)).all()
+        existing_roles = Auth0Role.get_all(db_session)
         for db_role in existing_roles:
             if db_role.id not in auth0_role_ids:
                 logger.info(f"    Soft deleting role {db_role.name} ({db_role.id}) absent from Auth0")
@@ -433,7 +418,11 @@ async def sync_group_memberships_for_role(role: RoleData, auth0_client: Auth0Cli
                 logger.info(f"    Restored membership for {db_user.id} -> {group.group_id}")
     # Soft delete memberships that are approved but no longer present
     session.flush()
-    all_memberships = session.exec(select(GroupMembership).execution_options(include_deleted=True).where(GroupMembership.group_id == group.group_id)).all()
+    all_memberships = GroupMembership.list_by_group_id(
+        group.group_id,
+        session,
+        include_deleted=True,
+    )
     all_in_auth0 = {user.user_id for user in role_users}
     for membership in all_memberships:
         if membership.is_deleted:
@@ -469,12 +458,12 @@ async def sync_group_user_roles():
 
 
 def _get_platform_membership_including_deleted(session: Session, user_id: str, platform_id: str) -> PlatformMembership | None:
-    stmt = (
-        select(PlatformMembership)
-        .execution_options(include_deleted=True)
-        .where(PlatformMembership.user_id == user_id, PlatformMembership.platform_id == platform_id)
+    return PlatformMembership.get_by_user_id_and_platform_id(
+        user_id,
+        platform_id,
+        session,
+        include_deleted=True,
     )
-    return session.exec(stmt).one_or_none()
 
 
 async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0Client, session: Session):
@@ -526,7 +515,11 @@ async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0
                 logger.info(f"    Restored membership for {db_user.id} -> {platform_id}")
     # Soft delete memberships that are approved but no longer present
     session.flush()
-    all_memberships = session.exec(select(PlatformMembership).execution_options(include_deleted=True).where(PlatformMembership.platform_id == platform_id)).all()
+    all_memberships = PlatformMembership.list_by_platform_id(
+        platform_id,
+        session,
+        include_deleted=True,
+    )
     all_in_auth0 = {user.user_id for user in role_users}
     for membership in all_memberships:
         if membership.is_deleted:
@@ -624,11 +617,7 @@ async def cleanup_email_otps():
     db_session = next(get_db_session())
     try:
         now = datetime.now(timezone.utc)
-        expired = db_session.exec(
-            select(EmailChangeOtp).where(
-                (EmailChangeOtp.expires_at <= now) | (EmailChangeOtp.is_active.is_(False))
-            )
-        ).all()
+        expired = EmailChangeOtp.get_expired_or_inactive(db_session, now=now)
         if not expired:
             return
         for otp in expired:

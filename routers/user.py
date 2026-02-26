@@ -13,7 +13,7 @@ from pydantic import AliasPath, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session, select
+from sqlmodel import Session
 from starlette.responses import RedirectResponse
 
 from auth.management import get_management_token
@@ -551,13 +551,12 @@ async def update_email(
     response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
-    conflicting_user = db_session.exec(
-        select(BiocommonsUser)
-        .where(
-            BiocommonsUser.email == payload.email,
-            BiocommonsUser.id != user.access_token.sub,
-        )
-    ).one_or_none()
+    conflicting_user = BiocommonsUser.get_by_email(
+        email=str(payload.email),
+        session=db_session,
+        case_insensitive=True,
+        exclude_user_id=user.access_token.sub,
+    )
     if conflicting_user is not None:
         response.status_code = 400
         field_errors = [FieldError(field="email", message="Email is already in use by another user")]
@@ -620,14 +619,10 @@ async def continue_email_update(
 ):
     """Complete an email change by validating the OTP and updating Auth0."""
     now = datetime.now(timezone.utc)
-    otp_entry = db_session.exec(
-        select(EmailChangeOtp)
-        .where(
-            EmailChangeOtp.user_id == user.access_token.sub,
-            EmailChangeOtp.is_active.is_(True),
-        )
-        .order_by(EmailChangeOtp.created_at.desc())
-    ).first()
+    otp_entry = EmailChangeOtp.get_latest_active_for_user(
+        db_session,
+        user.access_token.sub,
+    )
     if otp_entry is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -661,13 +656,12 @@ async def continue_email_update(
             detail="Invalid OTP.",
         )
 
-    conflicting_user = db_session.exec(
-        select(BiocommonsUser)
-        .where(
-            BiocommonsUser.email == otp_entry.target_email,
-            BiocommonsUser.id != user.access_token.sub,
-        )
-    ).one_or_none()
+    conflicting_user = BiocommonsUser.get_by_email(
+        email=otp_entry.target_email,
+        session=db_session,
+        case_insensitive=True,
+        exclude_user_id=user.access_token.sub,
+    )
     if conflicting_user is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
