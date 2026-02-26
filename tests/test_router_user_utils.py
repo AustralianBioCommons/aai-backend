@@ -5,10 +5,9 @@ import pytest
 from sqlmodel import select
 
 from biocommons import emails
-from db.models import EmailNotification
+from db.models import BiocommonsUser, EmailNotification
 from db.types import EmailStatusEnum
 from routers import user, utils
-from tests.datagen import Auth0UserDataFactory
 
 
 def test_generate_otp_code_length_and_digits() -> None:
@@ -68,16 +67,19 @@ def test_mask_email_keeps_prefix_and_masks_domain() -> None:
 
 def test_recover_login_email_found_queues_notification(
     test_client,
-    mock_auth0_client,
     test_db_session,
     mocker,
 ):
     mocker.patch("routers.utils.validate_recaptcha", return_value=True)
-    auth0_user = Auth0UserDataFactory.build(
+    db_user = BiocommonsUser(
+        id="auth0|recover-email-user",
         username="example_user",
         email="abcdef@example.com",
+        email_verified=True,
+        is_deleted=False,
     )
-    mock_auth0_client.get_users.return_value = [auth0_user]
+    test_db_session.add(db_user)
+    test_db_session.commit()
 
     response = test_client.post(
         "/utils/login/recover-email",
@@ -97,12 +99,10 @@ def test_recover_login_email_found_queues_notification(
 
 def test_recover_login_email_not_found_returns_false(
     test_client,
-    mock_auth0_client,
     test_db_session,
     mocker,
 ):
     mocker.patch("routers.utils.validate_recaptcha", return_value=True)
-    mock_auth0_client.get_users.return_value = []
 
     response = test_client.post(
         "/utils/login/recover-email",
@@ -120,7 +120,6 @@ def test_recover_login_email_not_found_returns_false(
 
 def test_recover_login_email_invalid_recaptcha_returns_not_found(
     test_client,
-    mock_auth0_client,
     test_db_session,
     mocker,
 ):
@@ -135,7 +134,32 @@ def test_recover_login_email_invalid_recaptcha_returns_not_found(
     payload = response.json()
     assert payload["found"] is False
     assert "Invalid recaptcha token" in payload["message"]
-    mock_auth0_client.get_users.assert_not_called()
 
     queued = test_db_session.exec(select(EmailNotification)).all()
     assert queued == []
+
+
+def test_recover_login_email_lookup_is_case_insensitive(
+    test_client,
+    test_db_session,
+    mocker,
+):
+    mocker.patch("routers.utils.validate_recaptcha", return_value=True)
+    db_user = BiocommonsUser(
+        id="auth0|recover-email-case",
+        username="CaseSensitiveUser",
+        email="casesensitive@example.com",
+        email_verified=True,
+        is_deleted=False,
+    )
+    test_db_session.add(db_user)
+    test_db_session.commit()
+
+    response = test_client.post(
+        "/utils/login/recover-email",
+        json={"username": "casesensitiveuser", "recaptcha_token": "token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True

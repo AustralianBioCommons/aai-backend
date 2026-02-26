@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Body, Query
 from fastapi.params import Depends
 from pydantic import BaseModel, Field
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import compose_login_email_reminder
@@ -124,17 +124,17 @@ def _mask_email(email: str) -> str:
 def _find_user_by_username(
     *,
     username: str,
-    auth0_client: Auth0Client,
+    db_session: Session,
 ) -> tuple[str, str] | None:
-    q = f'username:"{username}"'
-    users = auth0_client.get_users(q=q)
-    target = username.lower()
-    for candidate in users:
-        if not candidate.username or not candidate.email:
-            continue
-        if candidate.username.lower() == target:
-            return candidate.username, str(candidate.email)
-    return None
+    db_user = BiocommonsUser.get_by_username(
+        username=username,
+        session=db_session,
+        case_insensitive=True,
+        include_deleted=False,
+    )
+    if db_user is None:
+        return None
+    return db_user.username, db_user.email
 
 
 @router.get("/register/check-username-availability", response_model=AvailabilityResponse)
@@ -198,7 +198,6 @@ async def get_registration_info(
 )
 async def recover_login_email(
     payload: Annotated[UsernameLookupRequest, Body()],
-    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
     db_session: Annotated[Session, Depends(get_db_session)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
@@ -212,7 +211,7 @@ async def recover_login_email(
             message="Invalid recaptcha token, please try again",
         )
 
-    found = _find_user_by_username(username=payload.username, auth0_client=auth0_client)
+    found = _find_user_by_username(username=payload.username, db_session=db_session)
     if found is None:
         return UsernameLookupResponse(
             found=False,
@@ -232,17 +231,6 @@ async def recover_login_email(
         body_html=body_html,
     )
     db_session.commit()
-
-    db_user = db_session.exec(
-        select(BiocommonsUser).where(BiocommonsUser.username == canonical_username)
-    ).one_or_none()
-    if db_user is not None and db_user.email.lower() != email.lower():
-        logger.warning(
-            "Username %s has mismatched DB/Auth0 emails (db=%s, auth0=%s)",
-            canonical_username,
-            db_user.email,
-            email,
-        )
 
     return UsernameLookupResponse(
         found=True,
