@@ -30,6 +30,7 @@ from biocommons.emails import (
     compose_group_membership_approved_email,
     compose_username_change_notification,
     format_first_name,
+    get_default_sender_email,
 )
 from config import Settings, get_settings
 from db.models import (
@@ -866,7 +867,7 @@ def update_user_email(
         to_address=old_email,
         subject=subject,
         body_html=body_html,
-        from_address=settings.default_email_sender,
+        from_address=get_default_sender_email(settings),
     )
     db_session.commit()
 
@@ -968,7 +969,7 @@ def update_user_username(
         to_address=db_user.email,
         subject=subject,
         body_html=body_html,
-        from_address=settings.default_email_sender,
+        from_address=get_default_sender_email(settings),
     )
     db_session.commit()
 
@@ -1130,10 +1131,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         enqueue_email(
             db_session,
             to_address=membership.user.email,
-            from_address=(
-                settings.no_reply_email_sender
-                or settings.default_email_sender
-            ),
+            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
         )

@@ -7,6 +7,7 @@ from sqlmodel import Session
 from starlette.responses import JSONResponse, Response
 
 from auth0.client import Auth0Client, get_auth0_client
+from biocommons.emails import get_default_sender_email
 from config import Settings, get_settings
 from db.models import BiocommonsUser, BiocommonsUserHistory, Platform, PlatformEnum
 from db.setup import get_db_session
@@ -77,7 +78,7 @@ def queue_sbp_admin_notifications(
         enqueue_email(
             db_session,
             to_address=email,
-            from_address=settings.default_email_sender,
+            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
         )
