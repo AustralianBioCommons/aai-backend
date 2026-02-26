@@ -25,6 +25,7 @@ from auth0.user_info import UserInfo, get_auth0_user_info
 from biocommons.emails import (
     compose_email_change_otp_email,
     compose_group_approval_email,
+    get_default_sender_email,
     get_group_admin_contacts,
     get_requester_identity,
 )
@@ -376,7 +377,7 @@ def request_group_access(
         enqueue_email(
             db_session,
             to_address=email,
-            from_address=settings.default_email_sender,
+            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
         )
