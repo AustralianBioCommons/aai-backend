@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from biocommons.emails import (
+    compose_login_email_reminder,
     format_first_name,
     format_full_name,
     get_default_sender_email,
@@ -93,3 +94,13 @@ def test_get_group_admin_contacts_dedupes_and_falls_back(mocker):
         "b@example.com": "Bea",
         "c@example.com": "Charlie",
     }
+
+
+def test_compose_login_email_reminder_contains_username_and_email():
+    subject, body = compose_login_email_reminder(
+        username="example_user",
+        email="example@example.com",
+    )
+    assert "sign-in email" in subject.lower()
+    assert "example_user" in body
+    assert "example@example.com" in body

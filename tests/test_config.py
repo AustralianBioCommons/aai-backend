@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from config import Settings
+from config import Settings, validate_backend_settings
 
 
 def _base_settings_kwargs():
@@ -93,3 +93,18 @@ def test_aai_portal_url_override_strips_trailing_slash():
 def test_unknown_environment_requires_explicit_portal_url():
     with pytest.raises(ValidationError, match="Input should be 'dev', 'staging' or 'production'"):
         Settings(_env_file=None, environment="qa", **_base_settings_kwargs())
+
+
+def test_scheduler_settings_can_omit_recaptcha_secret():
+    kwargs = _base_settings_kwargs()
+    kwargs.pop("recaptcha_secret")
+    settings = Settings(_env_file=None, **kwargs)
+    assert settings.recaptcha_secret is None
+
+
+def test_backend_settings_require_recaptcha_secret():
+    kwargs = _base_settings_kwargs()
+    kwargs.pop("recaptcha_secret")
+    settings = Settings(_env_file=None, **kwargs)
+    with pytest.raises(ValueError, match="RECAPTCHA_SECRET"):
+        validate_backend_settings(settings)

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     # Optional: issuer may be different to the auth0_domain if
     #   a custom domain is used
     auth0_issuer: Optional[str] = None
-    recaptcha_secret: str
+    recaptcha_secret: Optional[str] = None
     auth0_db_connection: str = "Username-Password-Authentication"
     jwt_secret_key: str
     auth0_algorithms: list[str] = ["RS256"]
@@ -76,6 +76,14 @@ class Settings(BaseSettings):
             return None
         return value.rstrip("/")
 
+    @field_validator("recaptcha_secret", mode="before")
+    @classmethod
+    def normalize_recaptcha_secret(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = str(value).strip()
+        return stripped or None
+
     @model_validator(mode="after")
     def set_default_aai_portal_url(self) -> "Settings":
         if self.aai_portal_url:
@@ -107,3 +115,12 @@ class Settings(BaseSettings):
 @lru_cache()
 def get_settings():
     return Settings()
+
+
+def validate_backend_settings(settings: Settings) -> None:
+    """
+    Validate settings that are mandatory for the FastAPI backend runtime.
+    Scheduler/background jobs may not require all of these values.
+    """
+    if settings.recaptcha_secret is None:
+        raise ValueError("RECAPTCHA_SECRET must be configured for backend API runtime.")

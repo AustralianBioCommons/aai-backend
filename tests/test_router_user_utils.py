@@ -2,9 +2,13 @@ import hashlib
 from datetime import datetime, timezone
 
 import pytest
+from sqlmodel import select
 
 from biocommons import emails
-from routers import user
+from db.models import EmailNotification
+from db.types import EmailStatusEnum
+from routers import user, utils
+from tests.datagen import Auth0UserDataFactory
 
 
 def test_generate_otp_code_length_and_digits() -> None:
@@ -55,3 +59,83 @@ def test_ensure_datetime_preserves_existing_timezone() -> None:
 def test_ensure_datetime_consistency(value: datetime) -> None:
     result = user._ensure_datetime_is_aware(value)
     assert result.tzinfo == timezone.utc
+
+
+def test_mask_email_keeps_prefix_and_masks_domain() -> None:
+    masked = utils._mask_email("abcdef@example.com")
+    assert masked == "ab***f@ex****e.c**"
+
+
+def test_recover_login_email_found_queues_notification(
+    test_client,
+    mock_auth0_client,
+    test_db_session,
+    mocker,
+):
+    mocker.patch("routers.utils.validate_recaptcha", return_value=True)
+    auth0_user = Auth0UserDataFactory.build(
+        username="example_user",
+        email="abcdef@example.com",
+    )
+    mock_auth0_client.get_users.return_value = [auth0_user]
+
+    response = test_client.post(
+        "/utils/login/recover-email",
+        json={"username": "example_user", "recaptcha_token": "token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is True
+    assert payload["masked_email"] == "ab***f@ex****e.c**"
+
+    queued = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued) == 1
+    assert queued[0].to_address == "abcdef@example.com"
+    assert queued[0].status == EmailStatusEnum.PENDING
+
+
+def test_recover_login_email_not_found_returns_false(
+    test_client,
+    mock_auth0_client,
+    test_db_session,
+    mocker,
+):
+    mocker.patch("routers.utils.validate_recaptcha", return_value=True)
+    mock_auth0_client.get_users.return_value = []
+
+    response = test_client.post(
+        "/utils/login/recover-email",
+        json={"username": "unknown_user", "recaptcha_token": "token"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is False
+    assert payload["masked_email"] is None
+
+    queued = test_db_session.exec(select(EmailNotification)).all()
+    assert queued == []
+
+
+def test_recover_login_email_invalid_recaptcha_returns_not_found(
+    test_client,
+    mock_auth0_client,
+    test_db_session,
+    mocker,
+):
+    mocker.patch("routers.utils.validate_recaptcha", return_value=False)
+
+    response = test_client.post(
+        "/utils/login/recover-email",
+        json={"username": "unknown_user", "recaptcha_token": "invalid"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["found"] is False
+    assert "Invalid recaptcha token" in payload["message"]
+    mock_auth0_client.get_users.assert_not_called()
+
+    queued = test_db_session.exec(select(EmailNotification)).all()
+    assert queued == []

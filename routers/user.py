@@ -720,7 +720,11 @@ async def change_password(
             message="Password changes are not supported for this account."
         )
 
-    current_password_ok = auth0_client.check_user_password(auth0_user.username, password=payload.current_password, settings=settings)
+    current_password_ok = auth0_client.check_user_password(
+        auth0_user.email,
+        password=payload.current_password,
+        settings=settings,
+    )
     if not current_password_ok:
         response.status_code = 400
         field_errors = [FieldError(field="currentPassword", message="Current password is incorrect")]
