@@ -905,13 +905,11 @@ def update_user_username(
     new_username = payload.username.strip()
 
     # Check if username already exists in local database
-    existing_user = db_session.exec(
-        select(BiocommonsUser)
-        .where(
-            BiocommonsUser.username == new_username,
-            BiocommonsUser.id != user_id,
-        )
-    ).first()
+    existing_user = BiocommonsUser.get_by_username(
+        username=new_username,
+        session=db_session,
+        exclude_user_id=user_id,
+    )
 
     if existing_user:
         response.status_code = 400

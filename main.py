@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from config import get_settings, validate_backend_settings
+
 # This has to be imported even if unused
 from db import models  # noqa: F401
 from db.st_admin import setup_starlette_admin
@@ -44,6 +46,8 @@ SECRET_KEY = read_setting("JWT_SECRET_KEY")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings = get_settings()
+    validate_backend_settings(settings)
     # NOTE: we only create the database and tables automatically in development:
     # we assume that if the DB is an sqlite DB, we are in dev.
     from db.setup import create_db_and_tables

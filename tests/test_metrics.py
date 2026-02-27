@@ -15,6 +15,9 @@ def test_metrics_endpoint_disabled(test_client):
 
 def test_metrics_endpoint_enabled(monkeypatch, mock_settings, mock_galaxy_settings):
     monkeypatch.setenv("ENABLE_PROMETHEUS_METRICS", "1")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-jwt-secret")
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "http://localhost:4200")
+    monkeypatch.setenv("RECAPTCHA_SECRET", "test-recaptcha-secret")
     monkeypatch.setattr("db.st_admin.setup_starlette_admin", lambda app: None)
     instrumented_main = importlib.reload(main_module)
     app = instrumented_main.app
@@ -32,4 +35,7 @@ def test_metrics_endpoint_enabled(monkeypatch, mock_settings, mock_galaxy_settin
     finally:
         app.dependency_overrides.clear()
         monkeypatch.delenv("ENABLE_PROMETHEUS_METRICS", raising=False)
+        monkeypatch.delenv("JWT_SECRET_KEY", raising=False)
+        monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("RECAPTCHA_SECRET", raising=False)
         importlib.reload(main_module)

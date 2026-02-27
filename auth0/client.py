@@ -199,14 +199,17 @@ class Auth0Client:
             raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
 
-    def check_user_password(self, username: str, password: str, settings: Settings) -> bool:
+    def check_user_password(self, email: str, password: str, settings: Settings) -> bool:
         """
-        Verify a user's password by using the password-realm grant type
+        Verify a user's password by using the password-realm grant type.
+
+        Auth0 expects the identifier in a form field named `username`,
+        even when authenticating with an email address.
         """
         url = f"https://{settings.auth0_domain}/oauth/token"
         data = {
             "grant_type": "http://auth0.com/oauth/grant-type/password-realm",
-            "username": username,
+            "username": email,
             "password": password,
             "audience": f"https://{settings.auth0_domain}/api/v2/",
             "client_id": settings.auth0_management_id,

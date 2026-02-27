@@ -5,7 +5,7 @@ from typing import Optional, Self
 
 from httpx import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint, desc
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint, desc, func
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
@@ -73,6 +73,31 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         if user is None:
             raise HTTPException(status_code=404, detail=f"User with ID {user_id} not found")
         return user
+
+    @classmethod
+    def get_by_username(
+        cls,
+        username: str,
+        session: Session,
+        *,
+        case_insensitive: bool = False,
+        include_deleted: bool = True,
+        exclude_user_id: str | None = None,
+    ) -> Self | None:
+        """
+        Retrieve a user by username with optional matching and filtering controls.
+        """
+        username_query = (
+            func.lower(cls.username) == username.lower()
+            if case_insensitive
+            else cls.username == username
+        )
+        query = select(cls).where(username_query)
+        if not include_deleted:
+            query = query.where(cls.is_deleted.is_(False))
+        if exclude_user_id is not None:
+            query = query.where(cls.id != exclude_user_id)
+        return session.exec(query).one_or_none()
 
     @classmethod
     def has_platform_membership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
@@ -322,8 +347,7 @@ class BiocommonsUserHistory(SoftDeleteModel, table=True):
     def is_username_used(cls, username: str, session: Session) -> bool:
         query = select(BiocommonsUserHistory).where(BiocommonsUserHistory.username == username)
         in_history = session.exec(query).first() is not None
-        active_user_query = select(BiocommonsUser).where(BiocommonsUser.username == username)
-        in_active_users = session.exec(active_user_query).first() is not None
+        in_active_users = BiocommonsUser.get_by_username(username=username, session=session) is not None
         return in_history or in_active_users
 
     @classmethod

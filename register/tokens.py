@@ -34,6 +34,8 @@ def verify_registration_token(token: str, settings: Settings):
 
 
 def validate_recaptcha(token: str, settings: Settings):
+    if not settings.recaptcha_secret:
+        raise HTTPException(status_code=500, detail="RECAPTCHA_SECRET is not configured")
     response = httpx.post(
         url="https://www.google.com/recaptcha/api/siteverify",
         headers={"Content-Type": "application/x-www-form-urlencoded"},

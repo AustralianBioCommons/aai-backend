@@ -435,13 +435,11 @@ async def update_username(
 ):
     """Update the username of the current user."""
     # Check if username already exists in local database
-    existing_user = db_session.exec(
-        select(BiocommonsUser)
-        .where(
-            BiocommonsUser.username == username,
-            BiocommonsUser.id != user.access_token.sub,
-        )
-    ).first()
+    existing_user = BiocommonsUser.get_by_username(
+        username=username,
+        session=db_session,
+        exclude_user_id=user.access_token.sub,
+    )
 
     if existing_user:
         response.status_code = 400
@@ -721,7 +719,11 @@ async def change_password(
             message="Password changes are not supported for this account."
         )
 
-    current_password_ok = auth0_client.check_user_password(auth0_user.username, password=payload.current_password, settings=settings)
+    current_password_ok = auth0_client.check_user_password(
+        email=str(auth0_user.email),
+        password=payload.current_password,
+        settings=settings,
+    )
     if not current_password_ok:
         response.status_code = 400
         field_errors = [FieldError(field="currentPassword", message="Current password is incorrect")]

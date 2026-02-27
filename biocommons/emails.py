@@ -216,3 +216,24 @@ def compose_email_change_otp_email(
         "www.biocommons.org.au/access-support</a>.</p>"
     )
     return subject, body_html
+
+
+def compose_login_email_reminder(
+    *,
+    username: str,
+    email: str,
+) -> tuple[str, str]:
+    """
+    Remind a user which email address they should use to sign in.
+    """
+    subject = "Your BioCommons Access sign-in email address"
+    body_html = (
+        "<p>Hello,</p>"
+        "<p>We received a request to help with your BioCommons Access sign-in details.</p>"
+        f"<p><strong>Username:</strong> {username}<br/>"
+        f"<strong>Sign-in email:</strong> {email}</p>"
+        "<p>Please use your email address (not username) when signing in.</p>"
+        "<p>Thank you,</p>"
+        "<p>The BioCommons Access team.</p>"
+    )
+    return subject, body_html
