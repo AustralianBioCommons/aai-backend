@@ -2,6 +2,7 @@ import pytest
 
 from auth0.client import get_auth0_client
 from main import app
+from routers import utils
 from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
 
 
@@ -75,3 +76,56 @@ def test_check_username_exists_exact_match_only(override_auth0_client, test_clie
     data = resp.json()
     assert data["available"] is True
     assert data["field_errors"] == []
+
+
+def test_check_email_availability_endpoint(override_auth0_client, test_client):
+    override_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build()]
+    resp = test_client.get(
+        "/utils/register/check-email-availability",
+        params={"email": "existing@example.com"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is False
+    assert data["field_errors"][0]["field"] == "email"
+
+    override_auth0_client.search_users_by_email.return_value = []
+    resp = test_client.get(
+        "/utils/register/check-email-availability",
+        params={"email": "new@example.com"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["available"] is True
+    assert data["field_errors"] == []
+
+
+def test_check_username_exists_handles_exceptions(mocker):
+    auth0_client = mocker.Mock()
+    auth0_client.get_users.side_effect = RuntimeError("boom")
+    assert utils._check_username_exists("testuser", auth0_client) is False
+
+
+def test_check_email_exists_handles_exceptions(mocker):
+    auth0_client = mocker.Mock()
+    auth0_client.search_users_by_email.side_effect = RuntimeError("boom")
+    assert utils._check_email_exists("user@example.com", auth0_client) is False
+
+
+def test_check_existing_user_all_branches(mocker):
+    auth0_client = mocker.Mock()
+    mocker.patch("routers.utils._check_username_exists", return_value=True)
+    mocker.patch("routers.utils._check_email_exists", return_value=True)
+    assert utils.check_existing_user("u", "e@example.com", auth0_client) == "both"
+
+    mocker.patch("routers.utils._check_username_exists", return_value=True)
+    mocker.patch("routers.utils._check_email_exists", return_value=False)
+    assert utils.check_existing_user("u", "e@example.com", auth0_client) == "username"
+
+    mocker.patch("routers.utils._check_username_exists", return_value=False)
+    mocker.patch("routers.utils._check_email_exists", return_value=True)
+    assert utils.check_existing_user("u", "e@example.com", auth0_client) == "email"
+
+    mocker.patch("routers.utils._check_username_exists", return_value=False)
+    mocker.patch("routers.utils._check_email_exists", return_value=False)
+    assert utils.check_existing_user("u", "e@example.com", auth0_client) is None
