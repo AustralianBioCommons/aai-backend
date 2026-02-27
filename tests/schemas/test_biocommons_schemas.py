@@ -1,7 +1,11 @@
+from types import SimpleNamespace
+
 import pytest
+from email_validator import EmailNotValidError
 from pydantic import TypeAdapter
 
 from db.types import ApprovalStatusEnum, PlatformEnum
+from schemas import biocommons as biocommons_schema
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     PASSWORD_FORMAT_MESSAGE,
@@ -215,3 +219,86 @@ def test_invalid_email(email: str, expected_error: str):
     else:
         allowed = [expected_error]
     assert any(token in detail for token in allowed)
+
+
+def test_validate_biocommons_email_returns_normalized_value(monkeypatch):
+    monkeypatch.setattr(
+        biocommons_schema,
+        "validate_email",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            local_part="User",
+            domain="example.com",
+            ascii_domain="example.com",
+            email="User@EXAMPLE.com",
+            normalized="User@example.com",
+        ),
+    )
+
+    result = biocommons_schema._validate_biocommons_email("User@EXAMPLE.com")
+    assert result == "User@example.com"
+
+
+def test_validate_biocommons_email_wraps_validation_errors(monkeypatch):
+    def _raise(*_args, **_kwargs):
+        raise EmailNotValidError("invalid email")
+
+    monkeypatch.setattr(biocommons_schema, "validate_email", _raise)
+
+    with pytest.raises(ValueError) as exc_info:
+        biocommons_schema._validate_biocommons_email("bad-email")
+    assert "invalid email" in str(exc_info.value)
+
+
+def test_validate_biocommons_email_rejects_non_ascii_domain(monkeypatch):
+    monkeypatch.setattr(
+        biocommons_schema,
+        "validate_email",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            local_part="user",
+            domain="bücher.de",
+            ascii_domain="xn--bcher-kva.de",
+            email="user@bücher.de",
+            normalized="user@xn--bcher-kva.de",
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        biocommons_schema._validate_biocommons_email("user@bücher.de")
+    assert "Email domain must be ASCII and already transcoded." in str(exc_info.value)
+
+
+def test_validate_biocommons_email_rejects_long_local_part(monkeypatch):
+    monkeypatch.setattr(
+        biocommons_schema,
+        "validate_email",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            local_part="a" * 65,
+            domain="example.com",
+            ascii_domain="example.com",
+            email=f'{"a" * 65}@example.com',
+            normalized=f'{"a" * 65}@example.com',
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        biocommons_schema._validate_biocommons_email(f'{"a" * 65}@example.com')
+    assert "Email local part must be 64 characters or less." in str(exc_info.value)
+
+
+def test_validate_biocommons_email_rejects_long_ascii_domain(monkeypatch):
+    long_domain = ("a" * 251) + ".com"
+    monkeypatch.setattr(
+        biocommons_schema,
+        "validate_email",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            local_part="user",
+            domain=long_domain,
+            ascii_domain=long_domain,
+            email=f"user@{long_domain}",
+            normalized=f"user@{long_domain}",
+        ),
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        biocommons_schema._validate_biocommons_email(f"user@{long_domain}")
+    assert "Email domain must be 254 characters or less." in str(exc_info.value)

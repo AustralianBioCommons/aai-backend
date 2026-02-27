@@ -146,7 +146,7 @@ def _validate_biocommons_email(email: str) -> str:
             "Email domain must be 254 characters or less.",
         )
 
-    return validated.email
+    return validated.normalized
 
 
 BiocommonsEmail = Annotated[str, AfterValidator(_validate_biocommons_email)]
