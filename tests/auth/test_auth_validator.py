@@ -1,9 +1,11 @@
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 from unittest.mock import patch
 
+import jwt
 import pytest
 import respx
 
@@ -15,8 +17,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
 )
 from fastapi import HTTPException
 from httpx import Response
-from jose import jwk, jwt
-from jose.backends.cryptography_backend import CryptographyRSAKey
+from jwt.algorithms import RSAAlgorithm
 
 from auth.user_permissions import user_is_general_admin
 from auth.validator import get_rsa_key, verify_action_token, verify_jwt
@@ -132,19 +133,15 @@ def test_get_rsa_key_returns_key(mock_settings: Settings):
 
         key = get_rsa_key(token, settings=mock_settings)
         assert key is not None
-        assert isinstance(key, CryptographyRSAKey)
 
 
 def generate_dummy_rsa_key(key_id: str) -> dict:
-    """Generate a test RSA key in JWKS format using jose."""
+    """Generate a test RSA key in JWKS format."""
     # Generate RSA key pair
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    # Create JWK from the public key
-    public_jwk = jwk.construct(private_key.public_key(), algorithm="RS256")
-
-    # Convert to dict and add kid
-    jwk_dict = public_jwk.to_dict()
+    # Convert public key to JWK and add metadata
+    jwk_dict = json.loads(RSAAlgorithm.to_jwk(private_key.public_key()))
     jwk_dict["kid"] = key_id
     jwk_dict["use"] = "sig"
     jwk_dict["alg"] = "RS256"
@@ -187,7 +184,6 @@ def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
         key = get_rsa_key(token, settings=mock_settings)
         # Verify the key was found after retry
         assert key is not None
-        assert isinstance(key, CryptographyRSAKey)
         # Verify that the endpoint was called twice (cached + fresh)
         assert route.call_count == 2
 
@@ -218,7 +214,6 @@ def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Se
 
         # Verify key was found
         assert key is not None
-        assert isinstance(key, CryptographyRSAKey)
 
         # Verify endpoint was called only once (no retry needed)
         assert route.call_count == 1

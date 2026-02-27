@@ -1,9 +1,12 @@
+import json
+
 import httpx
+import jwt
 from cachetools import TTLCache
 from fastapi import HTTPException
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwk, jwt
-from jose.exceptions import ExpiredSignatureError, JWTError
+from jwt.algorithms import RSAAlgorithm
+from jwt.exceptions import ExpiredSignatureError, InvalidIssuerError, InvalidTokenError
 
 from config import Settings
 from schemas.tokens import AccessTokenPayload
@@ -16,7 +19,7 @@ KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
 def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     try:
         rsa_key = get_rsa_key(token, settings=settings)
-    except JWTError as e:
+    except InvalidTokenError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
     if rsa_key is None:
@@ -24,21 +27,33 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
             status_code=401, detail="Couldn't find a matching signing key."
         )
 
-    try:
-        # Issuer may be the Auth0 tenant domain, or the custom domain
-        #   used for the app. Allow for both
-        issuers = [f"https://{settings.auth0_domain}/"]
-        if settings.auth0_issuer is not None:
-            issuers.append(settings.auth0_issuer)
-        payload = jwt.decode(
-            token,
-            rsa_key,
-            algorithms=settings.auth0_algorithms,
-            audience=settings.auth0_audience,
-            issuer=issuers,
-        )
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    # Issuer may be the Auth0 tenant domain, or the custom domain
+    # used for the app. Try both values.
+    issuers = [f"https://{settings.auth0_domain}/"]
+    if settings.auth0_issuer is not None:
+        issuers.append(settings.auth0_issuer)
+
+    payload = None
+    last_error: InvalidTokenError | None = None
+    for issuer in issuers:
+        try:
+            payload = jwt.decode(
+                token,
+                rsa_key,
+                algorithms=settings.auth0_algorithms,
+                audience=settings.auth0_audience,
+                issuer=issuer,
+            )
+            break
+        except InvalidIssuerError as e:
+            last_error = e
+            continue
+        except InvalidTokenError as e:
+            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+    if payload is None:
+        error_detail = str(last_error) if last_error else "Invalid issuer"
+        raise HTTPException(status_code=401, detail=f"Invalid token: {error_detail}")
 
     roles_claim = "https://biocommons.org.au/roles"
     if roles_claim not in payload:
@@ -60,13 +75,13 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
     return keys
 
 
-def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True) -> jwk.RSAKey | None:  # type: ignore
+def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
     jwks = _fetch_rsa_keys(settings.auth0_domain)
     unverified_header = jwt.get_unverified_header(token)
 
     for key in jwks["keys"]:
         if key["kid"] == unverified_header["kid"]:
-            return jwk.construct(key)
+            return RSAAlgorithm.from_jwk(json.dumps(key))
 
     # Retry without cache on failure
     if retry_on_failure:
@@ -88,12 +103,12 @@ def verify_action_token(token: str, settings: Settings) -> dict:
             secret,
             algorithms=["HS256"],
             options={
-                "require_exp": True,
+                "require": ["exp"],
                 "verify_exp": True,
             }
         )
     except ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="session_token expired")
-    except JWTError:
+    except InvalidTokenError:
         raise HTTPException(status_code=401, detail="invalid session_token")
     return payload
