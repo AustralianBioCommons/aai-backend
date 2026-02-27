@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
 
 import httpx
+import jwt
 from fastapi import HTTPException
-from jose import JWTError, jwt
+from jwt.exceptions import InvalidTokenError
 
 from config import Settings
 
@@ -28,8 +29,8 @@ def verify_registration_token(token: str, settings: Settings):
     try:
         payload = jwt.decode(token, key=settings.jwt_secret_key, algorithms=[ALGORITHM])
         if payload.get("purpose") != "register":
-            raise JWTError("Invalid purpose")
-    except JWTError:
+            raise InvalidTokenError("Invalid purpose")
+    except InvalidTokenError:
         raise HTTPException(status_code=403, detail="Invalid or expired token")
 
 
