@@ -87,17 +87,47 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         Retrieve a user by username with optional matching and filtering controls.
         """
-        username_query = (
+        username_filter = (
             func.lower(cls.username) == username.lower()
             if case_insensitive
             else cls.username == username
         )
-        query = select(cls).where(username_query)
+        query = select(cls).where(username_filter)
         if not include_deleted:
             query = query.where(cls.is_deleted.is_(False))
         if exclude_user_id is not None:
             query = query.where(cls.id != exclude_user_id)
         return session.exec(query).one_or_none()
+
+    @classmethod
+    def get_by_email(
+        cls,
+        email: str,
+        session: Session,
+        *,
+        case_insensitive: bool = False,
+        include_deleted: bool = True,
+        exclude_user_id: str | None = None,
+    ) -> Self | None:
+        email_filter = (
+            func.lower(cls.email) == email.lower()
+            if case_insensitive
+            else cls.email == email
+        )
+        query = select(cls).where(email_filter)
+        if not include_deleted:
+            query = query.where(cls.is_deleted.is_(False))
+        if exclude_user_id is not None:
+            query = query.where(cls.id != exclude_user_id)
+        return session.exec(query).one_or_none()
+
+    @classmethod
+    def list_unverified(cls, session: Session) -> list[Self]:
+        return session.exec(select(cls).where(cls.email_verified.is_(False))).all()
+
+    @classmethod
+    def list_all(cls, session: Session) -> list[Self]:
+        return session.exec(select(cls)).all()
 
     @classmethod
     def has_platform_membership(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> bool:
@@ -517,12 +547,19 @@ class PlatformMembership(SoftDeleteModel, table=True):
 
     @classmethod
     def get_by_user_id(
-        cls, user_id: str, session: Session, approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None
+        cls,
+        user_id: str,
+        session: Session,
+        approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None,
+        *,
+        include_deleted: bool = False,
     ) -> list[Self]:
         query = (
             select(PlatformMembership)
             .where(PlatformMembership.user_id == user_id)
         )
+        if include_deleted:
+            query = query.execution_options(include_deleted=True)
         if isinstance(approval_status, set):
             query = query.where(PlatformMembership.approval_status.in_(approval_status))
         elif isinstance(approval_status, ApprovalStatusEnum):
@@ -530,13 +567,34 @@ class PlatformMembership(SoftDeleteModel, table=True):
         return session.exec(query).all()
 
     @classmethod
-    def get_by_user_id_and_platform_id(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> Self | None:
-        return session.exec(
-            select(PlatformMembership).where(
-                PlatformMembership.user_id == user_id,
-                PlatformMembership.platform_id == platform_id,
-            )
-        ).one_or_none()
+    def get_by_user_id_and_platform_id(
+        cls,
+        user_id: str,
+        platform_id: PlatformEnum,
+        session: Session,
+        *,
+        include_deleted: bool = False,
+    ) -> Self | None:
+        query = select(PlatformMembership).where(
+            PlatformMembership.user_id == user_id,
+            PlatformMembership.platform_id == platform_id,
+        )
+        if include_deleted:
+            query = query.execution_options(include_deleted=True)
+        return session.exec(query).one_or_none()
+
+    @classmethod
+    def list_by_platform_id(
+        cls,
+        platform_id: PlatformEnum,
+        session: Session,
+        *,
+        include_deleted: bool = False,
+    ) -> list[Self]:
+        query = select(PlatformMembership).where(PlatformMembership.platform_id == platform_id)
+        if include_deleted:
+            query = query.execution_options(include_deleted=True)
+        return session.exec(query).all()
 
     @classmethod
     def get_by_user_id_and_platform_id_or_404(cls, user_id: str, platform_id: PlatformEnum, session: Session) -> Self:
@@ -736,7 +794,12 @@ class GroupMembership(SoftDeleteModel, table=True):
 
     @classmethod
     def get_by_user_id(
-        cls, user_id: str, session: Session, approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None
+        cls,
+        user_id: str,
+        session: Session,
+        approval_status: set[ApprovalStatusEnum] | ApprovalStatusEnum | None = None,
+        *,
+        include_deleted: bool = False,
     ) -> list[Self]:
         query = (
             select(GroupMembership)
@@ -744,6 +807,8 @@ class GroupMembership(SoftDeleteModel, table=True):
                 GroupMembership.user_id == user_id,
             )
         )
+        if include_deleted:
+            query = query.execution_options(include_deleted=True)
         if isinstance(approval_status, set):
             query = query.where(GroupMembership.approval_status.in_(approval_status))
         elif isinstance(approval_status, ApprovalStatusEnum):
@@ -751,13 +816,34 @@ class GroupMembership(SoftDeleteModel, table=True):
         return session.exec(query).all()
 
     @classmethod
-    def get_by_user_id_and_group_id(cls, user_id: str, group_id: str, session: Session) -> Self | None:
-        return session.exec(
-            select(GroupMembership).where(
-                GroupMembership.user_id == user_id,
-                GroupMembership.group_id == group_id,
-            )
-        ).one_or_none()
+    def get_by_user_id_and_group_id(
+        cls,
+        user_id: str,
+        group_id: str,
+        session: Session,
+        *,
+        include_deleted: bool = False,
+    ) -> Self | None:
+        query = select(GroupMembership).where(
+            GroupMembership.user_id == user_id,
+            GroupMembership.group_id == group_id,
+        )
+        if include_deleted:
+            query = query.execution_options(include_deleted=True)
+        return session.exec(query).one_or_none()
+
+    @classmethod
+    def list_by_group_id(
+        cls,
+        group_id: str,
+        session: Session,
+        *,
+        include_deleted: bool = False,
+    ) -> list[Self]:
+        query = select(GroupMembership).where(GroupMembership.group_id == group_id)
+        if include_deleted:
+            query = query.execution_options(include_deleted=True)
+        return session.exec(query).all()
 
     def delete(self, session: Session, commit: bool = False) -> "GroupMembership":
         history_entries = session.exec(
@@ -1191,6 +1277,28 @@ class EmailNotification(BaseModel, table=True):
         self.send_after = retry_time
         self.updated_at = datetime.now(timezone.utc)
 
+    @classmethod
+    def get_ready_for_delivery(
+        cls,
+        session: Session,
+        *,
+        now: datetime,
+        batch_size: int,
+    ) -> list["EmailNotification"]:
+        return session.exec(
+            select(cls)
+            .where(
+                (cls.status == EmailStatusEnum.PENDING)
+                | (
+                    (cls.status == EmailStatusEnum.FAILED)
+                    & (cls.send_after.is_not(None))
+                ),
+                (cls.send_after.is_(None)) | (cls.send_after <= now),
+            )
+            .order_by(cls.created_at)
+            .limit(batch_size)
+        ).all()
+
 
 class EmailChangeOtp(BaseModel, table=True):
     __tablename__ = "email_change_otps"
@@ -1206,6 +1314,23 @@ class EmailChangeOtp(BaseModel, table=True):
     expires_at: AwareDatetime = Field(sa_type=DateTime(timezone=True))
     is_active: bool = Field(default=True)
     total_attempts: int = Field(default=0)
+
+    @classmethod
+    def get_latest_active_for_user(cls, session: Session, user_id: str) -> Self | None:
+        return session.exec(
+            select(cls)
+            .where(
+                cls.user_id == user_id,
+                cls.is_active.is_(True),
+            )
+            .order_by(cls.created_at.desc())
+        ).first()
+
+    @classmethod
+    def get_expired_or_inactive(cls, session: Session, *, now: datetime) -> list[Self]:
+        return session.exec(
+            select(cls).where((cls.expires_at <= now) | (cls.is_active.is_(False)))
+        ).all()
 
 
 # Update all model references

@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Sequence
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from auth0.client import Auth0Client
 from db.models import BiocommonsUser
@@ -28,7 +28,7 @@ def refresh_unverified_users(session: Session, auth0_client: Auth0Client):
             logger.info(f"Skipping refresh of unverified users: last refresh was {LAST_UNVERIFIED_REFRESH_TIME}")
             return
     LAST_UNVERIFIED_REFRESH_TIME = datetime.now(UTC)
-    unverified_users: Sequence[BiocommonsUser] = session.exec(select(BiocommonsUser).where(BiocommonsUser.email_verified.is_(False))).all()
+    unverified_users: Sequence[BiocommonsUser] = BiocommonsUser.list_unverified(session)
     try:
         for user in unverified_users:
             auth0_data = auth0_client.get_user(user.id)

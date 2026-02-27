@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
-from sqlmodel import select
+from sqlmodel import Session, select
 
 from db.models import (
     Auth0Role,
@@ -49,6 +49,16 @@ from tests.db.datagen import (
     PlatformFactory,
     PlatformMembershipFactory,
 )
+
+
+def _task_session_iter(bind):
+    while True:
+        yield Session(bind)
+
+
+def _get_notification_fresh(test_db_session, notification_id):
+    with Session(test_db_session.get_bind()) as fresh_session:
+        return fresh_session.get(EmailNotification, notification_id)
 
 
 @pytest.mark.asyncio
@@ -103,10 +113,9 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     mocker.patch("scheduled_tasks.tasks.get_settings")
     mocker.patch("scheduled_tasks.tasks.get_management_token")
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER")
-    mocker.patch.object(test_db_session, "close", return_value=None)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, object()),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     await sync_auth0_users()
@@ -136,10 +145,9 @@ async def test_update_auth0_user_updates_existing(test_db_session, mocker, persi
         username=user_data.username,
         email_verified=False,
     )
-    mocker.patch.object(test_db_session, "close", return_value=None)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, object()),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     await update_auth0_user(user_data=user_data)
@@ -154,10 +162,9 @@ async def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
     Missing users are created when encountered during the update.
     """
     user_data = Auth0UserDataFactory.build()
-    mocker.patch.object(test_db_session, "close", return_value=None)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, object()),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     result = await update_auth0_user(user_data=user_data)
@@ -354,10 +361,9 @@ async def test_sync_auth0_roles_updates_and_soft_deletes(mocker, test_db_session
     mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
-    mocker.patch.object(test_db_session, "close", return_value=None)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, object()),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     await sync_auth0_roles()
@@ -447,10 +453,9 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
     mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
-    mocker.patch.object(test_db_session, "close", return_value=None)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     await sync_group_user_roles()
@@ -507,7 +512,7 @@ async def test_populate_db_groups_only_adds_missing(test_db_session, mocker, moc
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     BiocommonsGroupFactory.create_sync(group_id=TestGroups.TSI.value)
@@ -591,10 +596,9 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
     mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
-    mocker.patch.object(test_db_session, "close", return_value=None)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=(test_db_session for _ in range(1)),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     await sync_platform_user_roles()
@@ -655,7 +659,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
 
@@ -664,7 +668,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
     assert scheduled == 1
     mock_scheduler.assert_called_once()
     await send_email_notification(notification_id)
-    updated = test_db_session.get(EmailNotification, notification_id)
+    updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.SENT
     mock_service.send.assert_called_once_with(
         "user@example.com",
@@ -690,7 +694,7 @@ async def test_send_email_notification_uses_custom_sender(test_db_session, mocke
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
     await send_email_notification(notification_id)
@@ -701,7 +705,7 @@ async def test_send_email_notification_uses_custom_sender(test_db_session, mocke
         "<p>Test</p>",
         sender="custom@example.com",
     )
-    updated = test_db_session.get(EmailNotification, notification_id)
+    updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.SENT
 
 
@@ -722,7 +726,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
     mocker.patch("scheduled_tasks.tasks.next_retry_delay_seconds", return_value=900)
@@ -732,7 +736,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
     assert scheduled == 1
     mock_scheduler.assert_called_once()
     await send_email_notification(notification_id)
-    updated = test_db_session.get(EmailNotification, notification_id)
+    updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.FAILED
     assert updated.last_error is not None
     assert updated.send_after is not None
@@ -766,13 +770,13 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
 
     await process_email_queue()
     await send_email_notification(notification_id)
-    updated = test_db_session.get(EmailNotification, notification_id)
+    updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.FAILED
     assert updated.send_after is None
 
@@ -794,7 +798,7 @@ async def test_process_email_queue_skips_when_max_attempts_reached(test_db_sessi
 
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
 
@@ -802,7 +806,7 @@ async def test_process_email_queue_skips_when_max_attempts_reached(test_db_sessi
 
     assert scheduled == 0
     mock_scheduler.assert_not_called()
-    updated = test_db_session.get(EmailNotification, notification_id)
+    updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.FAILED
     assert updated.send_after is None
 
@@ -828,7 +832,7 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
 
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
-        return_value=iter(lambda: test_db_session, None),
+        return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER.add_job")
 
@@ -836,6 +840,6 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
 
     assert scheduled == 0
     mock_scheduler.assert_not_called()
-    updated = test_db_session.get(EmailNotification, notification_id)
+    updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.FAILED
     assert updated.send_after is None

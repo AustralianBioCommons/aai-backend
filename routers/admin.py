@@ -461,16 +461,14 @@ class UserQueryParams(BaseModel):
         group_filter = self.filter_by is not None and self.filter_by in GROUP_MAPPING
         if self.group or group_filter:
             group_id = self.group or GROUP_MAPPING[self.filter_by]["enum"].value
-            group_statement = select(BiocommonsGroup).where(BiocommonsGroup.group_id == group_id)
-            group = db_session.exec(group_statement).one_or_none()
+            group = BiocommonsGroup.get_by_id(group_id, db_session)
             if group is None:
                 raise HTTPException(status_code=404, detail=f"Group '{self.group or self.filter_by}' not found")
 
         platform_filter = self.filter_by is not None and self.filter_by in PLATFORM_MAPPING
         if self.platform or platform_filter:
             platform_id = self.platform or PLATFORM_MAPPING[self.filter_by]["enum"]
-            platform_statement = select(Platform).where(Platform.id == platform_id)
-            platform = db_session.exec(platform_statement).one_or_none()
+            platform = Platform.get_by_id(platform_id, db_session)
             if platform is None:
                 raise HTTPException(status_code=404, detail=f"Platform '{platform_id}' not found")
 
@@ -820,12 +818,12 @@ def update_user_email(
             field_errors=field_errors
         )
 
-    conflicting_user = db_session.exec(
-        select(BiocommonsUser).where(
-            func.lower(BiocommonsUser.email) == new_email.lower(),
-            BiocommonsUser.id != user_id,
-        )
-    ).one_or_none()
+    conflicting_user = BiocommonsUser.get_by_email(
+        email=new_email,
+        session=db_session,
+        case_insensitive=True,
+        exclude_user_id=user_id,
+    )
     if conflicting_user is not None:
         response.status_code = 400
         field_errors = [FieldError(field="email", message="Email is already in use by another user")]
