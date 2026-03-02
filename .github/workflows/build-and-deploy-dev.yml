@@ -8,14 +8,39 @@ permissions:
   id-token: write
 
 env:
-  AWS_REGION: ap-southeast-2
-  IMAGE_REPO: 498096047392.dkr.ecr.ap-southeast-2.amazonaws.com/aai-backend
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  IMAGE_REPO: ${{ secrets.AWS_ECR_IMAGE_REPO }}
 
 jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate required secrets
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ECR_IMAGE_REPO: ${{ secrets.AWS_ECR_IMAGE_REPO }}
+          AWS_ROLE_ECR_PUSH: ${{ secrets.AWS_ROLE_ECR_PUSH }}
+          AWS_ROLE_BACKEND_DEPLOY_DEV: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_DEV }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_REGION}" ]; then
+            echo "Missing required secret AWS_REGION" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ECR_IMAGE_REPO}" ]; then
+            echo "Missing required secret AWS_ECR_IMAGE_REPO" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ROLE_ECR_PUSH}" ]; then
+            echo "Missing required secret AWS_ROLE_ECR_PUSH" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ROLE_BACKEND_DEPLOY_DEV}" ]; then
+            echo "Missing required secret AWS_ROLE_BACKEND_DEPLOY_DEV" >&2
+            exit 1
+          fi
 
       - uses: docker/setup-buildx-action@v3
 
@@ -83,6 +108,15 @@ jobs:
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Configure AWS credentials for dev deploy
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_DEV }}
+          role-session-name: backend-dev-deploy
+          aws-region: ${{ env.AWS_REGION }}
+          role-chaining: true
+          role-skip-session-tagging: true
 
       - name: Deploy dev backend via Lambda
         env:
