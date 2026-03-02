@@ -1,5 +1,3 @@
-__all__ = ["Auth0Client"]
-
 import time
 from typing import Optional, Type, TypeVar
 

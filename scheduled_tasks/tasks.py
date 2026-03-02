@@ -361,6 +361,7 @@ def link_admin_roles(session: Session, db_roles_by_name: dict[str, Auth0Role]) -
                 group.admin_roles.append(role)
                 session.add(group)
 
+
 class MembershipSyncStatus(BaseModel):
     created: bool
     restored: bool
