@@ -40,7 +40,8 @@ dev = [
     "freezegun>=1.5.2",
     "respx>=0.22.0",
     "mimesis~=18.0",
-    "moto>=5.0.5"
+    "moto>=5.0.5",
+    "faker>=40.4.0",
 ]
 
 [tool.pytest.ini_options]
