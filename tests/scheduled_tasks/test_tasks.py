@@ -26,6 +26,7 @@ from scheduled_tasks.email_retry import (
 )
 from scheduled_tasks.tasks import (
     ExportedUser,
+    UserSyncConflictError,
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
     export_auth0_users,
@@ -309,6 +310,26 @@ def test_ensure_user_no_restore_if_blocked(test_db_session, persistent_factories
     assert created is False
     assert restored is False
     assert user.is_deleted is True
+
+
+def test_ensure_user_from_auth0_raises_on_username_conflict(test_db_session, persistent_factories):
+    existing = BiocommonsUserFactory.create_sync(
+        id="auth0|existing-user",
+        email="existing.user@example.com",
+        username="same_username",
+    )
+    assert existing is not None
+
+    conflicting_user_data = Auth0UserDataFactory.build(
+        user_id="auth0|different-user",
+        email="different.user@example.com",
+        username="same_username",
+        email_verified=True,
+        blocked=False,
+    )
+
+    with pytest.raises(UserSyncConflictError, match="username 'same_username'"):
+        _ensure_user_from_auth0(test_db_session, conflicting_user_data)
 
 
 def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, persistent_factories):

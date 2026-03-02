@@ -15,7 +15,7 @@ def job_listener(event: JobExecutionEvent):
         if event.code == EVENT_JOB_EXECUTED:
             logger.info("job executed successfully")
         elif event.code == EVENT_JOB_ERROR:
-            logger.error("job failed: {event.exception}\n{event.traceback}")
+            logger.error(f"job failed: {event.exception}\n{event.traceback}")
         elif event.code == EVENT_JOB_MISSED:
             logger.warning("job missed its run time")
 
