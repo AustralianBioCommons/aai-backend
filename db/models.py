@@ -172,9 +172,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             db_session.commit()
         return user
 
-    def admin_delete(self, deleted_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
+    def soft_delete(self, deleted_by: Self, reason: str | None, session: Session, auth0_client: Auth0Client):
         """
-        Delete the user, when actioned by an admin. Soft delete the user in Auth0 and then in the database.
+        Soft delete the user in Auth0 and then in the database.
         Preserve memberships to platforms and groups.
         """
         logger.info(f"Blocking user {self.id} from Auth0")
@@ -221,7 +221,12 @@ class BiocommonsUser(SoftDeleteModel, table=True):
 
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
-        self.deleted_by = deleted_by
+
+        if deleted_by is not None and deleted_by.id == self.id:
+            self.deleted_by_id = self.id
+        else:
+            self.deleted_by = deleted_by
+
         self.save_history(session, change="user_deletion", reason=reason, updated_by=deleted_by)
         super().delete(session, commit=commit)
         return self

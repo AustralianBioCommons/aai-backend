@@ -1097,3 +1097,36 @@ def test_finish_migrate_password_missing_sub(
     assert response.status_code == 400
     assert "Invalid session token" in response.json()["detail"]
     mock_auth0_client.update_user.assert_not_called()
+
+
+def test_delete_own_account_success(
+    test_client,
+    test_db_session,
+    mocker,
+    persistent_factories,
+    mock_auth0_client,
+):
+    """User can delete their own account; DB user is soft-deleted and Auth0 is blocked."""
+    db_user = BiocommonsUserFactory.create_sync(group_memberships=[], platform_memberships=[])
+    test_db_session.flush()
+
+    _act_as_user(mocker, db_user)
+
+    response = test_client.post("/me/profile/delete", headers={"Authorization": "Bearer valid_token"})
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Account deleted successfully."}
+
+    mock_auth0_client.update_user.assert_called_once()
+    call_kwargs = mock_auth0_client.update_user.call_args.kwargs
+    assert call_kwargs["user_id"] == db_user.id
+    assert call_kwargs["update_data"].blocked is True
+
+    test_db_session.refresh(db_user)
+    assert db_user.is_deleted is True
+
+
+def test_delete_own_account_requires_auth(test_client):
+    """Unauthenticated request to delete account is rejected."""
+    response = test_client.post("/me/profile/delete")
+    assert response.status_code == 401
