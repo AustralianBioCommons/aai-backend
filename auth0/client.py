@@ -1,5 +1,6 @@
 __all__ = ["Auth0Client"]
 
+import time
 from typing import Optional, Type, TypeVar
 
 import httpx
@@ -77,6 +78,11 @@ class RoleUsersWithTotals(BaseModel):
     start: int
     limit: int
     total: int
+
+
+class RoleUsersWithCheckpoint(BaseModel):
+    users: list[RoleUserData]
+    next: str | None = None
 
 
 class EmailVerificationResponse(BaseModel):
@@ -340,7 +346,13 @@ class Auth0Client:
         resp.raise_for_status()
         return RoleData(**resp.json())
 
-    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[RoleUserData] | RoleUsersWithTotals:
+    def get_role_users(self,
+                       role_id: str,
+                       page: Optional[int] = None,
+                       per_page: Optional[int] = None,
+                       include_totals: Optional[bool] = False,
+                       take: Optional[int] = None,
+                       checkpoint: Optional[str] = None) -> list[RoleUserData] | RoleUsersWithTotals | RoleUsersWithCheckpoint:
         url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
         params = {}
         if page is not None:
@@ -349,22 +361,32 @@ class Auth0Client:
             params["per_page"] = per_page
         if include_totals is not None:
             params["include_totals"] = include_totals
+        if take is not None:
+            params["take"] = take
+        if checkpoint is not None:
+            params["from"] = checkpoint
         resp = self._client.get(url, params=params or None)
         resp.raise_for_status()
         if include_totals:
             return RoleUsersWithTotals(**resp.json())
+        if take:
+            return RoleUsersWithCheckpoint(**resp.json())
         return [RoleUserData(**raw) for raw in resp.json()]
 
     def get_all_role_users(self, role_id: str) -> list[RoleUserData]:
-        page = 0
-        per_page = 100
+        take= 100
+        checkpoint: str | None = None
         users = []
         while True:
-            page_users: RoleUsersWithTotals = self.get_role_users(role_id, page=page, per_page=per_page, include_totals=True)
+            page_users: RoleUsersWithCheckpoint = self.get_role_users(role_id, take=take, checkpoint=checkpoint)
             users.extend(page_users.users)
-            if len(users) >= page_users.total:
+
+            if page_users.next is None:
                 break
-            page += 1
+
+            checkpoint = page_users.next
+            # Sleep to avoid Auth0 rate limits
+            time.sleep(0.5)
         return users
 
     def create_role(self, name: str, description: str) -> RoleData:
