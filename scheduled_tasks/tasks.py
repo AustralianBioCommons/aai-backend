@@ -242,7 +242,7 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
                 user_id=row["user_id"].lstrip("'"),
                 email=row["email"].lstrip("'"),
                 email_verified=row["email_verified"],
-                username=row["username"].lstrip("'"),
+                username=row["username"].lstrip("'") or None,
                 blocked=row["blocked"],
                 updated_at=row["updated_at"],
             ))
