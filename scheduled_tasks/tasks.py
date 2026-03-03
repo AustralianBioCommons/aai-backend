@@ -1,9 +1,14 @@
+import csv
 import re
+import tempfile
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 from uuid import UUID
 
+from httpx import HTTPStatusError
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlmodel import Session
 
 from auth.management import get_management_token
@@ -47,7 +52,24 @@ from schemas.auth0 import (
 from schemas.biocommons import Auth0UserData
 
 
-def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData) -> tuple[BiocommonsUser, bool, bool]:
+class ExportedUser(BaseModel):
+    user_id: str
+    email: str
+    email_verified: bool
+    username: str | None
+    blocked: bool
+    updated_at: datetime
+
+    @field_validator("email_verified", "blocked", mode="before")
+    @classmethod
+    def _empty_to_false(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            if value == "":
+                return False
+        return value
+
+
+def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData | ExportedUser) -> tuple[BiocommonsUser, bool, bool]:
     """
     Ensure the Auth0 user exists in the database, creating or restoring if required.
 
@@ -206,34 +228,71 @@ async def send_email_notification(
         session.close()
 
 
+def parse_auth0_export(path: Path) -> list[ExportedUser]:
+    """
+    Parse Auth0 export csv into a list of ExportedUser objects.
+
+    Auth0 export prepends string fields with '
+    """
+    parsed = []
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            parsed.append(ExportedUser(
+                user_id=row["user_id"].lstrip("'"),
+                email=row["email"].lstrip("'"),
+                email_verified=row["email_verified"],
+                username=row["username"].lstrip("'"),
+                blocked=row["blocked"],
+                updated_at=row["updated_at"],
+            ))
+    return parsed
+
+
+async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
+    """
+    Export all users to CSV and return a list
+    """
+    fields = [
+        {"name": "user_id"},
+        {"name": "email"},
+        {"name": "email_verified"},
+        {"name": "username"},
+        {"name": "blocked"},
+        {"name": "updated_at"}
+    ]
+    temp_dir = tempfile.TemporaryDirectory()
+    temp_path = Path(temp_dir.name) / "auth0_users.csv"
+
+    logger.info(f"Exporting Auth0 users to {temp_path}")
+    try:
+        auth0_client.export_and_download_users(download_path=temp_path, fields=fields)
+    except HTTPStatusError as exc:
+        logger.error(f"Failed to export Auth0 users: {exc}")
+        logger.error(f"Response: {exc.response.content}")
+        raise exc
+    return parse_auth0_export(temp_path)
+
+
 async def sync_auth0_users():
     logger.info("Syncing Auth0 users")
     logger.info("Setting up Auth0 client")
     settings = get_settings()
     token = get_management_token(settings=settings)
     auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    current_page = 1
-    logger.info("Fetching users")
-    users = auth0_client.get_users(page=current_page, per_page=50, include_totals=True)
+    users = await export_auth0_users(auth0_client)
     db_session = next(get_db_session())
     auth0_user_ids: set[str] = set()
     try:
-        while True:
-            for user in users.users:
-                auth0_user_ids.add(user.user_id)
-                _ensure_user_from_auth0(db_session, user)
-                SCHEDULER.add_job(
-                    update_auth0_user,
-                    args=[user],
-                    id=f"update_user_{user.user_id}",
-                    replace_existing=True,
-                )
-            current_fetched = users.start + len(users.users)
-            if current_fetched >= users.total:
-                break
-            current_page += 1
-            logger.info(f"Fetching page {current_page}")
-            users = auth0_client.get_users(page=current_page, per_page=50, include_totals=True)
+        for user in users:
+            auth0_user_ids.add(user.user_id)
+            _ensure_user_from_auth0(db_session, user)
+            SCHEDULER.add_job(
+                update_auth0_user,
+                args=[user],
+                id=f"update_user_{user.user_id}",
+                replace_existing=True,
+            )
         # Soft delete any users no longer present in Auth0
         db_session.flush()
         existing_users = BiocommonsUser.list_all(db_session)
