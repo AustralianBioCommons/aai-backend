@@ -244,6 +244,11 @@ class Auth0Client:
         return JobStatus(**resp.json())
 
     def export_and_download_users(self, download_path: pathlib.Path, fields: Optional[list[dict]] = None, timeout: int = 300):
+        """
+        Export Auth0 users to a CSV file and download it.
+
+        NOTE: the Auth0 export has some quirks, e.g. string fields are preceded by '.
+        """
         job_id = self.start_user_export(fields=fields)
 
         location = None
@@ -269,12 +274,13 @@ class Auth0Client:
             raise RuntimeError(f"User export job {job_id} failed to return location.")
 
         logger.info(f"User export job {job_id} completed successfully. Downloading from {location}...")
-        download = self._client.get(location)
+        # Don't use client for this, we don't want the auth header here
+        download = httpx.get(location)
         download.raise_for_status()
 
         content = download.content
-        # Check for gzip compression
-        if download.headers.get("Content-Encoding") == "gzip":
+        # Check for GZIP magic number
+        if content.startswith(b"\x1f\x8b"):
             content = gzip.decompress(content)
             csv_data = content.decode("utf-8")
         else:
