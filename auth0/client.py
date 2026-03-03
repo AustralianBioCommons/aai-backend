@@ -456,7 +456,7 @@ class Auth0Client:
         resp.raise_for_status()
         if include_totals:
             return RoleUsersWithTotals(**resp.json())
-        if take:
+        if take is not None:
             return RoleUsersWithCheckpoint(**resp.json())
         return [RoleUserData(**raw) for raw in resp.json()]
 
