@@ -232,7 +232,7 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
     """
     Parse Auth0 export csv into a list of ExportedUser objects.
 
-    Auth0 export prepends string fields with '
+    Auth0 export prepends string fields with ' so these need to be stripped
     """
     parsed = []
     with open(path, "r", encoding="utf-8") as f:
