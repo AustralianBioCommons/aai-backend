@@ -268,7 +268,7 @@ class Auth0Client:
             elif job_status.status == "cancelled":
                 raise RuntimeError(f"User export job {job_id} was cancelled.")
             elif job_status.status == "waiting":
-                print(f"User export job {job_id} is waiting to start. Retrying in 1 second...")
+                logger.info(f"User export job {job_id} is waiting to start. Retrying in 1 second...")
 
         if location is None:
             raise RuntimeError(f"User export job {job_id} failed to return location.")
