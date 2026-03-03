@@ -38,8 +38,8 @@ from scheduled_tasks.tasks import (
 )
 from tests.datagen import (
     Auth0UserDataFactory,
+    ExportedUserFactory,
     RoleUserDataFactory,
-    UsersWithTotalsFactory,
 )
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -78,38 +78,24 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         email="stale.user@example.com",
         username="stale_user",
     )
-    existing_user_data = Auth0UserDataFactory.build(
+    existing_user_data = ExportedUserFactory.build(
         user_id=existing_user.id,
         email=existing_email,
         username=existing_username,
         email_verified=True,
         blocked=False,
     )
-    new_user_data = Auth0UserDataFactory.build(
+    new_user_data = ExportedUserFactory.build(
         email="new.user@example.com",
         username="new_user",
         blocked=False
     )
-    extra_user_data = Auth0UserDataFactory.build(
+    extra_user_data = ExportedUserFactory.build(
         email="extra.user@example.com",
         username="extra_user",
         blocked=False
     )
-    batch = UsersWithTotalsFactory.build(
-        total=3,
-        start=0,
-        limit=2,
-        users=[existing_user_data, new_user_data],
-    )
-    batch_two = UsersWithTotalsFactory.build(
-        total=3,
-        start=2,
-        limit=1,
-        users=[extra_user_data],
-    )
-    mock_auth0_instance = MagicMock()
-    mock_auth0_instance.get_users.side_effect = [batch, batch_two]
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_instance)
+    users = [existing_user_data, new_user_data, extra_user_data]
     mocker.patch("scheduled_tasks.tasks.get_settings")
     mocker.patch("scheduled_tasks.tasks.get_management_token")
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER")
@@ -117,6 +103,7 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
 
     await sync_auth0_users()
 
@@ -124,7 +111,6 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     test_db_session.refresh(user_not_in_auth0)
     created_user = test_db_session.get(BiocommonsUser, new_user_data.user_id)
 
-    assert mock_auth0_instance.get_users.call_count == 2
     assert mock_scheduler.add_job.call_count == 3
     assert existing_user.email_verified is True
     assert user_not_in_auth0.is_deleted is True
