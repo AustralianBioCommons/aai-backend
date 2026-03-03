@@ -738,6 +738,31 @@ async def change_password(
         )
 
 
+@router.post("/profile/delete")
+def delete_own_account(
+    session_user: Annotated[SessionUser, Depends(get_session_user)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+):
+    """
+    Allow a logged-in user to delete their own account.
+    Soft-delete the user, marking them as deleted in the database, blocking
+    access in Auth0, and preserving memberships (in case of restoration).
+    """
+    user_id = session_user.access_token.sub
+    logger.info(f"User {user_id} is deleting their own account")
+
+    db_user.soft_delete(
+        deleted_by=db_user,
+        reason="User self-deletion",
+        session=db_session,
+        auth0_client=auth0_client,
+    )
+
+    return {"message": "Account deleted successfully."}
+
+
 class MigratePasswordRequest(BaseModel):
     """
     POST data when triggering password change as part of legacy user migration.

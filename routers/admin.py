@@ -993,7 +993,7 @@ def delete_user(user_id: Annotated[str, UserIdParam],
     """
     db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
     logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
-    db_user.admin_delete(
+    db_user.soft_delete(
         deleted_by=current_admin,
         reason=delete_data.reason,
         session=db_session,

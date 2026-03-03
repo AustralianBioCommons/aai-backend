@@ -1561,7 +1561,7 @@ def test_admin_delete(test_db_session, mock_auth0_client, persistent_factories):
     admin = BiocommonsUserFactory.create_sync()
     test_db_session.commit()
 
-    user.admin_delete(deleted_by=admin, reason="Deletion test", session=test_db_session, auth0_client=mock_auth0_client)
+    user.soft_delete(deleted_by=admin, reason="Deletion test", session=test_db_session, auth0_client=mock_auth0_client)
     refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
     assert refreshed_user is not None
     assert refreshed_user.is_deleted
@@ -1645,7 +1645,7 @@ def test_admin_delete_preserves_memberships(test_db_session, persistent_factorie
     platform_membership = PlatformMembershipFactory.create_sync(platform=platform, user=user, approval_status=ApprovalStatusEnum.APPROVED)
     test_db_session.commit()
 
-    user.admin_delete(deleted_by=admin, reason="Deletion test", session=test_db_session, auth0_client=mock_auth0_client)
+    user.soft_delete(deleted_by=admin, reason="Deletion test", session=test_db_session, auth0_client=mock_auth0_client)
     refreshed_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
     test_db_session.refresh(group_membership)
     test_db_session.refresh(platform_membership)
