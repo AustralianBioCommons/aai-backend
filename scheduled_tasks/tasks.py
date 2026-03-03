@@ -261,17 +261,20 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
         {"name": "blocked"},
         {"name": "updated_at"}
     ]
-    temp_dir = tempfile.TemporaryDirectory()
-    temp_path = Path(temp_dir.name) / "auth0_users.csv"
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = Path(temp_dir.name) / "auth0_users.csv"
 
-    logger.info(f"Exporting Auth0 users to {temp_path}")
-    try:
-        auth0_client.export_and_download_users(download_path=temp_path, fields=fields)
-    except HTTPStatusError as exc:
-        logger.error(f"Failed to export Auth0 users: {exc}")
-        logger.error(f"Response: {exc.response.content}")
-        raise exc
-    return parse_auth0_export(temp_path)
+        logger.info(f"Exporting Auth0 users to {temp_path}")
+        try:
+            auth0_client.export_and_download_users(download_path=temp_path, fields=fields)
+        except HTTPStatusError as exc:
+            logger.error(f"Failed to export Auth0 users: {exc}")
+            logger.error(f"Response: {exc.response.content}")
+            raise exc
+        users = parse_auth0_export(temp_path)
+        # Delete export
+        temp_path.unlink()
+    return users
 
 
 async def sync_auth0_users():
