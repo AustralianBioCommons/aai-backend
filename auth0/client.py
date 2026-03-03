@@ -1,3 +1,6 @@
+import gzip
+import logging
+import pathlib
 import time
 from typing import Optional, Type, TypeVar
 
@@ -14,6 +17,8 @@ from schemas.biocommons import (
     BiocommonsPassword,
     BiocommonsRegisterData,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RoleData(BaseModel):
@@ -131,6 +136,20 @@ class UpdateUserData(BaseModel):
         return self
 
 
+class JobStatus(BaseModel):
+    id: str
+    status: str
+    type: str
+    created_at: str | None = None
+    location: str | None = None
+    connection_id: str | None = None
+    percentage_done: int | None = None
+    time_left_seconds: int | None = None
+    format: str | None = None
+    status_details: str | None = None
+    summary: dict | None = None
+
+
 class Auth0Client:
     """
     Implements the Auth0 management API.
@@ -202,6 +221,70 @@ class Auth0Client:
         except HTTPStatusError as exc:
             raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
+
+    def start_user_export(self, format: str = "csv", fields: Optional[list[dict]] = None, ) -> str:
+        """
+        Start a user export job, return the job ID.
+        """
+        url = f"https://{self.domain}/api/v2/jobs/users-exports"
+        if fields is None:
+            fields = [
+                {"name": "user_id"},
+                {"name": "email"},
+                {"name": "username"}
+            ]
+        resp = self._client.post(url, json={"format": format, "fields": fields})
+        resp.raise_for_status()
+        return resp.json()["id"]
+
+    def get_job_status(self, job_id: str) -> JobStatus:
+        url = f"https://{self.domain}/api/v2/jobs/{job_id}"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return JobStatus(**resp.json())
+
+    def export_and_download_users(self, download_path: pathlib.Path, fields: Optional[list[dict]] = None, timeout: int = 300):
+        job_id = self.start_user_export(fields=fields)
+
+        location = None
+        start_time = time.time()
+        while True:
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            if elapsed_time > timeout:
+                raise TimeoutError(f"User export job {job_id} timed out after {timeout} seconds.")
+            time.sleep(1)
+            job_status = self.get_job_status(job_id)
+            if job_status.status == "completed":
+                location = job_status.location
+                break
+            elif job_status.status == "failed":
+                raise RuntimeError(f"User export job {job_id} failed: {job_status.status_details}")
+            elif job_status.status == "cancelled":
+                raise RuntimeError(f"User export job {job_id} was cancelled.")
+            elif job_status.status == "waiting":
+                print(f"User export job {job_id} is waiting to start. Retrying in 1 second...")
+
+        if location is None:
+            raise RuntimeError(f"User export job {job_id} failed to return location.")
+
+        logger.info(f"User export job {job_id} completed successfully. Downloading from {location}...")
+        download = self._client.get(location)
+        download.raise_for_status()
+
+        content = download.content
+        # Check for gzip compression
+        if download.headers.get("Content-Encoding") == "gzip":
+            content = gzip.decompress(content)
+            csv_data = content.decode("utf-8")
+        else:
+            csv_data = download.text
+
+        download_path.write_text(csv_data, encoding="utf-8")
+        return download_path
+
+
+
 
     def check_user_password(self, email: str, password: str, settings: Settings) -> bool:
         """
