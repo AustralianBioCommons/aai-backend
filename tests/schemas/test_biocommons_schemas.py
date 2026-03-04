@@ -145,7 +145,10 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
 @pytest.mark.parametrize("username", [
     "abc",
     "a_c",
-    "user_n-ame"
+    "user_n-ame",
+    "919",
+    "23user",
+    "a" * 128,
 ])
 def test_valid_username(username: str):
     username_adapter = TypeAdapter(BiocommonsUsername)
@@ -153,18 +156,26 @@ def test_valid_username(username: str):
     assert result == username
 
 
+USERNAME_FORMAT_ERROR_MESSAGE = (
+    "Username must only contain lowercase letters, numbers, hyphens and underscores, and must not "
+    "start with a hyphen or underscore."
+)
+
 @pytest.mark.parametrize("username,expected_error", [
     # Too short (less than 3 characters)
     ("ab", "Username must be at least 3 characters."),
     # Too long (more than 128 characters)
     ("x" * 129, "Username must be 128 characters or less."),
     # Invalid characters
-    ("a.b", "Username must only contain lowercase letters, numbers, hyphens and underscores."),
-    ("user name", "Username must only contain lowercase letters, numbers, hyphens and underscores."),
-    ("User123", "Username must only contain lowercase letters, numbers, hyphens and underscores."),
+    ("a.b", USERNAME_FORMAT_ERROR_MESSAGE),
+    ("user name", USERNAME_FORMAT_ERROR_MESSAGE),
+    ("User123", USERNAME_FORMAT_ERROR_MESSAGE),
+    # Starts with hyphen or underscore
+    ("_user", USERNAME_FORMAT_ERROR_MESSAGE),
+    ("-user", USERNAME_FORMAT_ERROR_MESSAGE),
     # Unicode characters
-    ("usér123", "Username must only contain lowercase letters, numbers, hyphens and underscores."),
-    ("user™", "Username must only contain lowercase letters, numbers, hyphens and underscores."),
+    ("usér123", USERNAME_FORMAT_ERROR_MESSAGE),
+    ("user™", USERNAME_FORMAT_ERROR_MESSAGE),
 ])
 def test_invalid_username(username: str, expected_error: str):
     """Test that invalid usernames raise appropriate validation errors."""

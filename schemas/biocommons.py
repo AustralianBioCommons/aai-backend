@@ -82,10 +82,10 @@ def ValidatedString(
 
 
 AppId = Literal["biocommons", "galaxy", "bpa", "sbp"]
-BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[-_a-z0-9]+$", messages={
+BiocommonsUsername = ValidatedString(min_length=3, max_length=128, pattern="^[a-z0-9][-_a-z0-9]+$", messages={
     "min_length": "Username must be at least 3 characters.",
     "max_length": "Username must be 128 characters or less.",
-    "pattern": "Username must only contain lowercase letters, numbers, hyphens and underscores."
+    "pattern": "Username must only contain lowercase letters, numbers, hyphens and underscores, and must not start with a hyphen or underscore."
 })
 BiocommonsPassword = ValidatedString(min_length=PASSWORD_MIN_LENGTH,
                                      max_length=PASSWORD_MAX_LENGTH,
