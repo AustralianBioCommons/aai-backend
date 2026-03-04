@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -24,9 +25,12 @@ from scheduled_tasks.email_retry import (
     EMAIL_RETRY_WINDOW_SECONDS,
 )
 from scheduled_tasks.tasks import (
+    ExportedUser,
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
+    export_auth0_users,
     link_admin_roles,
+    parse_auth0_export,
     populate_db_groups,
     process_email_queue,
     send_email_notification,
@@ -38,8 +42,8 @@ from scheduled_tasks.tasks import (
 )
 from tests.datagen import (
     Auth0UserDataFactory,
+    ExportedUserFactory,
     RoleUserDataFactory,
-    UsersWithTotalsFactory,
 )
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -78,38 +82,24 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         email="stale.user@example.com",
         username="stale_user",
     )
-    existing_user_data = Auth0UserDataFactory.build(
+    existing_user_data = ExportedUserFactory.build(
         user_id=existing_user.id,
         email=existing_email,
         username=existing_username,
         email_verified=True,
         blocked=False,
     )
-    new_user_data = Auth0UserDataFactory.build(
+    new_user_data = ExportedUserFactory.build(
         email="new.user@example.com",
         username="new_user",
         blocked=False
     )
-    extra_user_data = Auth0UserDataFactory.build(
+    extra_user_data = ExportedUserFactory.build(
         email="extra.user@example.com",
         username="extra_user",
         blocked=False
     )
-    batch = UsersWithTotalsFactory.build(
-        total=3,
-        start=0,
-        limit=2,
-        users=[existing_user_data, new_user_data],
-    )
-    batch_two = UsersWithTotalsFactory.build(
-        total=3,
-        start=2,
-        limit=1,
-        users=[extra_user_data],
-    )
-    mock_auth0_instance = MagicMock()
-    mock_auth0_instance.get_users.side_effect = [batch, batch_two]
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_instance)
+    users = [existing_user_data, new_user_data, extra_user_data]
     mocker.patch("scheduled_tasks.tasks.get_settings")
     mocker.patch("scheduled_tasks.tasks.get_management_token")
     mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER")
@@ -117,6 +107,7 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
 
     await sync_auth0_users()
 
@@ -124,7 +115,6 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     test_db_session.refresh(user_not_in_auth0)
     created_user = test_db_session.get(BiocommonsUser, new_user_data.user_id)
 
-    assert mock_auth0_instance.get_users.call_count == 2
     assert mock_scheduler.add_job.call_count == 3
     assert existing_user.email_verified is True
     assert user_not_in_auth0.is_deleted is True
@@ -843,3 +833,84 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
     updated = _get_notification_fresh(test_db_session, notification_id)
     assert updated.status == EmailStatusEnum.FAILED
     assert updated.send_after is None
+
+
+def test_parse_auth0_export_parses_csv_file(tmp_path):
+    csv_path = tmp_path / "auth0_users.csv"
+    csv_path.write_text(
+        "user_id,email,email_verified,username,blocked,updated_at\n"
+        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n"
+        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00\n",
+        encoding="utf-8",
+    )
+
+    users = parse_auth0_export(csv_path)
+
+    assert len(users) == 2
+    assert all(isinstance(u, ExportedUser) for u in users)
+
+    assert users[0].user_id == "auth0|u1"
+    assert users[0].email == "u1@example.com"
+    assert users[0].email_verified is True
+    assert users[0].username == "u1"
+    assert users[0].blocked is False
+    assert users[0].updated_at.isoformat() == "2024-01-01T12:00:00+00:00"
+
+
+    assert users[1].user_id == "auth0|u2"
+    assert users[1].email == "u2@example.com"
+    # Check empty bools parse as False
+    assert users[1].blocked is False
+    assert users[1].email_verified is False
+    # Check empty username parses as None
+    assert users[1].username is None
+    assert users[1].updated_at.isoformat() == "2024-01-02T12:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_export_auth0_users_writes_temp_csv_file(mocker):
+    """
+    Test that export_auth0_users() calls export_and_download_users with a path that exists,
+    and that the CSV file exists (was written) before parsing.
+    """
+    csv_existed_at_parse_time = False
+    csv_path: Path | None = None
+
+    def _fake_export_and_download_users(*, download_path, fields):
+        # Simulate Auth0Client writing the file to the provided temp path
+        download_path.write_text(
+            "user_id,email,email_verified,username,blocked,updated_at\n"
+            "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n",
+            encoding="utf-8",
+        )
+
+    def _parse_spy(path):
+        nonlocal csv_existed_at_parse_time
+        nonlocal csv_path
+        csv_path = path
+        csv_existed_at_parse_time = path.exists()
+        # Return a minimal valid parsed result (we test parse_auth0_export separately)
+        return [
+            ExportedUser(
+                user_id="auth0|u1",
+                email="u1@example.com",
+                email_verified=True,
+                username="u1",
+                blocked=False,
+                updated_at="2024-01-01T12:00:00+00:00",
+            )
+        ]
+
+    mocker.patch("scheduled_tasks.tasks.parse_auth0_export", side_effect=_parse_spy)
+
+    auth0_client = MagicMock()
+    auth0_client.export_and_download_users.side_effect = _fake_export_and_download_users
+
+    users = await export_auth0_users(auth0_client)
+
+    auth0_client.export_and_download_users.assert_called_once()
+    assert csv_existed_at_parse_time is True
+    # Path should be deleted after parsing
+    assert not csv_path.exists()
+    assert len(users) == 1
+    assert users[0].user_id == "auth0|u1"

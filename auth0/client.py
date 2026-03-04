@@ -1,5 +1,7 @@
-__all__ = ["Auth0Client"]
-
+import gzip
+import logging
+import pathlib
+import time
 from typing import Optional, Type, TypeVar
 
 import httpx
@@ -15,6 +17,8 @@ from schemas.biocommons import (
     BiocommonsPassword,
     BiocommonsRegisterData,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class RoleData(BaseModel):
@@ -79,6 +83,11 @@ class RoleUsersWithTotals(BaseModel):
     total: int
 
 
+class RoleUsersWithCheckpoint(BaseModel):
+    users: list[RoleUserData]
+    next: str | None = None
+
+
 class EmailVerificationResponse(BaseModel):
     status: str
     type: str
@@ -125,6 +134,20 @@ class UpdateUserData(BaseModel):
         if needs_connection and self.connection is None:
             raise ValueError("Must provide connection when updating any of the connection-related fields.")
         return self
+
+
+class JobStatus(BaseModel):
+    id: str
+    status: str
+    type: str
+    created_at: str | None = None
+    location: str | None = None
+    connection_id: str | None = None
+    percentage_done: int | None = None
+    time_left_seconds: int | None = None
+    format: str | None = None
+    status_details: str | None = None
+    summary: dict | None = None
 
 
 class Auth0Client:
@@ -198,6 +221,76 @@ class Auth0Client:
         except HTTPStatusError as exc:
             raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
+
+    def start_user_export(self, format: str = "csv", fields: Optional[list[dict]] = None, ) -> str:
+        """
+        Start a user export job, return the job ID.
+        """
+        url = f"https://{self.domain}/api/v2/jobs/users-exports"
+        if fields is None:
+            fields = [
+                {"name": "user_id"},
+                {"name": "email"},
+                {"name": "username"}
+            ]
+        resp = self._client.post(url, json={"format": format, "fields": fields})
+        resp.raise_for_status()
+        return resp.json()["id"]
+
+    def get_job_status(self, job_id: str) -> JobStatus:
+        url = f"https://{self.domain}/api/v2/jobs/{job_id}"
+        resp = self._client.get(url)
+        resp.raise_for_status()
+        return JobStatus(**resp.json())
+
+    def export_and_download_users(self, download_path: pathlib.Path, fields: Optional[list[dict]] = None, timeout: int = 300):
+        """
+        Export Auth0 users to a CSV file and download it.
+
+        NOTE: the Auth0 export has some quirks, e.g. string fields are preceded by '.
+        """
+        job_id = self.start_user_export(fields=fields)
+
+        location = None
+        start_time = time.time()
+        while True:
+            current_time = time.time()
+            elapsed_time = current_time - start_time
+            if elapsed_time > timeout:
+                raise TimeoutError(f"User export job {job_id} timed out after {timeout} seconds.")
+            time.sleep(1)
+            job_status = self.get_job_status(job_id)
+            if job_status.status == "completed":
+                location = job_status.location
+                break
+            elif job_status.status == "failed":
+                raise RuntimeError(f"User export job {job_id} failed: {job_status.status_details}")
+            elif job_status.status == "cancelled":
+                raise RuntimeError(f"User export job {job_id} was cancelled.")
+            elif job_status.status == "waiting":
+                logger.info(f"User export job {job_id} is waiting to start. Retrying in 1 second...")
+
+        if location is None:
+            raise RuntimeError(f"User export job {job_id} failed to return location.")
+
+        logger.info(f"User export job {job_id} completed successfully. Downloading from {location}...")
+        # Don't use client for this, we don't want the auth header here
+        download = httpx.get(location)
+        download.raise_for_status()
+
+        content = download.content
+        # Check for GZIP magic number
+        if content.startswith(b"\x1f\x8b"):
+            content = gzip.decompress(content)
+            csv_data = content.decode("utf-8")
+        else:
+            csv_data = download.text
+
+        download_path.write_text(csv_data, encoding="utf-8")
+        return download_path
+
+
+
 
     def check_user_password(self, email: str, password: str, settings: Settings) -> bool:
         """
@@ -340,7 +433,13 @@ class Auth0Client:
         resp.raise_for_status()
         return RoleData(**resp.json())
 
-    def get_role_users(self, role_id: str, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = False) -> list[RoleUserData] | RoleUsersWithTotals:
+    def get_role_users(self,
+                       role_id: str,
+                       page: Optional[int] = None,
+                       per_page: Optional[int] = None,
+                       include_totals: Optional[bool] = False,
+                       take: Optional[int] = None,
+                       checkpoint: Optional[str] = None) -> list[RoleUserData] | RoleUsersWithTotals | RoleUsersWithCheckpoint:
         url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
         params = {}
         if page is not None:
@@ -349,22 +448,32 @@ class Auth0Client:
             params["per_page"] = per_page
         if include_totals is not None:
             params["include_totals"] = include_totals
+        if take is not None:
+            params["take"] = take
+        if checkpoint is not None:
+            params["from"] = checkpoint
         resp = self._client.get(url, params=params or None)
         resp.raise_for_status()
         if include_totals:
             return RoleUsersWithTotals(**resp.json())
+        if take is not None:
+            return RoleUsersWithCheckpoint(**resp.json())
         return [RoleUserData(**raw) for raw in resp.json()]
 
     def get_all_role_users(self, role_id: str) -> list[RoleUserData]:
-        page = 0
-        per_page = 100
+        take= 100
+        checkpoint: str | None = None
         users = []
         while True:
-            page_users: RoleUsersWithTotals = self.get_role_users(role_id, page=page, per_page=per_page, include_totals=True)
+            page_users: RoleUsersWithCheckpoint = self.get_role_users(role_id, take=take, checkpoint=checkpoint)
             users.extend(page_users.users)
-            if len(users) >= page_users.total:
+
+            if page_users.next is None:
                 break
-            page += 1
+
+            checkpoint = page_users.next
+            # Sleep to avoid Auth0 rate limits
+            time.sleep(0.5)
         return users
 
     def create_role(self, name: str, description: str) -> RoleData:

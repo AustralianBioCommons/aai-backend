@@ -15,6 +15,7 @@ from auth0.client import (
     UsersWithTotals,
 )
 from auth0.user_info import UserInfo
+from scheduled_tasks.tasks import ExportedUser
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
     Auth0UserData,
@@ -101,6 +102,16 @@ class SessionUserFactory(ModelFactory[SessionUser]): ...
 
 
 class UserInfoFactory(ModelFactory[UserInfo]): ...
+
+
+class ExportedUserFactory(ModelFactory[ExportedUser]):
+    @classmethod
+    def user_id(cls) -> str:
+        return random_auth0_id()
+
+    username = BiocommonsProviders.biocommons_username
+    # blocked = False by default
+    blocked = False
 
 
 class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
