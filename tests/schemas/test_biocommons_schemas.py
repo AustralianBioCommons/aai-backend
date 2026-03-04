@@ -157,7 +157,7 @@ def test_valid_username(username: str):
 
 
 USERNAME_FORMAT_ERROR_MESSAGE = (
-    "Username must only contain lowercase letters, numbers, hyphens and underscores, and can't "
+    "Username must only contain lowercase letters, numbers, hyphens and underscores, and must not "
     "start with a hyphen or underscore."
 )
 
