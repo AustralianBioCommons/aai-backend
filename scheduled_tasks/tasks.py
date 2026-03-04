@@ -262,7 +262,7 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
         {"name": "updated_at"}
     ]
     with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir.name) / "auth0_users.csv"
+        temp_path = Path(temp_dir) / "auth0_users.csv"
 
         logger.info(f"Exporting Auth0 users to {temp_path}")
         try:
