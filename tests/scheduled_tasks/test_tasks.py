@@ -840,7 +840,7 @@ def test_parse_auth0_export_parses_csv_file(tmp_path):
     csv_path.write_text(
         "user_id,email,email_verified,username,blocked,updated_at\n"
         "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n"
-        "'auth0|u2,'u2@example.com,,,'',2024-01-02T12:00:00+00:00\n",
+        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00\n",
         encoding="utf-8",
     )
 
