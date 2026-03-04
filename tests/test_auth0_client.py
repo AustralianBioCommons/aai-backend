@@ -1,3 +1,4 @@
+import gzip
 import json
 import time
 
@@ -172,7 +173,7 @@ def test_add_roles_to_user(test_auth0_client):
     assert route.called
     call_data = route.calls[0].request.content
     # Check role_id is passed as a list
-    assert call_data == b'{"roles":["' +role_id.encode() + b'"]}'
+    assert call_data == b'{"roles":["' + role_id.encode() + b'"]}'
 
 
 @respx.mock
@@ -247,8 +248,122 @@ def test_update_user_data_requires_connection():
 def test_update_user(test_auth0_client):
     user_id = random_auth0_id()
     returned_user = Auth0UserDataFactory.build(user_id=user_id, username="updated_username")
-    route = respx.patch(f"https://auth0.example.com/api/v2/users/{user_id}").respond(200, json=returned_user.model_dump(mode="json"))
+    route = respx.patch(f"https://auth0.example.com/api/v2/users/{user_id}").respond(
+        200,
+        json=returned_user.model_dump(mode="json")
+    )
     update_data = UpdateUserData(username="username", connection="Username-Password-Authentication")
     resp = test_auth0_client.update_user(user_id, update_data)
     assert resp.username == "updated_username"
     assert route.called
+
+
+@respx.mock
+def test_export_and_download_users_starts_job_waits_and_downloads(test_auth0_client, tmp_path, monkeypatch):
+    """
+    export_and_download_users() should:
+      1) start the export job
+      2) poll job status until it completes
+      3) download the resulting CSV and write it to disk
+    """
+    # Avoid slowing the test down (the implementation sleeps between polls)
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    export_job_id = "job_123"
+    download_url = "https://downloads.example.com/users.csv"
+    csv_text = "user_id,email,username\nauth0|1,test@example.com,test\n"
+
+    start_route = respx.post("https://auth0.example.com/api/v2/jobs/users-exports").respond(
+        200,
+        json={"id": export_job_id},
+    )
+
+    status_route = respx.get(f"https://auth0.example.com/api/v2/jobs/{export_job_id}").mock(
+        side_effect=[
+            Response(
+                200,
+                json={
+                    "id": export_job_id,
+                    "status": "waiting",
+                    "type": "users_export",
+                    "created_at": "2020-01-01T00:00:00Z",
+                    "location": None,
+                },
+            ),
+            Response(
+                200,
+                json={
+                    "id": export_job_id,
+                    "status": "completed",
+                    "type": "users_export",
+                    "created_at": "2020-01-01T00:00:01Z",
+                    "location": download_url,
+                },
+            ),
+        ]
+    )
+
+    download_route = respx.get(download_url).respond(200, text=csv_text)
+
+    out_path = tmp_path / "auth0_users.csv"
+    result_path = test_auth0_client.export_and_download_users(out_path)
+
+    assert result_path == out_path
+    assert out_path.read_text(encoding="utf-8") == csv_text
+
+    assert start_route.called
+    assert status_route.called
+    assert status_route.call_count == 2
+    assert download_route.called
+
+    # Ensure the export job was started with expected payload (default fields)
+    start_payload = json.loads(start_route.calls[0].request.content)
+    assert start_payload["format"] == "csv"
+    assert start_payload["fields"] == [
+        {"name": "user_id"},
+        {"name": "email"},
+        {"name": "username"},
+    ]
+
+
+@respx.mock
+def test_export_and_download_users_handles_gzipped_csv(test_auth0_client, tmp_path, monkeypatch):
+    """
+    If Auth0 (or the download URL) returns gzipped bytes, we should decompress
+    and write the CSV text to disk.
+    """
+
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    export_job_id = "job_gzip_123"
+    download_url = "https://downloads.example.com/users.csv.gz"
+    csv_text = "user_id,email,username\nauth0|1,gzip@example.com,gzip\n"
+    gzipped_bytes = gzip.compress(csv_text.encode("utf-8"))
+
+    start_route = respx.post("https://auth0.example.com/api/v2/jobs/users-exports").respond(
+        200,
+        json={"id": export_job_id},
+    )
+
+    status_route = respx.get(f"https://auth0.example.com/api/v2/jobs/{export_job_id}").respond(
+        200,
+        json={
+            "id": export_job_id,
+            "status": "completed",
+            "type": "users_export",
+            "created_at": "2020-01-01T00:00:00Z",
+            "location": download_url,
+        },
+    )
+
+    download_route = respx.get(download_url).respond(200, content=gzipped_bytes)
+
+    out_path = tmp_path / "auth0_users.csv"
+    result_path = test_auth0_client.export_and_download_users(out_path)
+
+    assert result_path == out_path
+    assert out_path.read_text(encoding="utf-8") == csv_text
+
+    assert start_route.called
+    assert status_route.called
+    assert download_route.called
