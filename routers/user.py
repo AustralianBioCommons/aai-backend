@@ -41,6 +41,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
+from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
     BiocommonsAppMetadata,
@@ -770,6 +771,16 @@ class MigratePasswordRequest(BaseModel):
     session_token: str
     client_id: str
 
+
+class ResendVerificationEmailRequest(BaseModel):
+    """
+    POST data for resending the email verification link to an unverified user.
+    """
+
+    session_token: Annotated[str, Field(min_length=1)]
+    recaptcha_token: Annotated[str, Field(min_length=1)]
+
+
 @router.post(
     "/migration/update-password",
 )
@@ -790,6 +801,33 @@ def migrate_password(data: MigratePasswordRequest,
     logger.info(f"Initiating password change for user {user_id}")
     auth0_client.trigger_password_change(user_email=email, client_id=data.client_id, settings=settings)
     return {"message": "Password change initiated successfully"}
+
+
+@router.post("/email-verification/resend")
+def resend_verification_email(
+    data: ResendVerificationEmailRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+):
+    """
+    Resend the Auth0 verification email for unverified users who arrive from
+    the post-login redirect flow.
+    """
+    if not validate_recaptcha(data.recaptcha_token, settings):
+        raise HTTPException(status_code=400, detail="Invalid recaptcha token, please try again")
+
+    payload = verify_action_token(data.session_token, settings=settings)
+
+    if payload.get("purpose") != "unverified_email_resend":
+        raise HTTPException(status_code=400, detail="Invalid session token: wrong purpose")
+
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid session token: missing user id")
+
+    logger.info(f"Resending verification email for user {user_id}")
+    auth0_client.resend_verification_email(user_id=user_id)
+    return {"message": "Verification email sent successfully"}
 
 
 @router.get("/migration/password-changed")
