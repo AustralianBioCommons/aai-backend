@@ -599,17 +599,18 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         role_user_pending,
         role_user_new,
     ]
-    mock_auth0_client.get_user.side_effect = [
-        auth0_user_keep,
-        auth0_user_pending,
-        auth0_user_new,
-    ]
     mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch(
+        "scheduled_tasks.tasks.export_auth0_users",
+        return_value=[ExportedUser(user_id=u.user_id, email=u.email, email_verified=u.email_verified,
+                                   username=u.username, blocked=u.blocked, updated_at=u.updated_at)
+                      for u in [auth0_user_keep, auth0_user_pending, auth0_user_new]]
     )
 
     await sync_platform_user_roles()
