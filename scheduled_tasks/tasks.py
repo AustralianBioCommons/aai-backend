@@ -612,7 +612,12 @@ def _get_platform_membership_including_deleted(session: Session, user_id: str, p
     )
 
 
-async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0Client, session: Session):
+async def sync_platform_memberships_for_role(
+        role: RoleData,
+        auth0_client: Auth0Client,
+        session: Session,
+        exported_users_by_id: dict[str, ExportedUser],
+):
     """
     Sync memberships and membership status for a given platform role
     """
@@ -626,7 +631,10 @@ async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0
     # Add or restore memberships that are in Auth0 but not in DB
     for role_user in role_users:
         sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
-        auth0_user = auth0_client.get_user(role_user.user_id)
+        auth0_user = exported_users_by_id.get(role_user.user_id)
+        if auth0_user is None:
+            logger.warning(f"    User {role_user.user_id} not found in exported users, skipping")
+            continue
         if auth0_user.blocked:
             logger.info(f"    User {auth0_user.user_id} blocked, skipping")
             continue
@@ -690,12 +698,19 @@ async def sync_platform_user_roles():
     settings = get_settings()
     token = get_management_token(settings=settings)
     auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
+    exported_users = await export_auth0_users(auth0_client)
+    exported_users_by_id = {user.user_id: user for user in exported_users}
     roles = [role for role in auth0_client.get_all_roles()
              if re.match(PLATFORM_ROLE_PATTERN, role.name)]
     for role in roles:
         db_session = next(get_db_session())
         try:
-            await sync_platform_memberships_for_role(role, auth0_client, db_session)
+            await sync_platform_memberships_for_role(
+                role,
+                auth0_client,
+                db_session,
+                exported_users_by_id=exported_users_by_id
+            )
         finally:
             db_session.close()
 
