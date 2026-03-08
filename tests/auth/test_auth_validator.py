@@ -15,10 +15,13 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
     RSAPrivateKey,
     RSAPublicKey,
 )
-from fastapi import HTTPException
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from httpx import Response
 from jwt.algorithms import RSAAlgorithm
+from starlette.testclient import TestClient
 
+from auth import auth0_security
 from auth.user_permissions import user_is_general_admin
 from auth.validator import get_rsa_key, verify_action_token, verify_jwt
 from config import Settings
@@ -217,6 +220,34 @@ def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Se
 
         # Verify endpoint was called only once (no retry needed)
         assert route.call_count == 1
+
+
+def test_auth0_security_passes_bearer_token_to_route():
+    """
+    Test that our auth0_security dependency correctly extracts and passes the bearer token to the route.
+    :return:
+    """
+    app = FastAPI()
+
+    @app.get("/protected")
+    def protected_route(
+        bearer_token: HTTPAuthorizationCredentials = Depends(auth0_security),
+    ):
+        return {
+            "token": bearer_token.credentials
+        }
+
+    client = TestClient(app)
+
+    response = client.get(
+        "/protected",
+        headers={"Authorization": "Bearer test-access-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "token": "test-access-token",
+    }
 
 
 def test_verify_jwt(mock_settings: Settings, mocker):
