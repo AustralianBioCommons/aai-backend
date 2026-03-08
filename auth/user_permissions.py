@@ -4,7 +4,8 @@ from fastapi import Depends, HTTPException
 from sqlmodel import Session
 from starlette import status
 
-from auth.validator import oauth2_scheme, verify_jwt
+from auth import auth0_security
+from auth.validator import verify_jwt
 from config import Settings, get_settings
 from db.models import BiocommonsGroup, BiocommonsUser, Platform
 from db.setup import get_db_session
@@ -13,7 +14,7 @@ from schemas.user import SessionUser
 
 
 def get_session_user(
-    token: str = Depends(oauth2_scheme), settings: Settings = Depends(get_settings)
+    token: str = Depends(auth0_security), settings: Settings = Depends(get_settings)
 ) -> SessionUser:
     """
     Get the current user's session data (access token).

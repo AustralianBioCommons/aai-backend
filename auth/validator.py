@@ -4,14 +4,11 @@ import httpx
 import jwt
 from cachetools import TTLCache
 from fastapi import HTTPException
-from fastapi.security import OAuth2PasswordBearer
 from jwt.algorithms import RSAAlgorithm
 from jwt.exceptions import ExpiredSignatureError, InvalidIssuerError, InvalidTokenError
 
 from config import Settings
 from schemas.tokens import AccessTokenPayload
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
 
