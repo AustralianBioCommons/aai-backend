@@ -1,6 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlmodel import Session
 from starlette import status
 
@@ -14,12 +15,12 @@ from schemas.user import SessionUser
 
 
 def get_session_user(
-    token: str = Depends(auth0_security), settings: Settings = Depends(get_settings)
+    bearer_token: HTTPAuthorizationCredentials = Depends(auth0_security), settings: Settings = Depends(get_settings)
 ) -> SessionUser:
     """
     Get the current user's session data (access token).
     """
-    access_token = verify_jwt(token, settings=settings)
+    access_token = verify_jwt(bearer_token.credentials, settings=settings)
     return SessionUser(access_token=access_token)
 
 
