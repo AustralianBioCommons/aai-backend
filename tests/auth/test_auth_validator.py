@@ -17,11 +17,11 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
 )
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.testclient import TestClient
 from httpx import Response
 from jwt.algorithms import RSAAlgorithm
-from starlette.testclient import TestClient
 
-from auth import auth0_security
+from auth import auth0_security, get_auth0_token
 from auth.user_permissions import user_is_general_admin
 from auth.validator import get_rsa_key, verify_action_token, verify_jwt
 from config import Settings
@@ -248,6 +248,45 @@ def test_auth0_security_passes_bearer_token_to_route():
     assert response.json() == {
         "token": "test-access-token",
     }
+
+
+def test_get_auth0_token_missing_authorization_header_returns_unauthorized():
+    """
+    Test that get_auth0_token returns an unauthorized response when the Authorization header is missing.
+    """
+    app = FastAPI()
+
+    @app.get("/protected")
+    def protected_route(token: str = Depends(get_auth0_token)):
+        return {"token": token}
+
+    client = TestClient(app)
+    response = client.get("/protected")
+    assert response.status_code == 401
+    body = response.json()
+    assert isinstance(body, dict)
+    assert "detail" in body
+
+
+def test_get_auth0_token_invalid_authorization_scheme_returns_unauthorized():
+    """
+    Test that get_auth0_token returns an unauthorized response when the Authorization header uses an invalid scheme.
+    """
+    app = FastAPI()
+
+    @app.get("/protected")
+    def protected_route(token: str = Depends(get_auth0_token)):
+        return {"token": token}
+
+    client = TestClient(app)
+    response = client.get(
+        "/protected",
+        headers={"Authorization": "Basic test-access-token"},
+    )
+    assert response.status_code == 401
+    body = response.json()
+    assert isinstance(body, dict)
+    assert "detail" in body
 
 
 def test_verify_jwt(mock_settings: Settings, mocker):
