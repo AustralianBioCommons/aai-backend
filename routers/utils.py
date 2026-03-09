@@ -7,7 +7,13 @@ from pydantic import BaseModel, Field
 from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client
-from biocommons.emails import compose_login_email_reminder
+from auth0.user_info import UserInfo, get_auth0_user_info
+from biocommons.emails import (
+    compose_login_email_reminder,
+    compose_welcome_email,
+    format_first_name,
+    get_default_sender_email,
+)
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
@@ -237,3 +243,33 @@ async def recover_login_email(
         masked_email=_mask_email(email),
         message="If the username exists, a reminder email has been sent.",
     )
+
+
+@router.post("/send-welcome-email")
+async def send_welcome_email(
+    user_info: Annotated[UserInfo, Depends(get_auth0_user_info)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict:
+    """
+    Send a welcome email to the current authenticated user.
+    Called after successful email verification or migration.
+    """
+    first_name = format_first_name(
+        full_name=user_info.name,
+        given_name=user_info.given_name,
+        fallback=user_info.email,
+    )
+    subject, body_html = compose_welcome_email(
+        first_name=first_name,
+        portal_url=settings.aai_portal_url,
+    )
+    enqueue_email(
+        db_session,
+        to_address=user_info.email,
+        from_address=get_default_sender_email(settings),
+        subject=subject,
+        body_html=body_html,
+    )
+    db_session.commit()
+    return {"message": "Welcome email sent."}
