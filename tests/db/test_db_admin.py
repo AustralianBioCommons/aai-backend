@@ -286,3 +286,50 @@ async def test_restore_row_action_restores_deleted_user_with_history(
         and entry.updated_by_id == admin_id
         for entry in history_entries
     )
+
+
+@pytest.mark.asyncio
+async def test_restore_row_action_restores_self_deleted_user(
+    mocker,
+    test_db_session,
+    persistent_factories,
+):
+    mock_auth0_client = MagicMock()
+    mock_request = MagicMock()
+
+    admin = BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    admin_id = admin.id
+    deleted_user = BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        platform_memberships=[],
+        is_deleted=True,
+        deleted_at=datetime.now(UTC),
+        deletion_reason="User requested account deletion",
+    )
+    deleted_user_id = deleted_user.id
+    deleted_user.deleted_by_id = deleted_user_id
+    test_db_session.add(deleted_user)
+    test_db_session.commit()
+
+    mock_request.state.user = {"sub": admin.id}
+    mock_request.form = AsyncMock(return_value=FormData({"reason-input": "Admin restored self-deleted account"}))
+
+    mocker.patch("db.st_admin.get_db_session", return_value=iter([test_db_session]))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client)
+    mocker.patch("db.st_admin.get_management_token")
+    mocker.patch("db.st_admin.get_settings")
+
+    view = DeletedUserView(BiocommonsUser)
+    response = await view.restore_row_action(mock_request, deleted_user.id)
+
+    assert response == "User restored successfully"
+    mock_auth0_client.update_user.assert_called_once()
+
+    test_db_session.expire_all()
+    restored_user = BiocommonsUser.get_by_id_or_404(deleted_user_id, test_db_session)
+
+    assert restored_user.is_deleted is False
+    assert restored_user.deleted_by_id == admin_id
