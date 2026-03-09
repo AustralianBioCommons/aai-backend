@@ -4,20 +4,10 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Query
 from fastapi.params import Depends
 from pydantic import BaseModel
-from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client
-from auth0.user_info import UserInfo, get_auth0_user_info
-from biocommons.emails import (
-    compose_welcome_email,
-    format_first_name,
-    get_default_sender_email,
-)
-from config import Settings, get_settings
-from db.setup import get_db_session
 from schemas.biocommons import AppId
 from schemas.responses import FieldError
-from services.email_queue import enqueue_email
 
 logger = logging.getLogger(__name__)
 
@@ -137,33 +127,3 @@ async def get_registration_info(
                 return RegistrationInfo(app="biocommons")
             return RegistrationInfo(app=user.app_metadata.registration_from)
     return RegistrationInfo(app="biocommons")
-
-
-@router.post("/send-welcome-email")
-async def send_welcome_email(
-    user_info: Annotated[UserInfo, Depends(get_auth0_user_info)],
-    db_session: Annotated[Session, Depends(get_db_session)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> dict:
-    """
-    Send a welcome email to the current authenticated user.
-    Called after successful email verification or migration.
-    """
-    first_name = format_first_name(
-        full_name=user_info.name,
-        given_name=user_info.given_name,
-        fallback=user_info.email,
-    )
-    subject, body_html = compose_welcome_email(
-        first_name=first_name,
-        portal_url=settings.aai_portal_url,
-    )
-    enqueue_email(
-        db_session,
-        to_address=user_info.email,
-        from_address=get_default_sender_email(settings),
-        subject=subject,
-        body_html=body_html,
-    )
-    db_session.commit()
-    return {"message": "Welcome email sent."}
