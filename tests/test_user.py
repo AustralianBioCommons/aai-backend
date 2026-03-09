@@ -1026,6 +1026,125 @@ def test_migrate_password_missing_claims(
     mock_auth0_client.trigger_password_change.assert_not_called()
 
 
+def test_resend_verification_email_success(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mock_settings,
+    mocker,
+):
+    mocker.patch("routers.user.validate_recaptcha", return_value=True)
+    mock_verify_action_token.return_value = {
+        "purpose": "unverified_email_resend",
+        "user_id": "auth0|123",
+    }
+
+    payload = {
+        "session_token": "valid_token",
+        "recaptcha_token": "valid_recaptcha",
+    }
+
+    response = test_client.post("/me/email-verification/resend", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "Verification email sent successfully"}
+    mock_verify_action_token.assert_called_once_with("valid_token", settings=mock_settings)
+    mock_auth0_client.resend_verification_email.assert_called_once_with(
+        user_id="auth0|123"
+    )
+
+
+def test_resend_verification_email_invalid_recaptcha(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mocker,
+):
+    mocker.patch("routers.user.validate_recaptcha", return_value=False)
+
+    payload = {
+        "session_token": "valid_token",
+        "recaptcha_token": "invalid_recaptcha",
+    }
+
+    response = test_client.post("/me/email-verification/resend", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid recaptcha token, please try again"
+    mock_verify_action_token.assert_not_called()
+    mock_auth0_client.resend_verification_email.assert_not_called()
+
+
+def test_resend_verification_email_missing_user_id(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mocker,
+):
+    mocker.patch("routers.user.validate_recaptcha", return_value=True)
+    mock_verify_action_token.return_value = {"purpose": "unverified_email_resend", "email": "user@example.com"}
+
+    payload = {
+        "session_token": "valid_token",
+        "recaptcha_token": "valid_recaptcha",
+    }
+
+    response = test_client.post("/me/email-verification/resend", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid session token: missing user id"
+    mock_auth0_client.resend_verification_email.assert_not_called()
+
+
+def test_resend_verification_email_accepts_user_id_claim(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mocker,
+):
+    mocker.patch("routers.user.validate_recaptcha", return_value=True)
+    mock_verify_action_token.return_value = {
+        "purpose": "unverified_email_resend",
+        "user_id": "auth0|from-user-id-claim",
+    }
+
+    payload = {
+        "session_token": "valid_token",
+        "recaptcha_token": "valid_recaptcha",
+    }
+
+    response = test_client.post("/me/email-verification/resend", json=payload)
+
+    assert response.status_code == 200
+    mock_auth0_client.resend_verification_email.assert_called_once_with(
+        user_id="auth0|from-user-id-claim"
+    )
+
+
+def test_resend_verification_email_wrong_purpose(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mocker,
+):
+    mocker.patch("routers.user.validate_recaptcha", return_value=True)
+    mock_verify_action_token.return_value = {
+        "purpose": "migration_password_reset",
+        "user_id": "auth0|123",
+    }
+
+    payload = {
+        "session_token": "valid_token",
+        "recaptcha_token": "valid_recaptcha",
+    }
+
+    response = test_client.post("/me/email-verification/resend", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid session token: wrong purpose"
+    mock_auth0_client.resend_verification_email.assert_not_called()
+
+
 def test_finish_migrate_password_success(
     test_client,
     mock_verify_action_token,

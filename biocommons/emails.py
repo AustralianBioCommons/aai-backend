@@ -133,6 +133,7 @@ def compose_group_membership_approved_email(
     """
     Notify a user that their group/bundle access was approved.
     """
+    portal_url = settings.aai_portal_url.rstrip("/")
     short_name = group_short_name or group_name
     safe_group_name = html.escape(group_name or "")
     safe_short_name = html.escape(short_name or "")
@@ -145,6 +146,7 @@ def compose_group_membership_approved_email(
         <p>Dear {safe_first_name},</p>
         <p>Your request to join the {safe_group_name}{short_suffix} service bundle has been approved.</p>
         <p>If you are logged into either of the BioPlatforms Data Portal or Galaxy Australia, please log out and log back in again to ensure your access rights are updated.</p>
+        <p><a href="{portal_url}">Click here</a> to go to the BioCommons Access user portal. From there you can launch Services, and view/update your user information.</p>
         <p>Thank you,</p>
         <p>The BioCommons Access team.</p>
     """
@@ -248,26 +250,5 @@ def compose_welcome_email(
         "<p>Thank you,</p>"
         "<p>The Australian BioCommons<br/>"
         '<a href="https://www.biocommons.org.au" target="_blank" rel="noopener noreferrer">www.biocommons.org.au</a></p>'
-    )
-    return subject, body_html
-
-
-def compose_login_email_reminder(
-    *,
-    username: str,
-    email: str,
-) -> tuple[str, str]:
-    """
-    Remind a user which email address they should use to sign in.
-    """
-    subject = "Your BioCommons Access sign-in email address"
-    body_html = (
-        "<p>Hello,</p>"
-        "<p>We received a request to help with your BioCommons Access sign-in details.</p>"
-        f"<p><strong>Username:</strong> {username}<br/>"
-        f"<strong>Sign-in email:</strong> {email}</p>"
-        "<p>Please use your email address (not username) when signing in.</p>"
-        "<p>Thank you,</p>"
-        "<p>The BioCommons Access team.</p>"
     )
     return subject, body_html

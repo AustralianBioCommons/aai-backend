@@ -13,7 +13,7 @@ from pydantic import AliasPath, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlmodel import Session, select
 from starlette.responses import RedirectResponse
 
 from auth.management import get_management_token
@@ -43,6 +43,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum
+from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
     BiocommonsAppMetadata,
@@ -437,11 +438,13 @@ async def update_username(
 ):
     """Update the username of the current user."""
     # Check if username already exists in local database
-    existing_user = BiocommonsUser.get_by_username(
-        username=username,
-        session=db_session,
-        exclude_user_id=user.access_token.sub,
-    )
+    existing_user = db_session.exec(
+        select(BiocommonsUser)
+        .where(
+            BiocommonsUser.username == username,
+            BiocommonsUser.id != user.access_token.sub,
+        )
+    ).first()
 
     if existing_user:
         response.status_code = 400
@@ -715,11 +718,7 @@ async def change_password(
             message="Password changes are not supported for this account."
         )
 
-    current_password_ok = auth0_client.check_user_password(
-        email=str(auth0_user.email),
-        password=payload.current_password,
-        settings=settings,
-    )
+    current_password_ok = auth0_client.check_user_password(auth0_user.username, password=payload.current_password, settings=settings)
     if not current_password_ok:
         response.status_code = 400
         field_errors = [FieldError(field="currentPassword", message="Current password is incorrect")]
@@ -772,6 +771,16 @@ class MigratePasswordRequest(BaseModel):
     session_token: str
     client_id: str
 
+
+class ResendVerificationEmailRequest(BaseModel):
+    """
+    POST data for resending the email verification link to an unverified user.
+    """
+
+    session_token: Annotated[str, Field(min_length=1)]
+    recaptcha_token: Annotated[str, Field(min_length=1)]
+
+
 @router.post(
     "/migration/update-password",
 )
@@ -792,6 +801,33 @@ def migrate_password(data: MigratePasswordRequest,
     logger.info(f"Initiating password change for user {user_id}")
     auth0_client.trigger_password_change(user_email=email, client_id=data.client_id, settings=settings)
     return {"message": "Password change initiated successfully"}
+
+
+@router.post("/email-verification/resend")
+def resend_verification_email(
+    data: ResendVerificationEmailRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+):
+    """
+    Resend the Auth0 verification email for unverified users who arrive from
+    the post-login redirect flow.
+    """
+    if not validate_recaptcha(data.recaptcha_token, settings):
+        raise HTTPException(status_code=400, detail="Invalid recaptcha token, please try again")
+
+    payload = verify_action_token(data.session_token, settings=settings)
+
+    if payload.get("purpose") != "unverified_email_resend":
+        raise HTTPException(status_code=400, detail="Invalid session token: wrong purpose")
+
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid session token: missing user id")
+
+    logger.info(f"Resending verification email for user {user_id}")
+    auth0_client.resend_verification_email(user_id=user_id)
+    return {"message": "Verification email sent successfully"}
 
 
 @router.get("/migration/password-changed")

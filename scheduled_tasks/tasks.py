@@ -9,6 +9,7 @@ from uuid import UUID
 from httpx import HTTPStatusError
 from loguru import logger
 from pydantic import BaseModel, field_validator
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
 from auth.management import get_management_token
@@ -69,18 +70,86 @@ class ExportedUser(BaseModel):
         return value
 
 
+class UserSyncConflictError(ValueError):
+    """Raised when Auth0 user data conflicts with an existing DB user."""
+
+
+def _find_conflicting_user_by_username(
+    session: Session, user_id: str, username: str
+) -> BiocommonsUser | None:
+    for pending in session.new:
+        if (
+            isinstance(pending, BiocommonsUser)
+            and pending.id != user_id
+            and pending.username == username
+        ):
+            return pending
+    with session.no_autoflush:
+        return BiocommonsUser.get_by_username(
+            username=username,
+            session=session,
+            include_deleted=True,
+            exclude_user_id=user_id,
+        )
+
+
+def _find_conflicting_user_by_email(
+    session: Session, user_id: str, email: str
+) -> BiocommonsUser | None:
+    for pending in session.new:
+        if (
+            isinstance(pending, BiocommonsUser)
+            and pending.id != user_id
+            and pending.email == email
+        ):
+            return pending
+    with session.no_autoflush:
+        return BiocommonsUser.get_by_email(
+            email=email,
+            session=session,
+            include_deleted=True,
+            exclude_user_id=user_id,
+        )
+
+
 def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData | ExportedUser) -> tuple[BiocommonsUser, bool, bool]:
     """
     Ensure the Auth0 user exists in the database, creating or restoring if required.
 
     Returns a tuple of (user, created, restored).
     """
+    username = user_data.username
+    if username is not None:
+        username_conflict = _find_conflicting_user_by_username(
+            session=session,
+            user_id=user_data.user_id,
+            username=username,
+        )
+        if username_conflict is not None:
+            raise UserSyncConflictError(
+                "Auth0 username conflict for user "
+                f"{user_data.user_id}: username '{username}' is already used by {username_conflict.id}."
+            )
+
+    email_conflict = _find_conflicting_user_by_email(
+        session=session,
+        user_id=user_data.user_id,
+        email=user_data.email,
+    )
+    if email_conflict is not None:
+        raise UserSyncConflictError(
+            "Auth0 email conflict for user "
+            f"{user_data.user_id}: email '{user_data.email}' is already used by {email_conflict.id}."
+        )
+
     created = False
     restored = False
     user = BiocommonsUser.get_by_id(user_data.user_id, session)
     # Blocked users are soft deleted and should stay soft deleted
     if user_data.blocked:
-        user = BiocommonsUser.get_deleted_by_id(session, user_data.user_id)
+        deleted_user = BiocommonsUser.get_deleted_by_id(session, user_data.user_id)
+        if deleted_user is not None:
+            user = deleted_user
     elif user is None:
         user = BiocommonsUser.get_deleted_by_id(session, user_data.user_id)
         if user is not None:
@@ -113,8 +182,8 @@ def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData | Exporte
             )
 
     user.email = user_data.email
-    if user_data.username is not None:
-        user.username = user_data.username
+    if username is not None:
+        user.username = username
     user.email_verified = user_data.email_verified
     return user, created, restored
 
@@ -289,7 +358,12 @@ async def sync_auth0_users():
     try:
         for user in users:
             auth0_user_ids.add(user.user_id)
-            _ensure_user_from_auth0(db_session, user)
+            try:
+                with db_session.begin_nested():
+                    _ensure_user_from_auth0(db_session, user)
+            except (UserSyncConflictError, IntegrityError) as exc:
+                logger.warning(f"Skipping Auth0 user {user.user_id} during sync: {exc}")
+                continue
             SCHEDULER.add_job(
                 update_auth0_user,
                 args=[user],
@@ -326,6 +400,10 @@ async def update_auth0_user(user_data: Auth0UserData):
         # Should be OK to commit as SQLAlchemy will only update modified fields
         session.commit()
         return True
+    except (UserSyncConflictError, IntegrityError) as exc:
+        logger.warning(f"Skipping user {user_data.user_id} update from Auth0: {exc}")
+        session.rollback()
+        return False
     finally:
         session.close()
 
@@ -450,35 +528,40 @@ async def sync_group_memberships_for_role(role: RoleData, auth0_client: Auth0Cli
         if auth0_user.blocked:
             logger.info(f"    User {auth0_user.user_id} blocked, skipping")
             continue
-        db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
-        group_membership = _get_group_membership_including_deleted(session, db_user.id, role.name)
-        # No membership found in DB
-        if group_membership is None:
-            sync_status.created = True
-            group_membership = GroupMembership(
-                group_id=group.group_id,
-                user_id=db_user.id,
-                approval_status=ApprovalStatusEnum.APPROVED,
-                updated_by_id=None,
-            )
-            session.add(group_membership)
-            session.flush()
-        # Deleted membership that needs to be restored
-        elif group_membership.is_deleted:
-            sync_status.restored = True
-            group_membership.restore(session, commit=False)
-        # Status in DB doesn't reflect Auth0
-        if group_membership.approval_status != ApprovalStatusEnum.APPROVED:
-            sync_status.status_changed = True
-            group_membership.approval_status = ApprovalStatusEnum.APPROVED
-            group_membership.updated_at = datetime.now(timezone.utc)
-        session.add(group_membership)
-        if sync_status.is_changed():
-            group_membership.save_history(session, commit=False)
-            if sync_status.created:
-                logger.info(f"    Created membership for {db_user.id} -> {group.group_id}")
-            elif sync_status.restored:
-                logger.info(f"    Restored membership for {db_user.id} -> {group.group_id}")
+        try:
+            with session.begin_nested():
+                db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
+                group_membership = _get_group_membership_including_deleted(session, db_user.id, role.name)
+                # No membership found in DB
+                if group_membership is None:
+                    sync_status.created = True
+                    group_membership = GroupMembership(
+                        group_id=group.group_id,
+                        user_id=db_user.id,
+                        approval_status=ApprovalStatusEnum.APPROVED,
+                        updated_by_id=None,
+                    )
+                    session.add(group_membership)
+                    session.flush()
+                # Deleted membership that needs to be restored
+                elif group_membership.is_deleted:
+                    sync_status.restored = True
+                    group_membership.restore(session, commit=False)
+                # Status in DB doesn't reflect Auth0
+                if group_membership.approval_status != ApprovalStatusEnum.APPROVED:
+                    sync_status.status_changed = True
+                    group_membership.approval_status = ApprovalStatusEnum.APPROVED
+                    group_membership.updated_at = datetime.now(timezone.utc)
+                session.add(group_membership)
+                if sync_status.is_changed():
+                    group_membership.save_history(session, commit=False)
+                    if sync_status.created:
+                        logger.info(f"    Created membership for {db_user.id} -> {group.group_id}")
+                    elif sync_status.restored:
+                        logger.info(f"    Restored membership for {db_user.id} -> {group.group_id}")
+        except UserSyncConflictError as exc:
+            logger.warning(f"    Skipping user {auth0_user.user_id} for group {group.group_id}: {exc}")
+            continue
     # Soft delete memberships that are approved but no longer present
     session.flush()
     all_memberships = GroupMembership.list_by_group_id(
@@ -529,7 +612,12 @@ def _get_platform_membership_including_deleted(session: Session, user_id: str, p
     )
 
 
-async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0Client, session: Session):
+async def sync_platform_memberships_for_role(
+        role: RoleData,
+        auth0_client: Auth0Client,
+        session: Session,
+        exported_users_by_id: dict[str, ExportedUser],
+):
     """
     Sync memberships and membership status for a given platform role
     """
@@ -543,39 +631,47 @@ async def sync_platform_memberships_for_role(role: RoleData, auth0_client: Auth0
     # Add or restore memberships that are in Auth0 but not in DB
     for role_user in role_users:
         sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
-        auth0_user = auth0_client.get_user(role_user.user_id)
+        auth0_user = exported_users_by_id.get(role_user.user_id)
+        if auth0_user is None:
+            logger.warning(f"    User {role_user.user_id} not found in exported users, skipping")
+            continue
         if auth0_user.blocked:
             logger.info(f"    User {auth0_user.user_id} blocked, skipping")
             continue
-        db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
-        platform_membership = _get_platform_membership_including_deleted(session, db_user.id, platform_id)
-        # No membership found in DB
-        if platform_membership is None:
-            sync_status.created = True
-            platform_membership = PlatformMembership(
-                platform_id=platform_id,
-                user_id=db_user.id,
-                approval_status=ApprovalStatusEnum.APPROVED,
-                updated_by_id=None,
-            )
-            session.add(platform_membership)
-            session.flush()
-        # Deleted membership that needs to be restored
-        elif platform_membership.is_deleted:
-            sync_status.restored = True
-            platform_membership.restore(session, commit=False)
-        # Status in DB doesn't reflect Auth0
-        if platform_membership.approval_status != ApprovalStatusEnum.APPROVED:
-            sync_status.status_changed = True
-            platform_membership.approval_status = ApprovalStatusEnum.APPROVED
-            platform_membership.updated_at = datetime.now(timezone.utc)
-        session.add(platform_membership)
-        if sync_status.is_changed():
-            platform_membership.save_history(session, commit=False)
-            if sync_status.created:
-                logger.info(f"    Created membership for {db_user.id} -> {platform_id}")
-            elif sync_status.restored:
-                logger.info(f"    Restored membership for {db_user.id} -> {platform_id}")
+        try:
+            with session.begin_nested():
+                db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
+                platform_membership = _get_platform_membership_including_deleted(session, db_user.id, platform_id)
+                # No membership found in DB
+                if platform_membership is None:
+                    sync_status.created = True
+                    platform_membership = PlatformMembership(
+                        platform_id=platform_id,
+                        user_id=db_user.id,
+                        approval_status=ApprovalStatusEnum.APPROVED,
+                        updated_by_id=None,
+                    )
+                    session.add(platform_membership)
+                    session.flush()
+                # Deleted membership that needs to be restored
+                elif platform_membership.is_deleted:
+                    sync_status.restored = True
+                    platform_membership.restore(session, commit=False)
+                # Status in DB doesn't reflect Auth0
+                if platform_membership.approval_status != ApprovalStatusEnum.APPROVED:
+                    sync_status.status_changed = True
+                    platform_membership.approval_status = ApprovalStatusEnum.APPROVED
+                    platform_membership.updated_at = datetime.now(timezone.utc)
+                session.add(platform_membership)
+                if sync_status.is_changed():
+                    platform_membership.save_history(session, commit=False)
+                    if sync_status.created:
+                        logger.info(f"    Created membership for {db_user.id} -> {platform_id}")
+                    elif sync_status.restored:
+                        logger.info(f"    Restored membership for {db_user.id} -> {platform_id}")
+        except UserSyncConflictError as exc:
+            logger.warning(f"    Skipping user {auth0_user.user_id} for platform {platform_id}: {exc}")
+            continue
     # Soft delete memberships that are approved but no longer present
     session.flush()
     all_memberships = PlatformMembership.list_by_platform_id(
@@ -602,12 +698,19 @@ async def sync_platform_user_roles():
     settings = get_settings()
     token = get_management_token(settings=settings)
     auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
+    exported_users = await export_auth0_users(auth0_client)
+    exported_users_by_id = {user.user_id: user for user in exported_users}
     roles = [role for role in auth0_client.get_all_roles()
              if re.match(PLATFORM_ROLE_PATTERN, role.name)]
     for role in roles:
         db_session = next(get_db_session())
         try:
-            await sync_platform_memberships_for_role(role, auth0_client, db_session)
+            await sync_platform_memberships_for_role(
+                role,
+                auth0_client,
+                db_session,
+                exported_users_by_id=exported_users_by_id
+            )
         finally:
             db_session.close()
 

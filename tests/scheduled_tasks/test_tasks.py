@@ -26,6 +26,7 @@ from scheduled_tasks.email_retry import (
 )
 from scheduled_tasks.tasks import (
     ExportedUser,
+    UserSyncConflictError,
     _ensure_user_from_auth0,
     _get_group_membership_including_deleted,
     export_auth0_users,
@@ -311,6 +312,26 @@ def test_ensure_user_no_restore_if_blocked(test_db_session, persistent_factories
     assert user.is_deleted is True
 
 
+def test_ensure_user_from_auth0_raises_on_username_conflict(test_db_session, persistent_factories):
+    existing = BiocommonsUserFactory.create_sync(
+        id="auth0|existing-user",
+        email="existing.user@example.com",
+        username="same_username",
+    )
+    assert existing is not None
+
+    conflicting_user_data = Auth0UserDataFactory.build(
+        user_id="auth0|different-user",
+        email="different.user@example.com",
+        username="same_username",
+        email_verified=True,
+        blocked=False,
+    )
+
+    with pytest.raises(UserSyncConflictError, match="username 'same_username'"):
+        _ensure_user_from_auth0(test_db_session, conflicting_user_data)
+
+
 def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(
         group_id="biocommons/group/deleted-check",
@@ -578,17 +599,18 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         role_user_pending,
         role_user_new,
     ]
-    mock_auth0_client.get_user.side_effect = [
-        auth0_user_keep,
-        auth0_user_pending,
-        auth0_user_new,
-    ]
     mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch(
+        "scheduled_tasks.tasks.export_auth0_users",
+        return_value=[ExportedUser(user_id=u.user_id, email=u.email, email_verified=u.email_verified,
+                                   username=u.username, blocked=u.blocked, updated_at=u.updated_at)
+                      for u in [auth0_user_keep, auth0_user_pending, auth0_user_new]]
     )
 
     await sync_platform_user_roles()
