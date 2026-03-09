@@ -198,11 +198,11 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         logger.info(f"Unblocking user in Auth0: {self.id}")
         auth0_client.update_user(user_id=self.id, update_data=UpdateUserData(blocked=False))
         logger.info("Restoring user in database")
+        self.save_history(session=session, change="user_restoration", reason=reason, updated_by=restored_by, commit=False)
         self.is_deleted = False
-        self.deleted_by = restored_by
+        self.deleted_by_id = restored_by.id
         self.deletion_reason = reason
         self.deleted_at = datetime.now(timezone.utc)
-        self.save_history(session=session, change="user_restoration", reason=reason, updated_by=restored_by)
         session.add(self)
         session.commit()
         return self
