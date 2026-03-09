@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from apscheduler.events import (
     EVENT_JOB_ERROR,
     EVENT_JOB_EXECUTED,
@@ -11,9 +13,17 @@ from loguru import logger
 
 
 def job_listener(event: JobExecutionEvent):
+    scheduled_time = getattr(event, "scheduled_run_time", None)
+    time_since_scheduled = None
+    if scheduled_time is not None:
+        now = datetime.now(timezone.utc)
+        time_since_scheduled = (now - scheduled_time).total_seconds()
     with logger.contextualize(job_id=event.job_id, run_time=getattr(event, "scheduled_run_time", None)):
         if event.code == EVENT_JOB_EXECUTED:
-            logger.info("job executed successfully")
+            msg = "job executed successfully"
+            if time_since_scheduled is not None:
+                msg += f" ({time_since_scheduled:.2f}s since scheduled time)"
+            logger.info(msg)
         elif event.code == EVENT_JOB_ERROR:
             logger.error(f"job failed: {event.exception}\n{event.traceback}")
         elif event.code == EVENT_JOB_MISSED:
