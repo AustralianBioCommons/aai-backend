@@ -383,20 +383,19 @@ async def sync_auth0_users():
 
 
 async def update_auth0_user(user_data: Auth0UserData):
-    logger.info(f"Checking user {user_data.user_id}")
     session = next(get_db_session())
     try:
         db_user, created, restored = _ensure_user_from_auth0(session, user_data)
         if created:
-            logger.info("  User created in DB")
+            logger.info(f"User {user_data.user_id} created in DB")
         elif restored:
-            logger.info("  User restored from soft delete")
+            logger.info(f"User {user_data.user_id} restored from soft delete")
         else:
-            logger.debug("  User exists in DB, updating fields")
+            logger.debug(f"User {user_data.user_id} exists in DB, updating fields")
         if session.is_modified(db_user):
-            logger.info("  User data changed, updating in DB")
+            logger.info(f"User data changed for {user_data.user_id}, updating in DB")
         else:
-            logger.debug("  User data unchanged")
+            logger.debug(f"User data unchanged for {user_data.user_id}")
         # Should be OK to commit as SQLAlchemy will only update modified fields
         session.commit()
         return True
