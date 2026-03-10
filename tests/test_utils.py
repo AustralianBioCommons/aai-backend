@@ -1,6 +1,8 @@
 import pytest
+from sqlmodel import select
 
 from auth0.client import get_auth0_client
+from db.models import EmailNotification
 from main import app
 from routers import utils
 from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
@@ -129,3 +131,28 @@ def test_check_existing_user_all_branches(mocker):
     mocker.patch("routers.utils._check_username_exists", return_value=False)
     mocker.patch("routers.utils._check_email_exists", return_value=False)
     assert utils.check_existing_user("u", "e@example.com", auth0_client) is None
+
+
+def test_send_welcome_email_enqueues_email(override_auth0_client, test_client, test_db_session):
+    """A verified user should result in a welcome email being queued."""
+    user = Auth0UserDataFactory.build(email="user@example.com", email_verified=True)
+    override_auth0_client.search_users_by_email.return_value = [user]
+
+    resp = test_client.post("/utils/send-welcome-email", json={"email": "user@example.com"})
+
+    assert resp.status_code == 200
+    queued = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued) == 1
+    assert queued[0].to_address == str(user.email)
+
+
+def test_send_welcome_email_returns_404_when_user_not_verified(override_auth0_client, test_client, test_db_session):
+    """No verified user found should return 404 and enqueue nothing."""
+    user = Auth0UserDataFactory.build(email="user@example.com", email_verified=False)
+    override_auth0_client.search_users_by_email.return_value = [user]
+
+    resp = test_client.post("/utils/send-welcome-email", json={"email": "user@example.com"})
+
+    assert resp.status_code == 404
+    queued = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued) == 0
