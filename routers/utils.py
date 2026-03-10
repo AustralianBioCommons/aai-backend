@@ -1,13 +1,24 @@
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.params import Depends
 from pydantic import BaseModel
+from sqlmodel import Session, select
 
 from auth0.client import Auth0Client, get_auth0_client
+from biocommons.emails import (
+    compose_welcome_email,
+    format_first_name,
+    get_default_sender_email,
+)
+from config import Settings, get_settings
+from db.models import EmailNotification
+from db.setup import get_db_session
+from db.types import EmailStatusEnum
 from schemas.biocommons import AppId
 from schemas.responses import FieldError
+from services.email_queue import enqueue_email
 
 logger = logging.getLogger(__name__)
 
@@ -127,3 +138,62 @@ async def get_registration_info(
                 return RegistrationInfo(app="biocommons")
             return RegistrationInfo(app=user.app_metadata.registration_from)
     return RegistrationInfo(app="biocommons")
+
+
+class SendWelcomeEmailRequest(BaseModel):
+    email: str
+
+
+@router.post("/send-welcome-email")
+async def send_welcome_email(
+    request: SendWelcomeEmailRequest,
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict:
+    """
+    Send a welcome email to the user with the given email address.
+    Called after successful email verification.
+    """
+    users = auth0_client.search_users_by_email(request.email)
+    user = next(
+        (u for u in users if str(u.email).lower() == request.email.lower() and u.email_verified),
+        None,
+    )
+    if user is None:
+        raise HTTPException(status_code=404, detail="Verified user not found.")
+    first_name = format_first_name(
+        full_name=user.name,
+        given_name=user.given_name,
+        fallback=str(user.email),
+    )
+    subject, body_html = compose_welcome_email(
+        first_name=first_name,
+        portal_url=settings.aai_portal_url,
+    )
+    duplicate = db_session.exec(
+        select(EmailNotification).where(
+            EmailNotification.to_address == str(user.email),
+            EmailNotification.subject == subject,
+            EmailNotification.status.in_(
+                [EmailStatusEnum.PENDING, EmailStatusEnum.SENDING, EmailStatusEnum.SENT]
+            ),
+        )
+    ).first()
+    if duplicate is not None:
+        logger.warning(
+            "Duplicate welcome email for %s (existing id=%s, status=%s)",
+            user.email,
+            duplicate.id,
+            duplicate.status,
+        )
+        return {"message": "Welcome email already queued or sent."}
+    enqueue_email(
+        db_session,
+        to_address=str(user.email),
+        from_address=get_default_sender_email(settings),
+        subject=subject,
+        body_html=body_html,
+    )
+    db_session.commit()
+    return {"message": "Welcome email sent."}

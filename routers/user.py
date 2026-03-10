@@ -25,6 +25,8 @@ from auth0.user_info import UserInfo, get_auth0_user_info
 from biocommons.emails import (
     compose_email_change_otp_email,
     compose_group_approval_email,
+    compose_welcome_email,
+    format_first_name,
     get_default_sender_email,
     get_group_admin_contacts,
     get_requester_identity,
@@ -832,7 +834,8 @@ def resend_verification_email(
 def finish_migrate_password(state: str,
                             session_token: str,
                             settings: Annotated[Settings, Depends(get_settings)],
-                            auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],):
+                            auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+                            db_session: Annotated[Session, Depends(get_db_session)],):
     """
     Complete the migration process. This should be called by Auth0 when a user
     starts the actual password change, and clears their user_needs_migration flag.
@@ -848,5 +851,26 @@ def finish_migrate_password(state: str,
     updated_metadata = BiocommonsAppMetadata(user_needs_migration=False)
     logger.info(f"Updating app_metadata for user: {user_id}")
     auth0_client.update_user(user_id=user_id, update_data=UpdateUserData(app_metadata=updated_metadata))
+
+    auth0_user = auth0_client.get_user(user_id)
+    if auth0_user.email:
+        first_name = format_first_name(
+            full_name=auth0_user.name,
+            given_name=auth0_user.given_name,
+            fallback=auth0_user.email,
+        )
+        subject, body_html = compose_welcome_email(
+            first_name=first_name,
+            portal_url=settings.aai_portal_url,
+        )
+        enqueue_email(
+            db_session,
+            to_address=auth0_user.email,
+            from_address=get_default_sender_email(settings),
+            subject=subject,
+            body_html=body_html,
+        )
+        db_session.commit()
+
     logger.info("Returning to Auth0")
     return RedirectResponse(url=f"{settings.auth0_custom_domain}/continue?state={state}")

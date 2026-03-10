@@ -1149,7 +1149,8 @@ def test_finish_migrate_password_success(
     test_client,
     mock_verify_action_token,
     mock_auth0_client,
-    mock_settings
+    mock_settings,
+    test_db_session,
 ):
     """
     Test that finish_migrate_password updates user metadata and redirects correctly.
@@ -1158,6 +1159,7 @@ def test_finish_migrate_password_success(
     state = "some_auth0_state"
     mock_verify_action_token.return_value = {"sub": user_id}
     mock_settings.auth0_custom_domain = "https://auth.example.com"
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(email="user@example.com")
 
     params = {
         "state": state,
@@ -1173,6 +1175,59 @@ def test_finish_migrate_password_success(
     call_args = mock_auth0_client.update_user.call_args
     assert call_args.kwargs["user_id"] == user_id
     assert call_args.kwargs["update_data"].app_metadata.user_needs_migration is False
+
+
+def test_finish_migrate_password_queues_welcome_email(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mock_settings,
+    test_db_session,
+):
+    """
+    Test that finish_migrate_password queues a welcome email when the user has an email address.
+    """
+    user_id = "auth0|migrate-me"
+    mock_verify_action_token.return_value = {"sub": user_id}
+    mock_settings.auth0_custom_domain = "https://auth.example.com"
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(email="user@example.com")
+
+    test_client.get(
+        "/me/migration/password-changed",
+        params={"state": "s", "session_token": "tok"},
+        follow_redirects=False,
+    )
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == "user@example.com"
+
+
+def test_finish_migrate_password_no_email_skips_welcome_email(
+    test_client,
+    mock_verify_action_token,
+    mock_auth0_client,
+    mock_settings,
+    test_db_session,
+):
+    """
+    Test that finish_migrate_password does not queue an email when Auth0 returns no email address.
+    """
+    from unittest.mock import MagicMock as _MagicMock
+    mock_verify_action_token.return_value = {"sub": "auth0|migrate-me"}
+    mock_settings.auth0_custom_domain = "https://auth.example.com"
+    no_email_user = _MagicMock()
+    no_email_user.email = None
+    mock_auth0_client.get_user.return_value = no_email_user
+
+    test_client.get(
+        "/me/migration/password-changed",
+        params={"state": "s", "session_token": "tok"},
+        follow_redirects=False,
+    )
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 0
 
 
 def test_finish_migrate_password_invalid_token(

@@ -218,3 +218,37 @@ def compose_email_change_otp_email(
         "www.biocommons.org.au/access-support</a>.</p>"
     )
     return subject, body_html
+
+
+def compose_welcome_email(
+    first_name: str,
+    portal_url: str,
+) -> tuple[str, str]:
+    """
+    Welcome email sent to new users after email verification
+    and to users who have been successfully migrated.
+    """
+    safe_first_name = html.escape(first_name)
+    safe_portal_url = html.escape(portal_url)
+    subject = "Welcome to BioCommons Access"
+    body_html = (
+        f"<p>Dear {safe_first_name},</p>"
+        "<p>Welcome to your new BioCommons Access account!</p>"
+        '<p><a href="https://www.biocommons.org.au/access" target="_blank" rel="noopener noreferrer">BioCommons Access</a> is your key to unlocking analysis services and research data '
+        "across the Australian BioCommons ecosystem. A single log in offers convenient and "
+        "secure access to a growing number of services.</p>"
+        f'<p>Consider bookmarking <a href="{safe_portal_url}" target="_blank" rel="noopener noreferrer">{safe_portal_url}</a> for future logins. '
+        "Use the BioCommons Access portal to access connected services, update your profile "
+        "and apply for Service Bundles.</p>"
+        "<p>The BioCommons Access portal contains links to services including Galaxy Australia "
+        "and the Bioplatforms Australia Data Portal. If you prefer to access the services "
+        "directly, your BioCommons Access credentials can be entered there too.</p>"
+        '<p>You can <a href="https://www.biocommons.org.au/access-support" target="_blank" rel="noopener noreferrer">access support for your BioCommons Access account</a>, or find help related to '
+        '<a href="https://www.biocommons.org.au/access-existing-users" target="_blank" rel="noopener noreferrer">migrating existing Galaxy Australia or Bioplatforms Australia Data Portal accounts</a>.</p>'
+        "<p>To hear when future services come online, as well as relevant training and other "
+        'ways to connect, <a href="https://www.biocommons.org.au/subscribe" target="_blank" rel="noopener noreferrer">subscribe to the Australian BioCommons monthly newsletter</a>.</p>'
+        "<p>Thank you,</p>"
+        "<p>The Australian BioCommons<br/>"
+        '<a href="https://www.biocommons.org.au" target="_blank" rel="noopener noreferrer">www.biocommons.org.au</a></p>'
+    )
+    return subject, body_html
