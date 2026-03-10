@@ -4,7 +4,7 @@ import httpx
 from fastapi.params import Depends
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth.validator import oauth2_scheme
+from auth import get_auth0_token
 from config import Settings, get_settings
 
 
@@ -22,7 +22,7 @@ class UserInfo(BaseModel):
 
 
 async def get_auth0_user_info(
-        token: Annotated[str, Depends(oauth2_scheme)],
+        auth0_token: Annotated[str, Depends(get_auth0_token)],
         settings: Annotated[Settings, Depends(get_settings)]) -> UserInfo:
     """
     Fetch and return user info from Auth0's userinfo endpoint for the current user.
@@ -32,7 +32,7 @@ async def get_auth0_user_info(
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"https://{settings.auth0_domain}/userinfo", headers={
-                "Authorization": f"Bearer {token}"
+                "Authorization": f"Bearer {auth0_token}"
             })
     resp.raise_for_status()
     return UserInfo(**resp.json())
