@@ -156,3 +156,17 @@ def test_send_welcome_email_returns_404_when_user_not_verified(override_auth0_cl
     assert resp.status_code == 404
     queued = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued) == 0
+
+
+def test_send_welcome_email_suppresses_duplicate(override_auth0_client, test_client, test_db_session):
+    """A second request for the same user should not enqueue a second email."""
+    user = Auth0UserDataFactory.build(email="user@example.com", email_verified=True)
+    override_auth0_client.search_users_by_email.return_value = [user]
+
+    test_client.post("/utils/send-welcome-email", json={"email": "user@example.com"})
+    resp = test_client.post("/utils/send-welcome-email", json={"email": "user@example.com"})
+
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "Welcome email already queued or sent."
+    queued = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued) == 1

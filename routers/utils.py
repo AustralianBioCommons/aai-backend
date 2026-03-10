@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.params import Depends
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import (
@@ -13,7 +13,9 @@ from biocommons.emails import (
     get_default_sender_email,
 )
 from config import Settings, get_settings
+from db.models import EmailNotification
 from db.setup import get_db_session
+from db.types import EmailStatusEnum
 from schemas.biocommons import AppId
 from schemas.responses import FieldError
 from services.email_queue import enqueue_email
@@ -169,6 +171,23 @@ async def send_welcome_email(
         first_name=first_name,
         portal_url=settings.aai_portal_url,
     )
+    duplicate = db_session.exec(
+        select(EmailNotification).where(
+            EmailNotification.to_address == str(user.email),
+            EmailNotification.subject == subject,
+            EmailNotification.status.in_(
+                [EmailStatusEnum.PENDING, EmailStatusEnum.SENDING, EmailStatusEnum.SENT]
+            ),
+        )
+    ).first()
+    if duplicate is not None:
+        logger.warning(
+            "Duplicate welcome email for %s (existing id=%s, status=%s)",
+            user.email,
+            duplicate.id,
+            duplicate.status,
+        )
+        return {"message": "Welcome email already queued or sent."}
     enqueue_email(
         db_session,
         to_address=str(user.email),
