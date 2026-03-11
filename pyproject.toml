@@ -59,7 +59,7 @@ exclude = ["tests", "tests.*"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py313"
 lint.select = ["E", "F", "I"]
 lint.ignore = ["E501"]
 exclude = ["tests/data", ".venv", "venv", "migrations"]
