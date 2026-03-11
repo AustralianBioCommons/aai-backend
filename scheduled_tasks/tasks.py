@@ -158,6 +158,9 @@ def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData | Exporte
         deleted_user = BiocommonsUser.get_deleted_by_id(session, user_data.user_id)
         if deleted_user is not None:
             user = deleted_user
+        # Blocked user not in the DB
+        elif user is None:
+            return None, False, False
     elif user is None:
         user = BiocommonsUser.get_deleted_by_id(session, user_data.user_id)
         if user is not None:
