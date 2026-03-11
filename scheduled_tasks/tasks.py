@@ -398,10 +398,10 @@ async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) ->
             try:
                 with session.begin_nested():
                     success = update_auth0_user(user_data, session=session)
-            except IntegrityError as exc:
+            except (UserSyncConflictError, IntegrityError) as exc:
                 # Roll back this user's changes and continue with the next user
                 logger.warning(
-                    "IntegrityError while updating Auth0 user %r: %s",
+                    "Error while updating Auth0 user %r: %s",
                     getattr(user_data, "user_id", None),
                     exc,
                 )
@@ -425,28 +425,24 @@ def update_auth0_user(user_data: Auth0UserData | ExportedUser, session: Session)
     Update a single user from Auth0. Called by update_auth0_users_batch, which handles session
     creation/committing
     """
-    try:
-        db_user, created, restored = _ensure_user_from_auth0(session, user_data)
-        if db_user is None:
-            if user_data.blocked:
-                logger.warning(f"Blocked {user_data.user_id} not found in DB, skipping")
-            else:
-                logger.warning(f"User {user_data.user_id} not found in DB, skipping")
-            return False
-        if created:
-            logger.debug(f"User {user_data.user_id} created in DB")
-        elif restored:
-            logger.debug(f"User {user_data.user_id} restored from soft delete")
+    db_user, created, restored = _ensure_user_from_auth0(session, user_data)
+    if db_user is None:
+        if user_data.blocked:
+            logger.warning(f"Blocked {user_data.user_id} not found in DB, skipping")
         else:
-            logger.debug(f"User {user_data.user_id} exists in DB, updating fields")
-        if session.is_modified(db_user):
-            logger.debug(f"User data changed for {user_data.user_id}, updating in DB")
-        else:
-            logger.debug(f"User data unchanged for {user_data.user_id}")
-        return True
-    except (UserSyncConflictError, IntegrityError) as exc:
-        logger.warning(f"Skipping user {user_data.user_id} update from Auth0: {exc}")
+            logger.warning(f"User {user_data.user_id} not found in DB, skipping")
         return False
+    if created:
+        logger.debug(f"User {user_data.user_id} created in DB")
+    elif restored:
+        logger.debug(f"User {user_data.user_id} restored from soft delete")
+    else:
+        logger.debug(f"User {user_data.user_id} exists in DB, updating fields")
+    if session.is_modified(db_user):
+        logger.debug(f"User data changed for {user_data.user_id}, updating in DB")
+    else:
+        logger.debug(f"User data unchanged for {user_data.user_id}")
+    return True
 
 
 async def sync_auth0_roles():
