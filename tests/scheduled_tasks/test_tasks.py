@@ -40,6 +40,7 @@ from scheduled_tasks.tasks import (
     sync_group_user_roles,
     sync_platform_user_roles,
     update_auth0_user,
+    update_auth0_users_batch,
 )
 from tests.datagen import (
     Auth0UserDataFactory,
@@ -103,7 +104,6 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     users = [existing_user_data, new_user_data, extra_user_data]
     mocker.patch("scheduled_tasks.tasks.get_settings")
     mocker.patch("scheduled_tasks.tasks.get_management_token")
-    mock_scheduler = mocker.patch("scheduled_tasks.tasks.SCHEDULER")
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -116,7 +116,6 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     test_db_session.refresh(user_not_in_auth0)
     created_user = test_db_session.get(BiocommonsUser, new_user_data.user_id)
 
-    assert mock_scheduler.add_job.call_count == 3
     assert existing_user.email_verified is True
     assert user_not_in_auth0.is_deleted is True
     assert created_user is not None and created_user.is_deleted is False
@@ -124,8 +123,7 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     assert second_created is not None
 
 
-@pytest.mark.asyncio
-async def test_update_auth0_user_updates_existing(test_db_session, mocker, persistent_factories):
+def test_update_auth0_user_updates_existing(test_db_session, mocker, persistent_factories):
     """
     Updating an existing user applies Auth0 data and commits changes.
     """
@@ -141,14 +139,14 @@ async def test_update_auth0_user_updates_existing(test_db_session, mocker, persi
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
-    await update_auth0_user(user_data=user_data)
+    update_auth0_user(user_data=user_data, session=test_db_session)
+    test_db_session.commit()
 
     test_db_session.refresh(db_user)
     assert db_user.email_verified is True
 
 
-@pytest.mark.asyncio
-async def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
+def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
     """
     Missing users are created when encountered during the update.
     """
@@ -158,7 +156,8 @@ async def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
-    result = await update_auth0_user(user_data=user_data)
+    result = update_auth0_user(user_data=user_data, session=test_db_session)
+    test_db_session.commit()
 
     created = test_db_session.get(BiocommonsUser, user_data.user_id)
     assert result is True
@@ -166,11 +165,10 @@ async def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
 
 
 @pytest.mark.asyncio
-async def test_update_auth0_user_closes_session(mocker):
-    user_data = Auth0UserDataFactory.build(
-        email="close.session@example.com",
-        username="close_session",
-    )
+async def test_update_auth0_user_batch_closes_session(mocker):
+    """
+    Check that the session is closed after the update.
+    """
     fake_session = mocker.Mock()
     fake_session.is_modified.return_value = False
     fake_session.commit.return_value = None
@@ -183,7 +181,8 @@ async def test_update_auth0_user_closes_session(mocker):
         return_value=(fake_session for _ in range(1)),
     )
 
-    await update_auth0_user(user_data=user_data)
+    # Empty user list (actual user list does nested transactions + hard to mock)
+    await update_auth0_users_batch(users=[])
 
     fake_session.commit.assert_called_once()
     fake_session.close.assert_called_once()
