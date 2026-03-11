@@ -120,7 +120,10 @@ def _find_conflicting_user_by_email(
         )
 
 
-def _ensure_user_from_auth0(session: Session, user_data: Auth0UserData | ExportedUser) -> tuple[BiocommonsUser, bool, bool]:
+def _ensure_user_from_auth0(
+        session: Session,
+        user_data: Auth0UserData | ExportedUser
+) -> tuple[BiocommonsUser | None, bool, bool]:
     """
     Ensure the Auth0 user exists in the database, creating or restoring if required.
 
