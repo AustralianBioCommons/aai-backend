@@ -369,6 +369,8 @@ async def sync_auth0_users():
                 args=[user],
                 id=f"update_user_{user.user_id}",
                 replace_existing=True,
+                # Allow 30 minutes - syncing users may take time
+                misfire_grace_time=30 * 60,
             )
         # Soft delete any users no longer present in Auth0
         db_session.flush()
