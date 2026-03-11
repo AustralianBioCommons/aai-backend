@@ -424,7 +424,7 @@ def update_auth0_user(user_data: Auth0UserData | ExportedUser, session: Session)
         if created:
             logger.debug(f"User {user_data.user_id} created in DB")
         elif restored:
-            logger.dbeug(f"User {user_data.user_id} restored from soft delete")
+            logger.debug(f"User {user_data.user_id} restored from soft delete")
         else:
             logger.debug(f"User {user_data.user_id} exists in DB, updating fields")
         if session.is_modified(db_user):
