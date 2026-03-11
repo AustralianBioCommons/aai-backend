@@ -395,8 +395,17 @@ async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) ->
     session = next(get_db_session())
     try:
         for user_data in users:
-            with session.begin_nested():
-                success = update_auth0_user(user_data, session=session)
+            try:
+                with session.begin_nested():
+                    success = update_auth0_user(user_data, session=session)
+            except IntegrityError as exc:
+                # Roll back this user's changes and continue with the next user
+                logger.warning(
+                    "IntegrityError while updating Auth0 user %r: %s",
+                    getattr(user_data, "user_id", None),
+                    exc,
+                )
+                success = False
             if success:
                 updated += 1
             else:
