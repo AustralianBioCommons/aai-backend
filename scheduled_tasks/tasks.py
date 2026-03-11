@@ -658,6 +658,8 @@ async def sync_platform_memberships_for_role(
         return
     role_users = auth0_client.get_all_role_users(role_id=role.id)
     # Add or restore memberships that are in Auth0 but not in DB
+    created = 0
+    restored = 0
     for role_user in role_users:
         sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
         auth0_user = exported_users_by_id.get(role_user.user_id)
@@ -695,12 +697,15 @@ async def sync_platform_memberships_for_role(
                 if sync_status.is_changed():
                     platform_membership.save_history(session, commit=False)
                     if sync_status.created:
-                        logger.info(f"    Created membership for {db_user.id} -> {platform_id}")
+                        created += 1
+                        logger.debug(f"    Created membership for {db_user.id} -> {platform_id}")
                     elif sync_status.restored:
-                        logger.info(f"    Restored membership for {db_user.id} -> {platform_id}")
+                        restored += 1
+                        logger.debug(f"    Restored membership for {db_user.id} -> {platform_id}")
         except UserSyncConflictError as exc:
             logger.warning(f"    Skipping user {auth0_user.user_id} for platform {platform_id}: {exc}")
             continue
+    logger.info(f"  Created {created} new memberships, restored {restored} memberships")
     # Soft delete memberships that are approved but no longer present
     session.flush()
     all_memberships = PlatformMembership.list_by_platform_id(
