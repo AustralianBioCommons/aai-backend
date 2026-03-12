@@ -107,7 +107,7 @@ def offset_trigger(offset: int):
     return DateTrigger(run_date=datetime.now(UTC) + timedelta(seconds=offset))
 
 
-async def run_immediate():
+async def run_immediate(skip_full_sync: bool = False):
     logger.info("Starting scheduler in paused mode to initialize job store")
     SCHEDULER.start(paused=True)
     db_url, _ = get_db_config()
@@ -136,27 +136,28 @@ async def run_immediate():
             id="populate_platforms_from_auth0",
             replace_existing=True
         )
-        logger.info("Adding one-off job: sync_auth0_users")
-        SCHEDULER.add_job(
-            sync_auth0_users,
-            trigger=offset_trigger(offset=15),
-            id="sync_auth0_users",
-            replace_existing=True
-        )
-        logger.info("Adding one-off job: sync_group_user_roles")
-        SCHEDULER.add_job(
-            sync_group_user_roles,
-            trigger=offset_trigger(offset=20),
-            id="sync_group_user_roles",
-            replace_existing=True
-        )
-        logger.info("Adding one-off job: sync_platform_user_roles")
-        SCHEDULER.add_job(
-            sync_platform_user_roles,
-            trigger=offset_trigger(offset=25),
-            id="sync_platform_user_roles",
-            replace_existing=True
-        )
+        if not skip_full_sync:
+            logger.info("Adding one-off job: sync_auth0_users")
+            SCHEDULER.add_job(
+                sync_auth0_users,
+                trigger=offset_trigger(offset=15),
+                id="sync_auth0_users",
+                replace_existing=True
+            )
+            logger.info("Adding one-off job: sync_group_user_roles")
+            SCHEDULER.add_job(
+                sync_group_user_roles,
+                trigger=offset_trigger(offset=20),
+                id="sync_group_user_roles",
+                replace_existing=True
+            )
+            logger.info("Adding one-off job: sync_platform_user_roles")
+            SCHEDULER.add_job(
+                sync_platform_user_roles,
+                trigger=offset_trigger(offset=25),
+                id="sync_platform_user_roles",
+                replace_existing=True
+            )
         logger.info("Adding one-off job: process_email_queue")
         SCHEDULER.add_job(
             process_email_queue,
@@ -196,9 +197,9 @@ async def run_with_scheduler():
     SCHEDULER.shutdown(wait=False)
 
 
-def main(immediate: bool = False):
+def main(immediate: bool = False, skip_full_sync: bool = False):
     if immediate:
-        asyncio.run(run_immediate())
+        asyncio.run(run_immediate(skip_full_sync=skip_full_sync))
     else:
         asyncio.run(run_with_scheduler())
 
