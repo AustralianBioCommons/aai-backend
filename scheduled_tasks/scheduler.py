@@ -49,8 +49,9 @@ def create_scheduler():
         jobstores=jobstores,
         executors=executors,
         job_defaults={
-            "misfire_grace_time": 5 * 60,
+            "misfire_grace_time": 15 * 60,
             "coalesce": True,
+            "max_instances": 1,
         },
         timezone="UTC"
     )
