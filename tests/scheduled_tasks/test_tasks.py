@@ -593,11 +593,7 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
     mock_auth0_client.get_all_roles.return_value = [
         SimpleNamespace(id=platform_role.id, name=platform_role.name, description=platform_role.description)
     ]
-    mock_auth0_client.get_all_role_users.return_value = [
-        role_user_keep,
-        role_user_pending,
-        role_user_new,
-    ]
+    mock_auth0_client.get_all_role_users_generator.return_value = (x for x in [[role_user_keep, role_user_pending, role_user_new]])
     mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
