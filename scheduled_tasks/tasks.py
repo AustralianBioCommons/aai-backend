@@ -664,55 +664,57 @@ async def sync_platform_memberships_for_role(
     if platform is None:
         logger.warning(f"  Platform {platform_id} for {role.name} not found in DB, skipping")
         return
-    role_users = auth0_client.get_all_role_users(role_id=role.id)
     # Add or restore memberships that are in Auth0 but not in DB
     created = 0
     restored = 0
-    for role_user in role_users:
-        sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
-        auth0_user = exported_users_by_id.get(role_user.user_id)
-        if auth0_user is None:
-            logger.warning(f"    User {role_user.user_id} not found in exported users, skipping")
-            continue
-        if auth0_user.blocked:
-            logger.info(f"    User {auth0_user.user_id} blocked, skipping")
-            continue
-        try:
-            with session.begin_nested():
-                db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
-                platform_membership = _get_platform_membership_including_deleted(session, db_user.id, platform_id)
-                # No membership found in DB
-                if platform_membership is None:
-                    sync_status.created = True
-                    platform_membership = PlatformMembership(
-                        platform_id=platform_id,
-                        user_id=db_user.id,
-                        approval_status=ApprovalStatusEnum.APPROVED,
-                        updated_by_id=None,
-                    )
+    role_users = []
+    for user_batch in auth0_client.get_all_role_users_generator(role_id=platform.role_id):
+        for role_user in user_batch:
+            role_users.append(role_user)
+            sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
+            auth0_user = exported_users_by_id.get(role_user.user_id)
+            if auth0_user is None:
+                logger.warning(f"    User {role_user.user_id} not found in exported users, skipping")
+                continue
+            if auth0_user.blocked:
+                logger.info(f"    User {auth0_user.user_id} blocked, skipping")
+                continue
+            try:
+                with session.begin_nested():
+                    db_user, _, _ = _ensure_user_from_auth0(session, auth0_user)
+                    platform_membership = _get_platform_membership_including_deleted(session, db_user.id, platform_id)
+                    # No membership found in DB
+                    if platform_membership is None:
+                        sync_status.created = True
+                        platform_membership = PlatformMembership(
+                            platform_id=platform_id,
+                            user_id=db_user.id,
+                            approval_status=ApprovalStatusEnum.APPROVED,
+                            updated_by_id=None,
+                        )
+                        session.add(platform_membership)
+                        session.flush()
+                    # Deleted membership that needs to be restored
+                    elif platform_membership.is_deleted:
+                        sync_status.restored = True
+                        platform_membership.restore(session, commit=False)
+                    # Status in DB doesn't reflect Auth0
+                    if platform_membership.approval_status != ApprovalStatusEnum.APPROVED:
+                        sync_status.status_changed = True
+                        platform_membership.approval_status = ApprovalStatusEnum.APPROVED
+                        platform_membership.updated_at = datetime.now(timezone.utc)
                     session.add(platform_membership)
-                    session.flush()
-                # Deleted membership that needs to be restored
-                elif platform_membership.is_deleted:
-                    sync_status.restored = True
-                    platform_membership.restore(session, commit=False)
-                # Status in DB doesn't reflect Auth0
-                if platform_membership.approval_status != ApprovalStatusEnum.APPROVED:
-                    sync_status.status_changed = True
-                    platform_membership.approval_status = ApprovalStatusEnum.APPROVED
-                    platform_membership.updated_at = datetime.now(timezone.utc)
-                session.add(platform_membership)
-                if sync_status.is_changed():
-                    platform_membership.save_history(session, commit=False)
-                    if sync_status.created:
-                        created += 1
-                        logger.debug(f"    Created membership for {db_user.id} -> {platform_id}")
-                    elif sync_status.restored:
-                        restored += 1
-                        logger.debug(f"    Restored membership for {db_user.id} -> {platform_id}")
-        except UserSyncConflictError as exc:
-            logger.warning(f"    Skipping user {auth0_user.user_id} for platform {platform_id}: {exc}")
-            continue
+                    if sync_status.is_changed():
+                        platform_membership.save_history(session, commit=False)
+                        if sync_status.created:
+                            created += 1
+                            logger.debug(f"    Created membership for {db_user.id} -> {platform_id}")
+                        elif sync_status.restored:
+                            restored += 1
+                            logger.debug(f"    Restored membership for {db_user.id} -> {platform_id}")
+            except UserSyncConflictError as exc:
+                logger.warning(f"    Skipping user {auth0_user.user_id} for platform {platform_id}: {exc}")
+                continue
     logger.info(f"  Created {created} new memberships, restored {restored} memberships")
     # Soft delete memberships that are approved but no longer present
     session.flush()
