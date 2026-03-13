@@ -2,7 +2,7 @@ import gzip
 import logging
 import pathlib
 import time
-from typing import Optional, Type, TypeVar
+from typing import Iterator, Optional, Type, TypeVar
 
 import httpx
 from fastapi import Depends
@@ -461,20 +461,34 @@ class Auth0Client:
         return [RoleUserData(**raw) for raw in resp.json()]
 
     def get_all_role_users(self, role_id: str) -> list[RoleUserData]:
-        take= 100
-        checkpoint: str | None = None
         users = []
+        for chunk in self.get_all_role_users_generator(role_id):
+            users.extend(chunk)
+        return users
+
+    def get_all_role_users_generator(self, role_id: str) -> Iterator[list[RoleUserData]]:
+        take = 100
+        checkpoint: str | None = None
+        last_api_call_time: float | None = None
+
         while True:
-            page_users: RoleUsersWithCheckpoint = self.get_role_users(role_id, take=take, checkpoint=checkpoint)
-            users.extend(page_users.users)
+            if last_api_call_time is not None:
+                elapsed = time.monotonic() - last_api_call_time
+                if elapsed < 0.5:
+                    time.sleep(0.5 - elapsed)
+
+            last_api_call_time = time.monotonic()
+            page_users: RoleUsersWithCheckpoint = self.get_role_users(
+                role_id,
+                take=take,
+                checkpoint=checkpoint,
+            )
+            yield page_users.users
 
             if page_users.next is None:
                 break
 
             checkpoint = page_users.next
-            # Sleep to avoid Auth0 rate limits
-            time.sleep(0.5)
-        return users
 
     def create_role(self, name: str, description: str) -> RoleData:
         url = f"https://{self.domain}/api/v2/roles"
