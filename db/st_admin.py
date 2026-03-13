@@ -66,6 +66,9 @@ class IncludeDeletedUserMixin(ModelView):
         query = super().get_details_query(request)
         return query.execution_options(include_deleted=True)
 
+    def get_count_query(self, request: Request) -> Select:
+        return super().get_count_query(request).execution_options(include_deleted=True)
+
 
 class UserView(DefaultView):
     fields = ["email", "email_verified", "username", "created_at", "id"]
