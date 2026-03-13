@@ -378,7 +378,7 @@ def test_group_membership_view_list_query_includes_deleted_users(
     stmt = view.get_list_query(mock_request)
     results = test_db_session.exec(stmt).all()
 
-    membership_ids = {row.id for row in results}
+    membership_ids = {row[0].id for row in results}
     assert membership.id in membership_ids
 
 
@@ -405,7 +405,7 @@ def test_platform_membership_view_list_query_includes_deleted_users(
     stmt = view.get_list_query(mock_request)
     results = test_db_session.exec(stmt).all()
 
-    membership_ids = {row.id for row in results}
+    membership_ids = {row[0].id for row in results}
     assert membership.id in membership_ids
 
 
@@ -436,7 +436,7 @@ def test_group_membership_history_view_list_query_includes_deleted_users(
     exec_options = stmt.get_execution_options()
     assert exec_options.get("include_deleted") is True
 
-    results = test_db_session.exec(stmt).all()
+    results = test_db_session.exec(stmt).scalars().all()
 
     history_ids = {row.id for row in results}
     assert history.id in history_ids
@@ -473,7 +473,7 @@ def test_platform_membership_history_view_list_query_includes_deleted_users(
     exec_options = stmt.get_execution_options()
     assert exec_options.get("include_deleted") is True
 
-    results = test_db_session.exec(stmt).all()
+    results = test_db_session.exec(stmt).scalars().all()
 
     history_ids = {row.id for row in results}
     assert history.id in history_ids
