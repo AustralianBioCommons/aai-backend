@@ -88,6 +88,9 @@ class DeletedUserView(UserView):
     def get_list_query(self, request: Request) -> Select:
         return select(self.model).execution_options(include_deleted=True).where(BiocommonsUser.is_deleted.is_(True))
 
+    def get_count_query(self, request: Request) -> Select:
+        return super().get_count_query(request).execution_options(include_deleted=True).where(BiocommonsUser.is_deleted.is_(True))
+
     @row_action(
         name="restore_user",
         text="Restore User",
