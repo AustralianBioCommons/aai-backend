@@ -9,9 +9,29 @@ from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
-from db.models import BiocommonsUser, BiocommonsUserHistory
-from db.st_admin import DeletedUserView
-from tests.db.datagen import BiocommonsUserFactory
+from db.models import (
+    BiocommonsUser,
+    BiocommonsUserHistory,
+    GroupMembership,
+    GroupMembershipHistory,
+    PlatformMembership,
+    PlatformMembershipHistory,
+)
+from db.st_admin import (
+    DeletedUserView,
+    GroupMembershipHistoryView,
+    GroupMembershipView,
+    PlatformMembershipHistoryView,
+    PlatformMembershipView,
+)
+from db.types import ApprovalStatusEnum, PlatformEnum
+from tests.db.datagen import (
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    GroupMembershipFactory,
+    PlatformFactory,
+    PlatformMembershipFactory,
+)
 
 
 @pytest.fixture
@@ -333,3 +353,113 @@ async def test_restore_row_action_restores_self_deleted_user(
 
     assert restored_user.is_deleted is False
     assert restored_user.deleted_by_id == admin_id
+
+
+def test_group_membership_view_list_query_includes_deleted_users(
+    test_db_session,
+    persistent_factories,
+    mock_request,
+):
+    group = BiocommonsGroupFactory.create_sync()
+    deleted_user = BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        platform_memberships=[],
+        is_deleted=True,
+        deleted_at=datetime.now(UTC),
+    )
+    membership = GroupMembershipFactory.create_sync(
+        group_id=group.group_id,
+        user_id=deleted_user.id,
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+
+    view = GroupMembershipView(GroupMembership)
+    stmt = view.get_list_query(mock_request)
+    results = test_db_session.exec(stmt).all()
+
+    membership_ids = {row.id for row in results}
+    assert membership.id in membership_ids
+
+
+def test_platform_membership_view_list_query_includes_deleted_users(
+    test_db_session,
+    persistent_factories,
+    mock_request,
+):
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    deleted_user = BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        platform_memberships=[],
+        is_deleted=True,
+        deleted_at=datetime.now(UTC),
+    )
+    membership = PlatformMembershipFactory.create_sync(
+        platform_id=platform.id,
+        user_id=deleted_user.id,
+    )
+    test_db_session.add(membership)
+    test_db_session.commit()
+
+    view = PlatformMembershipView(PlatformMembership)
+    stmt = view.get_list_query(mock_request)
+    results = test_db_session.exec(stmt).all()
+
+    membership_ids = {row.id for row in results}
+    assert membership.id in membership_ids
+
+
+def test_group_membership_history_view_list_query_includes_deleted_users(
+    test_db_session,
+    persistent_factories,
+    mock_request,
+):
+    group = BiocommonsGroupFactory.create_sync()
+    deleted_user = BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        platform_memberships=[],
+        is_deleted=True,
+        deleted_at=datetime.now(UTC),
+    )
+    history = GroupMembershipHistory(
+        group_id=group.group_id,
+        user_id=deleted_user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    view = GroupMembershipHistoryView(GroupMembershipHistory)
+    stmt = view.get_list_query(mock_request)
+    results = test_db_session.exec(stmt).all()
+
+    history_ids = {row.id for row in results}
+    assert history.id in history_ids
+
+
+def test_platform_membership_history_view_list_query_includes_deleted_users(
+    test_db_session,
+    persistent_factories,
+    mock_request,
+):
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    deleted_user = BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        platform_memberships=[],
+        is_deleted=True,
+        deleted_at=datetime.now(UTC),
+    )
+    history = PlatformMembershipHistory(
+        platform_id=platform.id,
+        user_id=deleted_user.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.add(history)
+    test_db_session.commit()
+
+    view = PlatformMembershipHistoryView(PlatformMembershipHistory)
+    stmt = view.get_list_query(mock_request)
+    results = test_db_session.exec(stmt).all()
+
+    history_ids = {row.id for row in results}
+    assert history.id in history_ids
