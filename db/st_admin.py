@@ -51,6 +51,15 @@ class DefaultView(ModelView):
         return False
 
 
+class IncludeDeletedUserMixin(ModelView):
+
+    def get_list_query(self, request: Request) -> Select:
+        return select(self.model).execution_options(include_deleted=True)
+
+    def get_details_query(self, request: Request) -> Select:
+        return select(self.model).execution_options(include_deleted=True)
+
+
 class UserView(DefaultView):
     fields = ["email", "email_verified", "username", "created_at", "id"]
 
