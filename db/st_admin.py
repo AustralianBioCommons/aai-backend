@@ -51,10 +51,31 @@ class DefaultView(ModelView):
         return False
 
 
+class IncludeDeletedUserMixin(ModelView):
+    """
+    Sets query options to show (soft) deleted users in admin views.
+    Note this currently applies to *all* soft-deleted models,
+    so may need to be updated if other models are soft-deleted.
+    """
+
+    def get_list_query(self, request: Request) -> Select:
+        query = super().get_list_query(request)
+        return query.execution_options(include_deleted=True)
+
+    def get_details_query(self, request: Request) -> Select:
+        query = super().get_details_query(request)
+        return query.execution_options(include_deleted=True)
+
+    def get_count_query(self, request: Request) -> Select:
+        return super().get_count_query(request).execution_options(include_deleted=True)
+
+
 class UserView(DefaultView):
     fields = ["email", "email_verified", "username", "created_at", "id"]
 
     async def repr(self, obj: Any, request: Request) -> str:
+        if getattr(obj, "is_deleted", False):
+            return f"❌ {obj.email} (deleted)"
         return obj.email
 
 
@@ -69,6 +90,9 @@ class DeletedUserView(UserView):
 
     def get_list_query(self, request: Request) -> Select:
         return select(self.model).execution_options(include_deleted=True).where(BiocommonsUser.is_deleted.is_(True))
+
+    def get_count_query(self, request: Request) -> Select:
+        return super().get_count_query(request).execution_options(include_deleted=True).where(BiocommonsUser.is_deleted.is_(True))
 
     @row_action(
         name="restore_user",
@@ -140,7 +164,7 @@ class RoleView(DefaultView):
         return obj.name
 
 
-class PlatformMembershipView(DefaultView):
+class PlatformMembershipView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         HasOne("platform", identity="platform"),
         HasOne("user", identity="user"),
@@ -188,7 +212,7 @@ class GroupView(DefaultView):
         return obj.name
 
 
-class GroupMembershipView(DefaultView):
+class GroupMembershipView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         HasOne("group", identity="group"),
         HasOne("user", identity="user"),
@@ -197,7 +221,7 @@ class GroupMembershipView(DefaultView):
     ]
 
 
-class PlatformMembershipHistoryView(DefaultView):
+class PlatformMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         "platform_id",
         HasOne("user", identity="user"),
@@ -208,7 +232,7 @@ class PlatformMembershipHistoryView(DefaultView):
     ]
 
 
-class GroupMembershipHistoryView(DefaultView):
+class GroupMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         "group_id",
         HasOne("user", identity="user"),
