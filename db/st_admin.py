@@ -151,7 +151,7 @@ class RoleView(DefaultView):
         return obj.name
 
 
-class PlatformMembershipView(DefaultView):
+class PlatformMembershipView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         HasOne("platform", identity="platform"),
         HasOne("user", identity="user"),
@@ -199,7 +199,7 @@ class GroupView(DefaultView):
         return obj.name
 
 
-class GroupMembershipView(DefaultView):
+class GroupMembershipView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         HasOne("group", identity="group"),
         HasOne("user", identity="user"),
@@ -208,7 +208,7 @@ class GroupMembershipView(DefaultView):
     ]
 
 
-class PlatformMembershipHistoryView(DefaultView):
+class PlatformMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         "platform_id",
         HasOne("user", identity="user"),
@@ -219,7 +219,7 @@ class PlatformMembershipHistoryView(DefaultView):
     ]
 
 
-class GroupMembershipHistoryView(DefaultView):
+class GroupMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
     fields = [
         "group_id",
         HasOne("user", identity="user"),
