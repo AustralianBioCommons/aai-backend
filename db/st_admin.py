@@ -52,6 +52,11 @@ class DefaultView(ModelView):
 
 
 class IncludeDeletedUserMixin(ModelView):
+    """
+    Sets query options to show (soft) deleted users in admin views.
+    Note this currently applies to *all* soft-deleted models,
+    so may need to be updated if other models are soft-deleted.
+    """
 
     def get_list_query(self, request: Request) -> Select:
         query = super().get_list_query(request)
