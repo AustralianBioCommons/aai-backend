@@ -64,6 +64,8 @@ class UserView(DefaultView):
     fields = ["email", "email_verified", "username", "created_at", "id"]
 
     async def repr(self, obj: Any, request: Request) -> str:
+        if getattr(obj, "is_deleted", False):
+            return f"❌ {obj.email} (deleted)"
         return obj.email
 
 
