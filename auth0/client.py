@@ -467,7 +467,7 @@ class Auth0Client:
         return users
 
     def get_all_role_users_generator(self, role_id: str) -> Iterator[list[RoleUserData]]:
-        take= 100
+        take = 100
         checkpoint: str | None = None
         last_api_call_time: float | None = None
 
