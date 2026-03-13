@@ -431,10 +431,19 @@ def test_group_membership_history_view_list_query_includes_deleted_users(
 
     view = GroupMembershipHistoryView(GroupMembershipHistory)
     stmt = view.get_list_query(mock_request)
+
+    # Ensure the history view query explicitly includes deleted users
+    exec_options = stmt.get_execution_options()
+    assert exec_options.get("include_deleted") is True
+
     results = test_db_session.exec(stmt).all()
 
     history_ids = {row.id for row in results}
     assert history.id in history_ids
+
+    # Verify the related deleted user can be resolved from the history row
+    matching_history = next(row for row in results if row.id == history.id)
+    assert matching_history.user.id == deleted_user.id
 
 
 def test_platform_membership_history_view_list_query_includes_deleted_users(
@@ -459,7 +468,16 @@ def test_platform_membership_history_view_list_query_includes_deleted_users(
 
     view = PlatformMembershipHistoryView(PlatformMembershipHistory)
     stmt = view.get_list_query(mock_request)
+
+    # Ensure the history view query explicitly includes deleted users
+    exec_options = stmt.get_execution_options()
+    assert exec_options.get("include_deleted") is True
+
     results = test_db_session.exec(stmt).all()
 
     history_ids = {row.id for row in results}
     assert history.id in history_ids
+
+    # Verify the related deleted user can be resolved from the history row
+    matching_history = next(row for row in results if row.id == history.id)
+    assert matching_history.user.id == deleted_user.id
