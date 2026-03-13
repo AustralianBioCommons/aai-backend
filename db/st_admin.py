@@ -54,10 +54,12 @@ class DefaultView(ModelView):
 class IncludeDeletedUserMixin(ModelView):
 
     def get_list_query(self, request: Request) -> Select:
-        return select(self.model).execution_options(include_deleted=True)
+        query = super().get_list_query(request)
+        return query.execution_options(include_deleted=True)
 
     def get_details_query(self, request: Request) -> Select:
-        return select(self.model).execution_options(include_deleted=True)
+        query = super().get_details_query(request)
+        return query.execution_options(include_deleted=True)
 
 
 class UserView(DefaultView):
