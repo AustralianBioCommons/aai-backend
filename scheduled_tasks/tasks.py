@@ -715,6 +715,7 @@ async def sync_platform_memberships_for_role(
             except (UserSyncConflictError, IntegrityError) as exc:
                 logger.warning(f"    Skipping user {role_user.user_id} for platform {platform_id}: {exc}")
                 continue
+        session.commit()
     logger.info(f"  Created {created} new memberships, restored {restored} memberships")
     # Soft delete memberships that are approved but no longer present
     session.flush()
