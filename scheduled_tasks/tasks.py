@@ -668,7 +668,7 @@ async def sync_platform_memberships_for_role(
     created = 0
     restored = 0
     role_users = []
-    for user_batch in auth0_client.get_all_role_users_generator(role_id=platform.role_id):
+    for user_batch in auth0_client.get_all_role_users_generator(role_id=role.id):
         for role_user in user_batch:
             role_users.append(role_user)
             sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
@@ -712,29 +712,29 @@ async def sync_platform_memberships_for_role(
                         elif sync_status.restored:
                             restored += 1
                             logger.debug(f"    Restored membership for {db_user.id} -> {platform_id}")
-            except UserSyncConflictError as exc:
-                logger.warning(f"    Skipping user {auth0_user.user_id} for platform {platform_id}: {exc}")
+            except (UserSyncConflictError, IntegrityError) as exc:
+                logger.warning(f"    Skipping user {role_user.user_id} for platform {platform_id}: {exc}")
                 continue
+        session.commit()
     logger.info(f"  Created {created} new memberships, restored {restored} memberships")
     # Soft delete memberships that are approved but no longer present
-    session.flush()
-    all_memberships = PlatformMembership.list_by_platform_id(
-        platform_id,
-        session,
-        include_deleted=True,
-    )
     all_in_auth0 = {user.user_id for user in role_users}
-    for membership in all_memberships:
-        if membership.is_deleted:
-            continue
-        if membership.approval_status != ApprovalStatusEnum.APPROVED:
-            continue
-        if membership.user_id not in all_in_auth0:
-            logger.info(
-                f"    Soft deleting membership {membership.user_id} -> {membership.platform_id} absent from Auth0"
-            )
-            membership.delete(session, commit=False)
-    session.commit()
+    with session.begin():
+        all_memberships = PlatformMembership.list_by_platform_id(
+            platform_id,
+            session,
+            include_deleted=True,
+        )
+        for membership in all_memberships:
+            if membership.is_deleted:
+                continue
+            if membership.approval_status != ApprovalStatusEnum.APPROVED:
+                continue
+            if membership.user_id not in all_in_auth0:
+                logger.info(
+                    f"    Soft deleting membership {membership.user_id} -> {membership.platform_id} absent from Auth0"
+                )
+                membership.delete(session, commit=False)
 
 
 async def sync_platform_user_roles():
