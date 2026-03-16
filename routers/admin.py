@@ -10,6 +10,7 @@ from httpx import HTTPStatusError
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 from starlette import status
@@ -360,6 +361,9 @@ class UserQueryParams(BaseModel):
         """
         return (
             select(BiocommonsUser)
+            .options(
+                selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.platform),
+                selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.group),)
         )
 
     def _set_allowed_resource_subqueries(self, admin_roles: list[str]) -> None:
