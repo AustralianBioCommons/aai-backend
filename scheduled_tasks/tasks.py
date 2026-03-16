@@ -668,7 +668,7 @@ async def sync_platform_memberships_for_role(
     created = 0
     restored = 0
     role_users = []
-    for user_batch in auth0_client.get_all_role_users_generator(role_id=platform.role_id):
+    for user_batch in auth0_client.get_all_role_users_generator(role_id=role.id):
         for role_user in user_batch:
             role_users.append(role_user)
             sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
