@@ -184,6 +184,7 @@ def mock_settings():
         admin_roles=["Admin"],
         auth0_algorithms=["RS256"],
         recaptcha_secret="mock-secret",
+        no_reply_email_sender="no-reply@example.com",
     )
 
 
