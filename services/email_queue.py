@@ -13,7 +13,6 @@ def enqueue_email(
     subject: str,
     body_html: str,
     send_after: datetime | None = None,
-    from_address: str | None = None,
 ) -> EmailNotification:
     """
     Persist an outbound email so the scheduler can deliver it later.
@@ -22,7 +21,7 @@ def enqueue_email(
     """
     notification = EmailNotification(
         to_address=to_address,
-        from_address=from_address or get_default_sender_email(),
+        from_address=get_default_sender_email(),
         subject=subject,
         body_html=body_html,
         send_after=send_after,

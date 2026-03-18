@@ -10,7 +10,6 @@ from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import (
     compose_welcome_email,
     format_first_name,
-    get_default_sender_email,
 )
 from config import Settings, get_settings
 from db.models import EmailNotification
@@ -191,7 +190,6 @@ async def send_welcome_email(
     enqueue_email(
         db_session,
         to_address=str(user.email),
-        from_address=get_default_sender_email(settings),
         subject=subject,
         body_html=body_html,
     )

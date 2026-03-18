@@ -27,7 +27,6 @@ from biocommons.emails import (
     compose_group_approval_email,
     compose_welcome_email,
     format_first_name,
-    get_default_sender_email,
     get_group_admin_contacts,
     get_requester_identity,
 )
@@ -380,7 +379,6 @@ def request_group_access(
         enqueue_email(
             db_session,
             to_address=email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
         )
@@ -866,7 +864,6 @@ def finish_migrate_password(state: str,
         enqueue_email(
             db_session,
             to_address=auth0_user.email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
         )
