@@ -552,6 +552,7 @@ async def update_email(
     user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     email_service: Annotated[EmailService, Depends(get_email_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
     response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
@@ -603,6 +604,7 @@ async def update_email(
             to_address=payload.email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
     except ClientError as exc:
         message = exc.response.get("Error", {}).get("Message") or str(exc)

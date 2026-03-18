@@ -664,6 +664,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
 
     mock_service = mocker.Mock()
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -681,6 +682,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
         "user@example.com",
         "Hello",
         "<p>Test</p>",
+        settings=mock_settings
     )
 
 
