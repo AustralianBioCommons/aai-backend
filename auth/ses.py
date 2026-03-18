@@ -5,19 +5,19 @@ from botocore.exceptions import ClientError
 
 from biocommons.emails import get_default_sender_email
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('uvicorn.error')
 
 
 class EmailService:
     def __init__(self, region_name="ap-southeast-2"):
         self.client = boto3.client("ses", region_name=region_name)
 
-    def send(self, to_address: str, subject: str, body_html: str, sender: str | None = None):
-        sender = sender or get_default_sender_email()
-        logger.info(f"Sending email to {to_address} from {sender}")
+    def send(self, to_address: str, subject: str, body_html: str):
+        source = get_default_sender_email()
+        logger.info(f"Sending email to {to_address} from {source}")
         try:
             response = self.client.send_email(
-                Source=sender,
+                Source=source,
                 Destination={"ToAddresses": [to_address]},
                 Message={
                     "Subject": {"Data": subject},
