@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session
 
 from biocommons.emails import get_default_sender_email
+from config import Settings
 from db.models import EmailNotification
 
 
@@ -12,6 +13,7 @@ def enqueue_email(
     to_address: str,
     subject: str,
     body_html: str,
+    settings: Settings,
     send_after: datetime | None = None,
 ) -> EmailNotification:
     """
@@ -21,7 +23,7 @@ def enqueue_email(
     """
     notification = EmailNotification(
         to_address=to_address,
-        from_address=get_default_sender_email(),
+        from_address=get_default_sender_email(settings=settings),
         subject=subject,
         body_html=body_html,
         send_after=send_after,
