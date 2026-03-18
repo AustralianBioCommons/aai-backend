@@ -45,6 +45,16 @@ def test_no_reply_email_sender_manual():
     assert settings.no_reply_email_sender == custom_email
 
 
+def test_no_reply_email_sender_required():
+    """
+    Test that omitting the no-reply email sender raises a validation error.
+    """
+    # Start with a valid base config and remove the required field.
+    kwargs = _base_settings_kwargs()
+    kwargs.pop("no_reply_email_sender")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **kwargs)
+
 
 def test_aai_portal_url_override_strips_trailing_slash():
     settings = Settings(
