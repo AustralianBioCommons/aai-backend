@@ -381,6 +381,7 @@ def request_group_access(
             to_address=email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
     db_session.commit()
     return {"message": f"Group membership for {group_id} requested successfully."}
@@ -866,6 +867,7 @@ def finish_migrate_password(state: str,
             to_address=auth0_user.email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
         db_session.commit()
 

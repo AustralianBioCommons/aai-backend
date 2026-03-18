@@ -192,6 +192,7 @@ async def send_welcome_email(
         to_address=str(user.email),
         subject=subject,
         body_html=body_html,
+        settings=settings,
     )
     db_session.commit()
     return {"message": "Welcome email sent."}

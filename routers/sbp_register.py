@@ -79,6 +79,7 @@ def queue_sbp_admin_notifications(
             to_address=email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
 
 

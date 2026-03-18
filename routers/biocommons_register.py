@@ -134,6 +134,7 @@ def _notify_bundle_group_admins(
             to_address=email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
 
 

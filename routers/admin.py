@@ -864,6 +864,7 @@ def update_user_email(
         to_address=old_email,
         subject=subject,
         body_html=body_html,
+        settings=settings,
     )
     db_session.commit()
 
@@ -965,6 +966,7 @@ def update_user_username(
         to_address=db_user.email,
         subject=subject,
         body_html=body_html,
+        settings=settings,
     )
     db_session.commit()
 
@@ -1124,10 +1126,11 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
             settings=settings,
         )
         enqueue_email(
-            db_session,
+            session=db_session,
             to_address=membership.user.email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
     db_session.commit()
     return MembershipUpdateResponse(status="ok", updated=True)
