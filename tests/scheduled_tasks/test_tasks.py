@@ -664,6 +664,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
 
     mock_service = mocker.Mock()
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -681,6 +682,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
         "user@example.com",
         "Hello",
         "<p>Test</p>",
+        settings=mock_settings
     )
 
 
@@ -699,6 +701,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
     mock_service = mocker.Mock()
     mock_service.send.side_effect = EndpointConnectionError(endpoint_url="https://ses")
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -743,6 +746,7 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
     mock_service = mocker.Mock()
     mock_service.send.side_effect = error
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),

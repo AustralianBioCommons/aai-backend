@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     aai_portal_url: Optional[str] = None
     # Sender override for emails that should come from a no-reply address
     no_reply_email_sender: EmailStr
+    # SES resource ARN for sending emails
+    ses_resource_arn: Optional[str] = None
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW

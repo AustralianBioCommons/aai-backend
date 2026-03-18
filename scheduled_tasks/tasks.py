@@ -265,6 +265,7 @@ async def send_email_notification(
     Deliver a single queued email notification.
     """
     session = next(get_db_session())
+    settings = get_settings()
     try:
         notification = session.get(EmailNotification, notification_id)
         if notification is None:
@@ -276,6 +277,7 @@ async def send_email_notification(
                 notification.to_address,
                 notification.subject,
                 notification.body_html,
+                settings=settings,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to send email %s: %s", notification.id, exc)
