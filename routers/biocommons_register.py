@@ -10,7 +10,6 @@ from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
 from biocommons.emails import (
     compose_group_approval_email,
-    get_default_sender_email,
     get_group_admin_contacts,
     get_requester_identity,
 )
@@ -133,9 +132,9 @@ def _notify_bundle_group_admins(
         enqueue_email(
             db_session,
             to_address=email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
 
 

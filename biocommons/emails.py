@@ -9,12 +9,13 @@ from db.models import BiocommonsGroup
 
 logger = logging.getLogger("uvicorn.error")
 
+
 def get_default_sender_email(settings: Settings | None = None) -> str:
     if settings is None:
         settings = get_settings()
-    email: EmailStr = settings.no_reply_email_sender or settings.default_email_sender
+    email: EmailStr = settings.no_reply_email_sender
     logger.info(f"Got default sender email: {email}")
-    logger.info(f"Email settings: {settings.no_reply_email_sender=} {settings.default_email_sender=}")
+    logger.info(f"Email settings: {settings.no_reply_email_sender=}")
     return str(email)
 
 
