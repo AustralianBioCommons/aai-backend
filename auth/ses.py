@@ -14,6 +14,7 @@ class EmailService:
 
     def send(self, to_address: str, subject: str, body_html: str, sender: str | None = None):
         sender = sender or get_default_sender_email()
+        logger.info(f"Sending email to {to_address} from {sender}")
         try:
             response = self.client.send_email(
                 Source=sender,
@@ -26,6 +27,7 @@ class EmailService:
             logger.info(f"Email sent: {response['MessageId']}")
         except ClientError as e:
             logger.error(f"Failed to send email: {e.response['Error']['Message']}")
+            logger.error(f"Response: {e.response}")
             raise
 
 
