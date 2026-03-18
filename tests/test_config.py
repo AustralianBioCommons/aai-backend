@@ -40,8 +40,7 @@ def test_no_reply_email_sender_manual():
     custom_email = "no-reply@aai.test.biocommons.org.au"
     settings = Settings(
         _env_file=None,
-        no_reply_email_sender=custom_email,
-        **_base_settings_kwargs()
+        **{**_base_settings_kwargs(), "no_reply_email_sender": custom_email}
     )
     assert settings.no_reply_email_sender == custom_email
 
