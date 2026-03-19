@@ -122,7 +122,7 @@ def compose_group_approval_email(
         <p><strong>Reason:</strong> {reason}</p>
         <p>Please log into the BioCommons Access bundle dashboard to review and approve or decline this request.</p>
         <p>Thank you,</p>
-        <p>The BioCommons Access team</p>
+        <p>BioCommons Access team</p>
     """
     return subject, body_html
 
@@ -151,7 +151,7 @@ def compose_group_membership_approved_email(
         <p>If you are logged into either of the BioPlatforms Data Portal or Galaxy Australia, please log out and log back in again to ensure your access rights are updated.</p>
         <p><a href="{portal_url}" target="_blank" rel="noopener noreferrer">Click here</a> to go to the BioCommons Access user portal. From there you can launch Services, and view/update your user information.</p>
         <p>Thank you,</p>
-        <p>The BioCommons Access team</p>
+        <p>BioCommons Access team</p>
     """
     return subject, body_html
 
@@ -214,7 +214,7 @@ def compose_email_change_otp_email(
         f"<p>Your verification code is <strong>{code}</strong>.</p>"
         f"<p>This code is valid for {expiration_minutes} minutes.</p>"
         "<p>Thank you,</p>"
-        "<p>The BioCommons Access team</p>"
+        "<p>BioCommons Access team</p>"
         "<p>If you experience any issues, please refer to the "
         "<a href=\"https://biocommonsaccess.freshdesk.com/support/home\">"
         "FAQs or contact support</a>.</p>"
