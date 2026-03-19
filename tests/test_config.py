@@ -24,8 +24,8 @@ def _base_settings_kwargs():
         ("development", "https://dev.portal.aai.test.biocommons.org.au"),
         ("staging", "https://staging.portal.aai.test.biocommons.org.au"),
         ("stage", "https://staging.portal.aai.test.biocommons.org.au"),
-        ("production", "https://production.portal.aai.test.biocommons.org.au"),
-        ("prod", "https://production.portal.aai.test.biocommons.org.au"),
+        ("production", "https://portal.access.services.biocommons.org.au"),
+        ("prod", "https://portal.access.services.biocommons.org.au"),
     ],
 )
 def test_aai_portal_url_defaults_by_environment(environment, expected_url):
