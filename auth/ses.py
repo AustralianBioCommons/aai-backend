@@ -11,23 +11,26 @@ logger = logging.getLogger('uvicorn.error')
 
 class EmailService:
     def __init__(self, region_name="ap-southeast-2"):
-        self.client = boto3.client("ses", region_name=region_name)
+        self.client = boto3.client("sesv2", region_name=region_name)
 
     def send(self, to_address: str, subject: str, body_html: str, settings: Settings):
         source = get_default_sender_email(settings=settings)
         logger.info(f"Sending email to {to_address} from {source}")
         try:
             send_email_kwargs = {
-                "Source": source,
+                "FromEmailAddress": source,
                 "Destination": {"ToAddresses": [to_address]},
-                "Message": {
-                    "Subject": {"Data": subject},
-                    "Body": {"Html": {"Data": body_html}}
+                "Content": {
+                    "Simple": {
+                        "Subject": {"Data": subject, "Charset": "UTF-8"},
+                        "Body": {"Html": {"Data": body_html, "Charset": "UTF-8"}}
+                    }
                 }
             }
             if settings.ses_resource_arn is not None:
-                send_email_kwargs["SourceArn"] = settings.ses_resource_arn
+                send_email_kwargs["FromEmailAddressIdentityArn"] = settings.ses_resource_arn
                 logger.info(f"Using SES resource ARN: {settings.ses_resource_arn}")
+            logger.info("send_email kwargs:", send_email_kwargs)
             response = self.client.send_email(**send_email_kwargs)
             logger.info(f"Email sent: {response['MessageId']}")
         except ClientError as e:
