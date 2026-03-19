@@ -60,13 +60,15 @@ def test_send_uses_source_arn_when_defined(ses_service, mocker):
     )
 
     mock_client.send_email.assert_called_once_with(
-        Source="sender@example.com",
-        SourceArn="arn:aws:ses:ap-southeast-2:123456789012:identity/example.com",
+        FromEmailAddress="sender@example.com",
         Destination={"ToAddresses": ["recipient@example.com"]},
-        Message={
-            "Subject": {"Data": "Test Subject"},
-            "Body": {"Html": {"Data": "<p>Hello</p>"}},
+        Content={
+            "Simple": {
+                "Subject": {"Data": "Test Subject", "Charset": "UTF-8"},
+                "Body": {"Html": {"Data": "<p>Hello</p>", "Charset": "UTF-8"}},
+            }
         },
+        FromEmailAddressIdentityArn="arn:aws:ses:ap-southeast-2:123456789012:identity/example.com",
     )
 
 
@@ -83,10 +85,12 @@ def test_send_omits_source_arn_when_not_defined(ses_service, mocker):
     )
 
     mock_client.send_email.assert_called_once_with(
-        Source="sender@example.com",
+        FromEmailAddress="sender@example.com",
         Destination={"ToAddresses": ["recipient@example.com"]},
-        Message={
-            "Subject": {"Data": "Test Subject"},
-            "Body": {"Html": {"Data": "<p>Hello</p>"}},
+        Content={
+            "Simple": {
+                "Subject": {"Data": "Test Subject", "Charset": "UTF-8"},
+                "Body": {"Html": {"Data": "<p>Hello</p>", "Charset": "UTF-8"}},
+            }
         },
     )
