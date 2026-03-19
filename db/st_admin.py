@@ -246,6 +246,7 @@ class GroupMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
         HasOne("user", identity="user"),
         "approval_status",
         StringField("revocation_reason", label="Revocation Reason"),
+        "reason",
         "updated_at",
         HasOne("updated_by", identity="user"),
         "id",
