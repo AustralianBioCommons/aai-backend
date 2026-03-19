@@ -13,7 +13,14 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.routing import Route
-from starlette_admin import BaseAdmin, EnumField, HasMany, HasOne, StringField, row_action
+from starlette_admin import (
+    BaseAdmin,
+    EnumField,
+    HasMany,
+    HasOne,
+    StringField,
+    row_action,
+)
 from starlette_admin.auth import AdminUser, AuthProvider, login_not_required
 from starlette_admin.contrib.sqlmodel import Admin, ModelView
 
