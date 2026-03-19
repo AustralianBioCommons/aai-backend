@@ -30,7 +30,7 @@ class EmailService:
             if settings.ses_resource_arn is not None:
                 send_email_kwargs["FromEmailAddressIdentityArn"] = settings.ses_resource_arn
                 logger.info(f"Using SES resource ARN: {settings.ses_resource_arn}")
-            logger.info("send_email kwargs:", send_email_kwargs)
+            logger.info(f"send_email kwargs: {send_email_kwargs}")
             response = self.client.send_email(**send_email_kwargs)
             logger.info(f"Email sent: {response['MessageId']}")
         except ClientError as e:
