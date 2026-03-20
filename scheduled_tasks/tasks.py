@@ -2,6 +2,7 @@ import csv
 import math
 import re
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -361,6 +362,21 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
     return users
 
 
+def user_exists_in_auth0(auth0_client: Auth0Client, user_id: str):
+    """
+    Check if a user exists in Auth0
+    """
+    try:
+        auth0_client.get_user(user_id)
+        return True
+    except HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return False
+        else:
+            raise exc
+
+
+
 async def sync_auth0_users():
     logger.info("Syncing Auth0 users")
     logger.info("Setting up Auth0 client")
@@ -382,8 +398,17 @@ async def sync_auth0_users():
         existing_users = BiocommonsUser.list_all(db_session)
         for db_user in existing_users:
             if db_user.id not in auth0_user_ids:
-                logger.info(f"Soft deleting user {db_user.id} absent from Auth0")
-                db_user.delete(db_session, commit=False)
+                # Double check if in Auth0 before deleting (something could have changed since export)
+                try:
+                    user_in_auth0 = user_exists_in_auth0(auth0_client, db_user.id)
+                    time.sleep(0.5)
+                    if user_in_auth0:
+                        continue
+                    else:
+                        logger.info(f"Soft deleting user {db_user.id} not found in Auth0")
+                        db_user.delete(db_session, reason="auth0_sync", commit=False)
+                except Exception as exc:
+                    logger.warning(f"Failed to check if user {db_user.id} exists in Auth0: {exc}")
         db_session.commit()
     finally:
         db_session.close()

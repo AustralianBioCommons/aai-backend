@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
+from httpx import HTTPStatusError
 from sqlmodel import Session, select
 
 from db.models import (
@@ -109,6 +110,21 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
+    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client").return_value
+
+    def _get_user(user_id):
+        if user_id == existing_user.id:
+            return existing_user_data
+        if user_id == new_user_data.user_id:
+            return new_user_data
+        if user_id == user_not_in_auth0.id:
+            raise HTTPStatusError(
+                message="Not Found",
+                request=mocker.Mock(),
+                response=mocker.Mock(status_code=404),
+            )
+
+    auth0_client.get_user.side_effect = _get_user
 
     await sync_auth0_users()
 
@@ -121,6 +137,59 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     assert created_user is not None and created_user.is_deleted is False
     second_created = test_db_session.get(BiocommonsUser, extra_user_data.user_id)
     assert second_created is not None
+
+
+@pytest.mark.asyncio
+async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
+    mocker, test_db_session, persistent_factories
+):
+    """
+    If a user is created in Auth0 after the export is fetched but before the soft-delete pass,
+    the user should not be soft deleted once the individual Auth0 lookup confirms they exist.
+    """
+    existing_user = BiocommonsUserFactory.create_sync(
+        email="stale.user@example.com",
+        username="stale_user",
+    )
+    late_user = BiocommonsUserFactory.create_sync(
+        email="late.user@example.com",
+        username="late_user",
+    )
+
+    existing_user_export = ExportedUserFactory.build(
+        user_id=existing_user.id,
+        email=existing_user.email,
+        username=existing_user.username,
+        email_verified=True,
+        blocked=False,
+    )
+    exported = [existing_user_export]
+
+    mocker.patch("scheduled_tasks.tasks.get_settings")
+    mocker.patch("scheduled_tasks.tasks.get_management_token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=exported)
+
+    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    auth0_instance = auth0_client.return_value
+    auth0_instance.get_user.side_effect = lambda user_id: Auth0UserDataFactory.build(
+        user_id=user_id,
+        email=late_user.email,
+        username=late_user.username,
+        email_verified=True,
+        blocked=False,
+    ) if user_id == late_user.id else (_ for _ in ()).throw(AssertionError("Unexpected user lookup"))
+
+    await sync_auth0_users()
+
+    test_db_session.refresh(existing_user)
+    test_db_session.refresh(late_user)
+
+    assert existing_user.is_deleted is False
+    assert late_user.is_deleted is False
 
 
 def test_update_auth0_user_updates_existing(test_db_session, mocker, persistent_factories):
