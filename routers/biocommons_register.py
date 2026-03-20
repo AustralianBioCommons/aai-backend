@@ -28,7 +28,7 @@ from schemas.responses import (
 )
 from services.email_queue import enqueue_email
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 # Bundle configuration mapping bundle names to their groups and included extra_platforms
 # Note: Platforms listed here are auto-approved upon registration,

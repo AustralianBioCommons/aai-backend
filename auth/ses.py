@@ -15,7 +15,7 @@ class EmailService:
 
     def send(self, to_address: str, subject: str, body_html: str, settings: Settings):
         source = get_default_sender_email(settings=settings)
-        logger.info(f"Sending email to {to_address} from {source}")
+        send_email_kwargs = None
         try:
             send_email_kwargs = {
                 "FromEmailAddress": source,
@@ -29,13 +29,12 @@ class EmailService:
             }
             if settings.ses_resource_arn is not None:
                 send_email_kwargs["FromEmailAddressIdentityArn"] = settings.ses_resource_arn
-                logger.info(f"Using SES resource ARN: {settings.ses_resource_arn}")
-            logger.info(f"send_email kwargs: {send_email_kwargs}")
             response = self.client.send_email(**send_email_kwargs)
-            logger.info(f"Email sent: {response['MessageId']}")
+            logger.info(f"Email sent from {source}: {response['MessageId']}")
         except ClientError as e:
-            logger.error(f"Failed to send email: {e.response['Error']['Message']}")
-            logger.error(f"Response: {e.response}")
+            logger.error(f"Failed to send email: {e.response}")
+            logger.error(f"From address: {send_email_kwargs['FromEmailAddress']}")
+            logger.error(f"Identity ARN: {send_email_kwargs.get('FromEmailAddressIdentityArn', 'None')}")
             raise
 
 
