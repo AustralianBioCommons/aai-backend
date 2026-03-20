@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
+from httpx import HTTPStatusError
 from sqlmodel import Session, select
 
 from db.models import (
@@ -109,6 +110,21 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
+    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client").return_value
+
+    def _get_user(user_id):
+        if user_id == existing_user.id:
+            return existing_user_data
+        if user_id == new_user_data.user_id:
+            return new_user_data
+        if user_id == user_not_in_auth0.id:
+            raise HTTPStatusError(
+                message="Not Found",
+                request=mocker.Mock(),
+                response=mocker.Mock(status_code=404),
+            )
+
+    auth0_client.get_user.side_effect = _get_user
 
     await sync_auth0_users()
 
