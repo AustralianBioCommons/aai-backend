@@ -2,6 +2,7 @@ import csv
 import math
 import re
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -382,8 +383,16 @@ async def sync_auth0_users():
         existing_users = BiocommonsUser.list_all(db_session)
         for db_user in existing_users:
             if db_user.id not in auth0_user_ids:
-                logger.info(f"Soft deleting user {db_user.id} absent from Auth0")
-                db_user.delete(db_session, commit=False)
+                # Double check if in Auth0 before deleting (something could have changed since export)
+                try:
+                    auth0_client.get_user(db_user.id)
+                    time.sleep(0.5)
+                except HTTPStatusError as exc:
+                    if exc.response.status_code == 404:
+                        logger.info(f"Soft deleting user {db_user.id} not found in Auth0")
+                        db_user.delete(db_session, reason="auth0_sync", commit=False)
+                    else:
+                        logger.warning(f"Failed to check if user {db_user.id} exists in Auth0: {exc}")
         db_session.commit()
     finally:
         db_session.close()
