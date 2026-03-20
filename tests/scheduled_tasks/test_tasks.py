@@ -123,6 +123,59 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     assert second_created is not None
 
 
+@pytest.mark.asyncio
+async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
+    mocker, test_db_session, persistent_factories
+):
+    """
+    If a user is created in Auth0 after the export is fetched but before the soft-delete pass,
+    the user should not be soft deleted once the individual Auth0 lookup confirms they exist.
+    """
+    existing_user = BiocommonsUserFactory.create_sync(
+        email="stale.user@example.com",
+        username="stale_user",
+    )
+    late_user = BiocommonsUserFactory.create_sync(
+        email="late.user@example.com",
+        username="late_user",
+    )
+
+    existing_user_export = ExportedUserFactory.build(
+        user_id=existing_user.id,
+        email=existing_user.email,
+        username=existing_user.username,
+        email_verified=True,
+        blocked=False,
+    )
+    exported = [existing_user_export]
+
+    mocker.patch("scheduled_tasks.tasks.get_settings")
+    mocker.patch("scheduled_tasks.tasks.get_management_token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=exported)
+
+    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    auth0_instance = auth0_client.return_value
+    auth0_instance.get_user.side_effect = lambda user_id: Auth0UserDataFactory.build(
+        user_id=user_id,
+        email=late_user.email,
+        username=late_user.username,
+        email_verified=True,
+        blocked=False,
+    ) if user_id == late_user.id else (_ for _ in ()).throw(AssertionError("Unexpected user lookup"))
+
+    await sync_auth0_users()
+
+    test_db_session.refresh(existing_user)
+    test_db_session.refresh(late_user)
+
+    assert existing_user.is_deleted is False
+    assert late_user.is_deleted is False
+
+
 def test_update_auth0_user_updates_existing(test_db_session, mocker, persistent_factories):
     """
     Updating an existing user applies Auth0 data and commits changes.
