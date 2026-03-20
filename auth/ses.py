@@ -33,7 +33,8 @@ class EmailService:
             logger.info(f"Email sent from {source}: {response['MessageId']}")
         except ClientError as e:
             logger.error(f"Failed to send email: {e.response}")
-            logger.error(f"send_email arguments: {send_email_kwargs}")
+            logger.error(f"From address: {send_email_kwargs['FromEmailAddress']}")
+            logger.error(f"Identity ARN: {send_email_kwargs.get('FromEmailAddressIdentityArn', 'None')}")
             raise
 
 
