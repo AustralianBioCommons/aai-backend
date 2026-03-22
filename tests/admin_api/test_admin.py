@@ -621,6 +621,11 @@ def test_get_user_counts_platform_admin_revoked_scoped(
         biocommons_roles=["biocommons/role/galaxy/admin"]
     )
     platform_admin = SessionUserFactory.build(access_token=token)
+    BiocommonsUserFactory.create_sync(
+        id=platform_admin.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
     app.dependency_overrides[get_session_user] = lambda: platform_admin
     app.dependency_overrides[get_management_token] = lambda: "mock_token"
     try:
