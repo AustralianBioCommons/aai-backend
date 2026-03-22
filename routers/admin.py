@@ -656,6 +656,14 @@ def get_user_counts(
     """
     query_params.check_missing_ids(db_session)
     admin_roles = admin_user.access_token.biocommons_roles
+    admin_platforms = Platform.get_for_admin_roles(
+        role_names=admin_roles,
+        session=db_session,
+    )
+    admin_groups = BiocommonsGroup.get_for_admin_roles(
+        role_names=admin_roles,
+        session=db_session,
+    )
     base_params = query_params.model_dump()
 
     def count_with(overrides: dict[str, object] | None = None) -> int:
@@ -666,6 +674,18 @@ def get_user_counts(
             admin_roles=admin_roles,
         )
 
+    revoked_overrides: dict[str, object] = {
+        "approval_status": ApprovalStatusEnum.REVOKED,
+        "platform_approval_status": None,
+        "group_approval_status": None,
+    }
+    if len(admin_platforms) == 1 and len(admin_groups) == 0:
+        revoked_overrides = {
+            "approval_status": None,
+            "platform_approval_status": ApprovalStatusEnum.REVOKED,
+            "group_approval_status": None,
+        }
+
     return UserCountsResponse(
         all=count_with(),
         pending=count_with({
@@ -673,11 +693,7 @@ def get_user_counts(
             "platform_approval_status": None,
             "group_approval_status": None,
         }),
-        revoked=count_with({
-            "approval_status": ApprovalStatusEnum.REVOKED,
-            "platform_approval_status": None,
-            "group_approval_status": None,
-        }),
+        revoked=count_with(revoked_overrides),
         unverified=count_with({"email_verified": False}),
     )
 
