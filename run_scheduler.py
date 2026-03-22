@@ -25,9 +25,30 @@ from scheduled_tasks.tasks import (
 )
 
 
-def schedule_jobs(scheduler: AsyncIOScheduler):
-    hourly_trigger = IntervalTrigger(minutes=60)
+def schedule_jobs(scheduler: AsyncIOScheduler, email_only: bool = False):
     email_trigger = IntervalTrigger(minutes=1)
+    logger.info("Adding frequent job: process_email_queue")
+    scheduler.add_job(
+        process_email_queue,
+        trigger=email_trigger,
+        id="process_email_queue",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC) + timedelta(seconds=30),
+    )
+    logger.info("Adding recurring cleanup job: cleanup_email_otps")
+    cleanup_trigger = IntervalTrigger(minutes=15)
+    scheduler.add_job(
+        cleanup_email_otps,
+        trigger=cleanup_trigger,
+        id="cleanup_email_otps",
+        replace_existing=True,
+        next_run_time=datetime.now(UTC),
+    )
+    if email_only:
+        logger.info("Scheduler configured for email-only mode")
+        return
+
+    hourly_trigger = IntervalTrigger(minutes=60)
     logger.info("Adding one-off job: populate DB groups")
     scheduler.add_job(
         populate_db_groups,
@@ -73,23 +94,6 @@ def schedule_jobs(scheduler: AsyncIOScheduler):
         id="sync_platform_user_roles",
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=45)
-    )
-    logger.info("Adding frequent job: process_email_queue")
-    scheduler.add_job(
-        process_email_queue,
-        trigger=email_trigger,
-        id="process_email_queue",
-        replace_existing=True,
-        next_run_time=datetime.now(UTC) + timedelta(seconds=30),
-    )
-    logger.info("Adding recurring cleanup job: cleanup_email_otps")
-    cleanup_trigger = IntervalTrigger(minutes=15)
-    scheduler.add_job(
-        cleanup_email_otps,
-        trigger=cleanup_trigger,
-        id="cleanup_email_otps",
-        replace_existing=True,
-        next_run_time=datetime.now(UTC),
     )
 
 
@@ -180,9 +184,9 @@ async def run_immediate(skip_full_sync: bool = False):
         SCHEDULER.shutdown(wait=True)
 
 
-async def run_with_scheduler():
+async def run_with_scheduler(email_only: bool = False):
     logger.info("Setting up scheduler")
-    schedule_jobs(SCHEDULER)
+    schedule_jobs(SCHEDULER, email_only=email_only)
     logger.info("Starting scheduler")
     SCHEDULER.start()
     logger.info("Scheduler started, waiting for shutdown...")
@@ -196,11 +200,11 @@ async def run_with_scheduler():
     SCHEDULER.shutdown(wait=False)
 
 
-def main(immediate: bool = False, skip_full_sync: bool = False):
+def main(immediate: bool = False, skip_full_sync: bool = False, email_only: bool = False):
     if immediate:
         asyncio.run(run_immediate(skip_full_sync=skip_full_sync))
     else:
-        asyncio.run(run_with_scheduler())
+        asyncio.run(run_with_scheduler(email_only=email_only))
 
 
 if __name__ == "__main__":
