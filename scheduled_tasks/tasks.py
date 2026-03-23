@@ -499,6 +499,7 @@ def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: A
             db_user = _create_user_in_db(user_data, session)
         except UserSyncConflictError as exc:
             logger.warning(f"Skipping user {user_data.user_id} due to conflict: {exc}")
+            return False
 
     needs_update = _user_data_is_different(db_user, user_data)
     # No change needed
