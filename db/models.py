@@ -61,7 +61,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     )
 
     @classmethod
-    def get_by_id(cls, user_id: str, session: Session) -> Self | None:
+    def get_by_id(cls, user_id: str, session: Session, include_deleted: bool = False) -> Self | None:
+        if include_deleted:
+            return session.get(BiocommonsUser, user_id, execution_options={"include_deleted": True})
         return session.get(BiocommonsUser, user_id)
 
     @classmethod
