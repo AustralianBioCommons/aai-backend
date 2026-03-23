@@ -152,6 +152,8 @@ async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
     existing_user = BiocommonsUserFactory.create_sync(
         email="stale.user@example.com",
         username="stale_user",
+        email_verified=True,
+        blocked=False,
     )
     late_user = BiocommonsUserFactory.create_sync(
         email="late.user@example.com",
