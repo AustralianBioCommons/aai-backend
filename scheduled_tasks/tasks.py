@@ -474,16 +474,21 @@ def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: A
     Update a single user from Auth0. Called by update_auth0_users_batch, which handles session
     creation/committing
     """
-    db_user = BiocommonsUser.get_by_id(user_data.user_id, session)
+    db_user = BiocommonsUser.get_by_id(user_data.user_id, session, include_deleted=True)
 
-    if db_user is not None:
-        may_need_update = _user_data_is_different(db_user, user_data)
-        # No change needed
-        if not may_need_update:
-            return True
+    # If not in DB, create from CSV data
+    # Do this first as it's faster if we need to bulk create users after an import
+    if db_user is None:
+        db_user = BiocommonsUser.from_auth0_data(user_data)
+        session.add(db_user)
+
+    needs_update = _user_data_is_different(db_user, user_data)
+    # No change needed
+    if not needs_update:
+        return True
     # Get user data from Auth0 to ensure we have the latest
-    user_data = auth0_client.get_user(user_data.user_id)
-    db_user, created, restored = _ensure_user_from_auth0(session, user_data)
+    fresh_data: Auth0UserData = auth0_client.get_user(user_data.user_id)
+    db_user, created, restored = _ensure_user_from_auth0(session, fresh_data)
     if db_user is None:
         if user_data.blocked:
             logger.warning(f"Blocked {user_data.user_id} not found in DB, skipping")
