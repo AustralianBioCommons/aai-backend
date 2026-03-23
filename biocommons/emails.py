@@ -240,6 +240,10 @@ def compose_welcome_email(
         "and research data across the Australian BioCommons ecosystem. A single log in offers convenient and secure access to a growing number of services.</strong></p>"
         f'<p>Consider bookmarking <a href="{safe_portal_url}" target="_blank" rel="noopener noreferrer">{safe_portal_url}</a> for future logins. '
         "Use the BioCommons Access portal to access connected services, update your profile and apply for Service Bundles.</p>"
+        f'<a href="{safe_portal_url}" target="_blank" rel="noopener noreferrer" '
+        'style="display: inline-block; background-color: #171717; color: #ffffff; font-weight: 600; padding: 12px 18px; line-height: 20px; border-radius: 8px; text-decoration: none; font-size: 14px;">'
+        "BioCommons Access Login"
+        "</a>"
         "<p>The BioCommons Access portal contains links to services including Galaxy Australia "
         "and the Bioplatforms Australia Data Portal. You can also access these services directly with your BioCommons Access credentials.</p>"
         '<p>You can <a href="https://biocommonsaccess.freshdesk.com/support/home" target="_blank" rel="noopener noreferrer">access support for your BioCommons Access account</a>, or find help related to '
