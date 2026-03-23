@@ -464,6 +464,7 @@ def _user_data_is_different(db_user: BiocommonsUser, user_data: Auth0UserData | 
         user_data.email != db_user.email,
         user_data.username is not None and user_data.username != db_user.username,
         user_data.email_verified != db_user.email_verified,
+        user_data.blocked != db_user.is_deleted,
     ]
     return any(conditions)
 
