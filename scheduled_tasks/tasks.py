@@ -22,6 +22,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    BiocommonsUserHistory,
     EmailChangeOtp,
     EmailNotification,
     GroupMembership,
@@ -469,6 +470,18 @@ def _user_data_is_different(db_user: BiocommonsUser, user_data: Auth0UserData | 
     return any(conditions)
 
 
+def _create_user_in_db(user_data: ExportedUser, session: Session):
+    """
+    Create a user in the database from Auth0 user data.
+    """
+    username_conflict = BiocommonsUserHistory.is_username_used(user_data.username)
+    if username_conflict:
+        raise UserSyncConflictError(f"Username {user_data.username} is already in use")
+    db_user = BiocommonsUser.from_auth0_data(user_data)
+    session.add(db_user)
+    return db_user
+
+
 def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: Auth0Client) -> bool:
     """
     Update a single user from Auth0. Called by update_auth0_users_batch, which handles session
@@ -479,8 +492,10 @@ def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: A
     # If not in DB, create from CSV data
     # Do this first as it's faster if we need to bulk create users after an import
     if db_user is None:
-        db_user = BiocommonsUser.from_auth0_data(user_data)
-        session.add(db_user)
+        try:
+            db_user = _create_user_in_db(user_data, session)
+        except UserSyncConflictError as exc:
+            logger.warning(f"Skipping user {user_data.user_id} due to conflict: {exc}")
 
     needs_update = _user_data_is_different(db_user, user_data)
     # No change needed
