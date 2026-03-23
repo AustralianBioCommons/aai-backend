@@ -487,8 +487,10 @@ def _create_user_in_db(user_data: ExportedUser, session: Session):
 
 def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: Auth0Client) -> bool:
     """
-    Update a single user from Auth0. Called by update_auth0_users_batch, which handles session
-    creation/committing
+    Create or update a single user in the DB using Auth0 export data, optionally refreshing
+    from live Auth0 data if the export appears to differ from the current DB record.
+
+    Called by update_auth0_users_batch, which handles session creation/committing.
     """
     db_user = BiocommonsUser.get_by_id(user_data.user_id, session, include_deleted=True)
 
