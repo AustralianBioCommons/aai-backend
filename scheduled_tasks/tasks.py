@@ -376,7 +376,6 @@ def user_exists_in_auth0(auth0_client: Auth0Client, user_id: str):
             raise exc
 
 
-
 async def sync_auth0_users():
     logger.info("Syncing Auth0 users")
     logger.info("Setting up Auth0 client")
@@ -393,7 +392,7 @@ async def sync_auth0_users():
             logger.info(f"Syncing Auth0 user batch {batch_index + 1}/{total_batches}")
             for user in user_batch:
                 auth0_user_ids.add(user.user_id)
-            await update_auth0_users_batch(user_batch)
+            await update_auth0_users_batch(user_batch, auth0_client=auth0_client)
         # Soft delete any users no longer present in Auth0
         existing_users = BiocommonsUser.list_all(db_session)
         for db_user in existing_users:
@@ -414,7 +413,16 @@ async def sync_auth0_users():
         db_session.close()
 
 
-async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) -> dict[str, int]:
+async def update_auth0_users_batch(
+        users: list[ExportedUser],
+        auth0_client: Auth0Client) -> dict[str, int]:
+    """
+    Update a batch of users, starting with data from the Auth0 export.
+
+    Note that if the exported user data suggests a change is needed,
+    we get the latest user data from Auth0 to confirm, but we don't
+    want to look up every user
+    """
     updated = 0
     skipped = 0
 
@@ -423,7 +431,7 @@ async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) ->
         for user_data in users:
             try:
                 with session.begin_nested():
-                    success = update_auth0_user(user_data, session=session)
+                    success = update_auth0_user(user_data, session=session, auth0_client=auth0_client)
             except (UserSyncConflictError, IntegrityError) as exc:
                 # Roll back this user's changes and continue with the next user
                 logger.warning(
@@ -446,11 +454,34 @@ async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) ->
     return {"updated": updated, "skipped": skipped}
 
 
-def update_auth0_user(user_data: Auth0UserData | ExportedUser, session: Session):
+def _user_data_is_different(db_user: BiocommonsUser, user_data: Auth0UserData | ExportedUser) -> bool:
+    """
+    Check if a DB user appears to need an update.
+    We check against CSV export data, and if an update seems to be
+    needed, we get the latest user data from Auth0 to confirm.
+    """
+    conditions = [
+        user_data.email != db_user.email,
+        user_data.username is not None and user_data.username != db_user.username,
+        user_data.email_verified != db_user.email_verified,
+    ]
+    return any(conditions)
+
+
+def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: Auth0Client) -> bool:
     """
     Update a single user from Auth0. Called by update_auth0_users_batch, which handles session
     creation/committing
     """
+    db_user = BiocommonsUser.get_by_id(user_data.user_id, session)
+
+    if db_user is not None:
+        may_need_update = _user_data_is_different(db_user, user_data)
+        # No change needed
+        if not may_need_update:
+            return True
+    # Get user data from Auth0 to ensure we have the latest
+    user_data = auth0_client.get_user(user_data.user_id)
     db_user, created, restored = _ensure_user_from_auth0(session, user_data)
     if db_user is None:
         if user_data.blocked:
