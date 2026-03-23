@@ -477,6 +477,9 @@ def _create_user_in_db(user_data: ExportedUser, session: Session):
     username_conflict = BiocommonsUserHistory.is_username_used(user_data.username)
     if username_conflict:
         raise UserSyncConflictError(f"Username {user_data.username} is already in use")
+    email_conflict = BiocommonsUser.get_by_email(user_data.email, session, include_deleted=True)
+    if email_conflict is not None:
+        raise UserSyncConflictError(f"Email {user_data.email} is already in use")
     db_user = BiocommonsUser.from_auth0_data(user_data)
     session.add(db_user)
     return db_user
