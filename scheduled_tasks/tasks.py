@@ -435,11 +435,7 @@ async def update_auth0_users_batch(
                     success = update_auth0_user(user_data, session=session, auth0_client=auth0_client)
             except (UserSyncConflictError, IntegrityError) as exc:
                 # Roll back this user's changes and continue with the next user
-                logger.warning(
-                    "Error while updating Auth0 user %r: %s",
-                    getattr(user_data, "user_id", None),
-                    exc,
-                )
+                logger.warning(f"Error while updating Auth0 user {getattr(user_data, 'user_id', None)}: {exc}")
                 success = False
             if success:
                 updated += 1
