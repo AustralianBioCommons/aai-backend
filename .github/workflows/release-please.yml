@@ -41,6 +41,12 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.tag_name }}
 
+      - name: Sync uv lockfile for release tag
+        run: |
+          set -euo pipefail
+          python -m pip install uv==0.4.20
+          uv lock
+
       - name: Validate required secrets
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
