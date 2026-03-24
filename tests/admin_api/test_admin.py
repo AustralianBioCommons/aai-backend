@@ -158,6 +158,36 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
     assert all(u.id not in user_ids for u in invalid_users)
 
 
+def test_get_users_excludes_current_admin_user(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    test_db_session,
+    persistent_factories,
+):
+    admin_db_user = as_admin_user
+    membership = PlatformMembershipFactory.create_sync(
+        user_id=admin_db_user.id,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    admin_db_user.platform_memberships.append(membership)
+    test_db_session.add(admin_db_user)
+    test_db_session.commit()
+
+    other_user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+
+    resp = test_client.get("/admin/users")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["id"] == other_user.id
+
+
 def test_get_users_platform_or_group_access(
     test_client,
     as_admin_user,
