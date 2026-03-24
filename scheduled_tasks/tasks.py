@@ -505,6 +505,7 @@ def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: A
         return True
     # Get user data from Auth0 to ensure we have the latest
     fresh_data: Auth0UserData = auth0_client.get_user(user_data.user_id)
+    time.sleep(1 / 3)
     db_user, created, restored = _ensure_user_from_auth0(session, fresh_data)
     if db_user is None:
         if user_data.blocked:
