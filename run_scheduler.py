@@ -185,6 +185,10 @@ async def run_immediate(skip_full_sync: bool = False):
 
 
 async def run_with_scheduler(email_only: bool = False):
+    db_url, _ = get_db_config()
+    if not db_url.startswith("sqlite://"):
+        logger.info("Clearing existing jobs")
+        clear_db_jobs()
     logger.info("Setting up scheduler")
     schedule_jobs(SCHEDULER, email_only=email_only)
     logger.info("Starting scheduler")
