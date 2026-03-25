@@ -599,6 +599,7 @@ async def update_email(
             code=code,
             target_email=payload.email,
             expiration_minutes=OTP_EXPIRATION_MINUTES,
+            portal_url=settings.aai_portal_url or "",
         )
         email_service.send(
             to_address=payload.email,
