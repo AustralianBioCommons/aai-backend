@@ -204,7 +204,7 @@ async def run_with_scheduler(email_only: bool = False):
     SCHEDULER.shutdown(wait=False)
 
 
-def main(immediate: bool = False, skip_full_sync: bool = False, email_only: bool = False):
+def main(immediate: bool = False, skip_full_sync: bool = False, email_only: bool = True):
     if immediate:
         asyncio.run(run_immediate(skip_full_sync=skip_full_sync))
     else:
