@@ -121,7 +121,8 @@ class DeletedUserView(UserView):
         logger.info("Setting up Auth0 client")
         settings = get_settings()
         management_token = get_management_token(settings=settings)
-        auth0_client = get_auth0_client(settings=settings, management_token=management_token)
+        auth0_client_gen = get_auth0_client(settings=settings, management_token=management_token)
+        auth0_client = next(auth0_client_gen)
         db_session_gen = get_db_session()
         db_session = next(db_session_gen)
         try:
@@ -136,6 +137,8 @@ class DeletedUserView(UserView):
             user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
             return "User restored successfully"
         finally:
+            auth0_client_gen.close()
+            db_session_gen.close()
             db_session.close()
 
 
