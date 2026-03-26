@@ -18,7 +18,7 @@ from schemas.biocommons import (
     BiocommonsRegisterData,
 )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 class RoleData(BaseModel):

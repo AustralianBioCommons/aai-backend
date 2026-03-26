@@ -11,7 +11,7 @@ from jwt.exceptions import ExpiredSignatureError, InvalidIssuerError, InvalidTok
 from config import Settings
 from schemas.tokens import AccessTokenPayload
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
 
@@ -20,7 +20,7 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     try:
         rsa_key = get_rsa_key(token, settings=settings)
     except InvalidTokenError as e:
-        logger.warning("JWT rejected during RSA key lookup: %s", e)
+        logger.warning(f"JWT rejected during RSA key lookup: {e}")
         raise HTTPException(status_code=401, detail="Not authorized")
 
     if rsa_key is None:
