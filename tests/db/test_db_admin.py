@@ -48,6 +48,10 @@ def create_signed_session_cookie(data: dict, secret_key: str) -> str:
     return serializer.dumps(data)
 
 
+def _yield_once(value):
+    yield value
+
+
 def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine, mocker):
     mock_settings.enable_admin_dashboard = True
     mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
@@ -185,8 +189,8 @@ async def test_restore_row_action_calls_admin_restore(mocker):
     mock_request.state.user = {"sub": admin_id}
     mock_request.form = AsyncMock(return_value=FormData({"reason-input": restoration_reason}))
 
-    mocker.patch("db.st_admin.get_db_session", return_value=iter([mock_db_session]))
-    mocker.patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client)
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(mock_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
     mocker.patch("db.st_admin.get_management_token")
     mocker.patch("db.st_admin.get_settings")
 
@@ -233,8 +237,8 @@ async def test_restore_row_action_restores_deleted_user(
     mock_request.state.user = {"sub": admin.id}
     mock_request.form = AsyncMock(return_value=FormData({"reason-input": "Restore approved"}))
 
-    mocker.patch("db.st_admin.get_db_session", return_value=iter([test_db_session]))
-    mocker.patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client)
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(test_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
     mocker.patch("db.st_admin.get_management_token")
     mocker.patch("db.st_admin.get_settings")
 
@@ -279,8 +283,8 @@ async def test_restore_row_action_restores_deleted_user_with_history(
     mock_request.state.user = {"sub": admin.id}
     mock_request.form = AsyncMock(return_value=FormData({"reason-input": "Restore approved"}))
 
-    mocker.patch("db.st_admin.get_db_session", return_value=iter([test_db_session]))
-    mocker.patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client)
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(test_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
     mocker.patch("db.st_admin.get_management_token")
     mocker.patch("db.st_admin.get_settings")
 
@@ -337,8 +341,8 @@ async def test_restore_row_action_restores_self_deleted_user(
     mock_request.state.user = {"sub": admin.id}
     mock_request.form = AsyncMock(return_value=FormData({"reason-input": "Admin restored self-deleted account"}))
 
-    mocker.patch("db.st_admin.get_db_session", return_value=iter([test_db_session]))
-    mocker.patch("db.st_admin.get_auth0_client", return_value=mock_auth0_client)
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(test_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
     mocker.patch("db.st_admin.get_management_token")
     mocker.patch("db.st_admin.get_settings")
 
