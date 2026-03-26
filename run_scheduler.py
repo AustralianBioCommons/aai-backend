@@ -12,12 +12,12 @@ from loguru import logger
 from sqlalchemy import text
 
 from db.setup import create_db_and_tables, get_db_config, get_engine
-from scheduled_tasks.scheduler import SCHEDULER
+from scheduled_tasks.scheduler import EMAIL_QUEUE_EXECUTOR, SCHEDULER
 from scheduled_tasks.tasks import (
     cleanup_email_otps,
     populate_db_groups,
     populate_platforms_from_auth0,
-    process_email_queue,
+    process_email_queue_job,
     sync_auth0_roles,
     sync_auth0_users,
     sync_group_user_roles,
@@ -29,9 +29,11 @@ def schedule_jobs(scheduler: AsyncIOScheduler, email_only: bool = False):
     email_trigger = IntervalTrigger(minutes=1)
     logger.info("Adding frequent job: process_email_queue")
     scheduler.add_job(
-        process_email_queue,
+        process_email_queue_job,
         trigger=email_trigger,
         id="process_email_queue",
+        executor=EMAIL_QUEUE_EXECUTOR,
+        max_instances=1,
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(seconds=30),
     )
@@ -163,9 +165,11 @@ async def run_immediate(skip_full_sync: bool = False):
             )
         logger.info("Adding one-off job: process_email_queue")
         SCHEDULER.add_job(
-            process_email_queue,
+            process_email_queue_job,
             trigger=offset_trigger(offset=30),
             id="process_email_queue",
+            executor=EMAIL_QUEUE_EXECUTOR,
+            max_instances=1,
             replace_existing=True,
         )
         logger.info("Adding one-off job: cleanup_email_otps")

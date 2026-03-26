@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import math
 import re
@@ -258,6 +259,13 @@ async def process_email_queue(
         return scheduled
     finally:
         session.close()
+
+
+def process_email_queue_job(batch_size: int = EMAIL_QUEUE_BATCH_SIZE) -> int:
+    """
+    Run the email queue poller in a worker thread so it does not block the main scheduler loop.
+    """
+    return asyncio.run(process_email_queue(batch_size=batch_size))
 
 
 async def send_email_notification(

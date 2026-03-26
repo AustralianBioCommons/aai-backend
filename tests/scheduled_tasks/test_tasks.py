@@ -34,6 +34,7 @@ from scheduled_tasks.tasks import (
     link_admin_roles,
     parse_auth0_export,
     populate_db_groups,
+    populate_platforms_from_auth0,
     process_email_queue,
     send_email_notification,
     sync_auth0_roles,
@@ -199,6 +200,37 @@ async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
 
     assert existing_user.is_deleted is False
     assert late_user.is_deleted is False
+
+
+@pytest.mark.asyncio
+async def test_sync_auth0_users_logs_and_skips_delete_when_auth0_lookup_raises(
+    mocker, test_db_session, persistent_factories
+):
+    stale_user = BiocommonsUserFactory.create_sync(
+        email="stale.lookup@example.com",
+        username="stale_lookup",
+    )
+
+    mocker.patch("scheduled_tasks.tasks.get_settings")
+    mocker.patch("scheduled_tasks.tasks.get_management_token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=[])
+    mocker.patch("scheduled_tasks.tasks.user_exists_in_auth0", side_effect=RuntimeError("lookup failed"))
+    warning = mocker.patch("scheduled_tasks.tasks.logger.warning")
+    auth0_client_cls = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+
+    await sync_auth0_users()
+
+    test_db_session.refresh(stale_user)
+
+    assert stale_user.is_deleted is False
+    warning.assert_called_once()
+    assert stale_user.id in warning.call_args.args[0]
+    assert "lookup failed" in warning.call_args.args[0]
+    auth0_client_cls.return_value.__exit__.assert_called_once()
 
 
 def test_update_auth0_user_updates_existing(test_db_session, mocker, mock_auth0_client, persistent_factories):
@@ -728,6 +760,129 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
     assert removed_membership.is_deleted is True
     assert created_user is not None
     assert len(history_entries) > len(history_before)
+
+
+@pytest.mark.asyncio
+async def test_populate_platforms_from_auth0_creates_missing_platform_and_links_admin_roles(
+    mocker, test_db_session, mock_settings, persistent_factories
+):
+    admin_role = Auth0RoleFactory.create_sync(
+        id="role-galaxy-admin",
+        name="biocommons/role/galaxy/admin",
+        description="Galaxy Admin",
+    )
+    platform_role_data = SimpleNamespace(
+        id="role-galaxy-platform",
+        name="biocommons/platform/galaxy",
+        description="Galaxy Platform",
+    )
+    ignored_role = SimpleNamespace(
+        id="role-ignore",
+        name="biocommons/role/not-a-platform/admin",
+        description="Ignore",
+    )
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [platform_role_data, ignored_role]
+    mock_auth0_client.get_role_by_id.return_value = platform_role_data
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    link_admin_roles_spy = mocker.spy(__import__("scheduled_tasks.tasks", fromlist=["link_admin_roles"]), "link_admin_roles")
+
+    await populate_platforms_from_auth0()
+
+    created_platform = Platform.get_by_id(PlatformEnum.GALAXY, test_db_session)
+    created_platform_role = test_db_session.get(Auth0Role, platform_role_data.id)
+
+    assert created_platform is not None
+    assert created_platform.role_id == platform_role_data.id
+    assert created_platform.name == platform_role_data.description
+    assert created_platform_role is not None
+    assert admin_role in created_platform.admin_roles
+    link_admin_roles_spy.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_populate_platforms_from_auth0_updates_existing_platform(
+    mocker, test_db_session, mock_settings, persistent_factories
+):
+    Auth0RoleFactory.create_sync(
+        id="role-galaxy-admin",
+        name="biocommons/role/galaxy/admin",
+        description="Galaxy Admin",
+    )
+    existing_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        name="Old Galaxy",
+        role_id="old-role-id",
+    )
+    platform_role_data = SimpleNamespace(
+        id="role-galaxy-platform-updated",
+        name="biocommons/platform/galaxy",
+        description="Galaxy Updated",
+    )
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [platform_role_data]
+    mock_auth0_client.get_role_by_id.return_value = platform_role_data
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+
+    await populate_platforms_from_auth0()
+
+    test_db_session.refresh(existing_platform)
+    created_platform_role = test_db_session.get(Auth0Role, platform_role_data.id)
+
+    assert existing_platform.role_id == platform_role_data.id
+    assert existing_platform.name == platform_role_data.description
+    assert created_platform_role is not None
+
+
+@pytest.mark.asyncio
+async def test_populate_platforms_from_auth0_closes_db_session_on_error(mocker, mock_settings):
+    platform_role_data = SimpleNamespace(
+        id="role-galaxy-platform",
+        name="biocommons/platform/galaxy",
+        description="Galaxy Platform",
+    )
+    fake_role = Auth0RoleFactory.build(
+        id=platform_role_data.id,
+        name=platform_role_data.name,
+        description=platform_role_data.description,
+    )
+    fake_session = mocker.MagicMock()
+    fake_session.begin.return_value = mocker.MagicMock()
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [platform_role_data]
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch("scheduled_tasks.tasks.get_db_session", return_value=iter([fake_session]))
+    mocker.patch("scheduled_tasks.tasks.Auth0Role.get_by_id", return_value=None)
+    mocker.patch("scheduled_tasks.tasks.Auth0Role.get_or_create_by_id", return_value=fake_role)
+    mocker.patch("scheduled_tasks.tasks.Platform.get_by_id", return_value=None)
+    mocker.patch(
+        "scheduled_tasks.tasks.Platform.create_from_auth0_role",
+        side_effect=RuntimeError("platform create failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="platform create failed"):
+        await populate_platforms_from_auth0()
+
+    fake_session.close.assert_called_once()
 
 
 @pytest.mark.asyncio
