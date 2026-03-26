@@ -114,7 +114,8 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
-    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client").return_value
+    auth0_client_cls = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    auth0_client = auth0_client_cls.return_value.__enter__.return_value
 
     def _get_user(user_id):
         if user_id == existing_user.id:
@@ -182,7 +183,7 @@ async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
     mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=exported)
 
     auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client")
-    auth0_instance = auth0_client.return_value
+    auth0_instance = auth0_client.return_value.__enter__.return_value
     auth0_instance.get_user.side_effect = lambda user_id: Auth0UserDataFactory.build(
         user_id=user_id,
         email=late_user.email,
@@ -444,7 +445,8 @@ async def test_sync_auth0_roles_updates_and_soft_deletes(mocker, test_db_session
     role_restored_data = SimpleNamespace(id="role-restored", name="Restored", description="restored desc")
     mock_auth0_client = MagicMock()
     mock_auth0_client.get_all_roles.return_value = [role_existing_data, role_new_data, role_restored_data]
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
@@ -536,7 +538,8 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
         auth0_user_pending,
         auth0_user_new,
     ]
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
@@ -670,7 +673,8 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         SimpleNamespace(id=platform_role.id, name=platform_role.name, description=platform_role.description)
     ]
     mock_auth0_client.get_all_role_users_generator.return_value = (x for x in [[role_user_keep, role_user_pending], [role_user_new]])
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(

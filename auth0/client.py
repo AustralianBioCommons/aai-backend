@@ -160,6 +160,15 @@ class Auth0Client:
         self.management_token = management_token
         self._client = httpx.Client(headers={"Authorization": f"Bearer {management_token}"})
 
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> "Auth0Client":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
     T = TypeVar('T', bound=BaseModel)
 
     @staticmethod
@@ -526,4 +535,8 @@ class Auth0Client:
 
 def get_auth0_client(settings: Settings = Depends(get_settings),
                      management_token: str = Depends(get_management_token)):
-    return Auth0Client(settings.auth0_domain, management_token=management_token)
+    client = Auth0Client(settings.auth0_domain, management_token=management_token)
+    try:
+        yield client
+    finally:
+        client.close()
