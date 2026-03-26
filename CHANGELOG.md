@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.1.1](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.0...v1.1.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* %f string in logging ([a9385eb](https://github.com/AustralianBioCommons/aai-backend/commit/a9385ebacf47ead73429fc91c62f83bf11440f5f))
+* %f string in logging ([3405cf8](https://github.com/AustralianBioCommons/aai-backend/commit/3405cf8d11c559684af290dbf7fa55452c54c1e7))
+* 500 ISE when token is not RSA signed / invalid ([892b8a8](https://github.com/AustralianBioCommons/aai-backend/commit/892b8a8f996b6e1befdf95ae36227c7afff86d96))
+* 500 ISE when token is not RSA signed / invalid ([808de54](https://github.com/AustralianBioCommons/aai-backend/commit/808de54217f2b0f0c43f6b6320e45302bbebead0))
+* disable long syncs ([#235](https://github.com/AustralianBioCommons/aai-backend/issues/235)) ([b0df256](https://github.com/AustralianBioCommons/aai-backend/commit/b0df25679177eb089d809e33df39277bcacb4c8e))
+* memory leak via Auth0Client's httpx client which will GC later ([af0cefc](https://github.com/AustralianBioCommons/aai-backend/commit/af0cefc01fcace53cf505da89b660fd373f4a63d))
+* non-fastapi callers to Auth0Client ([3ebdfe1](https://github.com/AustralianBioCommons/aai-backend/commit/3ebdfe100a6eba33b304a4a1ac9061a3e01042d4))
+* re-enable long-running jobs ([d575437](https://github.com/AustralianBioCommons/aai-backend/commit/d575437701d74d6be51063798711dd4f3be8ade2))
+* tests to use the same yield mechanism as the Auth0 client ([a5c86b9](https://github.com/AustralianBioCommons/aai-backend/commit/a5c86b9583d716f0447e05366eecfe7b893ad99b))
+* use uvicorn error logger throughout ([3298035](https://github.com/AustralianBioCommons/aai-backend/commit/32980358be3bff37f2edc387731efe7adbfd0eee))
+
 ## [1.1.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.0.0...v1.1.0) (2026-03-24)
 
 
