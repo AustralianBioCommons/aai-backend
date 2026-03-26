@@ -50,7 +50,7 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
             logger.warning(f"JWT rejected due to invalid issuer: {e}")
             continue
         except InvalidTokenError as e:
-            logger.warning("JWT rejected during decode: %s", e)
+            logger.warning(f"JWT rejected during decode: {e}")
             raise HTTPException(status_code=401, detail="Not authorized")
 
     if payload is None:
