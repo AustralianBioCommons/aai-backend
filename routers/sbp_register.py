@@ -21,7 +21,7 @@ from schemas.responses import (
 from schemas.sbp import SBPRegistrationRequest
 from services.email_queue import enqueue_email
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(
     prefix="/sbp",

@@ -60,7 +60,11 @@ from tests.db.datagen import (
 
 def _task_session_iter(bind):
     while True:
-        yield Session(bind)
+        session = Session(bind)
+        try:
+            yield session
+        finally:
+            session.close()
 
 
 def _get_notification_fresh(test_db_session, notification_id):
@@ -225,10 +229,6 @@ def test_update_auth0_user_creates_when_missing(test_db_session, mocker, mock_au
     Missing users are created when encountered during the update.
     """
     user_data = Auth0UserDataFactory.build()
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
     mock_auth0_client.get_user.return_value = user_data
 
     result = update_auth0_user(user_data=user_data, session=test_db_session,

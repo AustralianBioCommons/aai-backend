@@ -19,7 +19,7 @@ from schemas.biocommons import AppId
 from schemas.responses import FieldError
 from services.email_queue import enqueue_email
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/utils", tags=["utils"])
 
