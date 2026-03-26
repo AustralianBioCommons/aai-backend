@@ -1,4 +1,5 @@
 import json
+import logging
 
 import httpx
 import jwt
@@ -10,6 +11,8 @@ from jwt.exceptions import ExpiredSignatureError, InvalidIssuerError, InvalidTok
 from config import Settings
 from schemas.tokens import AccessTokenPayload
 
+logger = logging.getLogger(__name__)
+
 KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
 
 
@@ -17,11 +20,13 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     try:
         rsa_key = get_rsa_key(token, settings=settings)
     except InvalidTokenError as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+        logger.warning("JWT rejected during RSA key lookup: %s", e)
+        raise HTTPException(status_code=401, detail="Not authorized")
 
     if rsa_key is None:
+        logger.warning("JWT rejected: no matching signing key found")
         raise HTTPException(
-            status_code=401, detail="Couldn't find a matching signing key."
+            status_code=401, detail="Not authorized"
         )
 
     # Issuer may be the Auth0 tenant domain, or the custom domain
@@ -31,7 +36,6 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
         issuers.append(settings.auth0_issuer)
 
     payload = None
-    last_error: InvalidTokenError | None = None
     for issuer in issuers:
         try:
             payload = jwt.decode(
@@ -43,14 +47,15 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
             )
             break
         except InvalidIssuerError as e:
-            last_error = e
+            logger.warning("JWT rejected due to invalid issuer: %s", e)
             continue
         except InvalidTokenError as e:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+            logger.warning("JWT rejected during decode: %s", e)
+            raise HTTPException(status_code=401, detail="Not authorized")
 
     if payload is None:
-        error_detail = str(last_error) if last_error else "Invalid issuer"
-        raise HTTPException(status_code=401, detail=f"Invalid token: {error_detail}")
+        logger.warning("JWT rejected: issuer validation failed for all configured issuers")
+        raise HTTPException(status_code=401, detail="Not authorized")
 
     roles_claim = "https://biocommons.org.au/roles"
     if roles_claim not in payload:
@@ -75,9 +80,12 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
 def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
     jwks = _fetch_rsa_keys(settings.auth0_domain)
     unverified_header = jwt.get_unverified_header(token)
+    key_id = unverified_header.get("kid")
+    if not key_id:
+        raise InvalidTokenError("Token header missing kid")
 
     for key in jwks["keys"]:
-        if key["kid"] == unverified_header["kid"]:
+        if key.get("kid") == key_id:
             return RSAAlgorithm.from_jwk(json.dumps(key))
 
     # Retry without cache on failure

@@ -28,6 +28,11 @@ from config import Settings
 from db.models import BiocommonsUser
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
 
+TEST_HS256_SECRET = "test-hs256-secret-key-with-32-bytes"
+TEST_MANAGEMENT_SECRET = "test-management-secret-key-with-32b"
+TEST_WRONG_MANAGEMENT_SECRET = "wrong-management-secret-key-32b!"
+TEST_CORRECT_MANAGEMENT_SECRET = "correct-management-secret-key-32"
+
 
 def generate_public_private_key_pair():
     # Code from https://fmpm.dev/mocking-auth0-tokens
@@ -118,7 +123,7 @@ def create_access_token(
 
 
 def test_get_rsa_key_returns_key(mock_settings: Settings):
-    token = jwt.encode({"some": "payload"}, "secret", algorithm="HS256")
+    token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "testkey"}
 
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header), \
@@ -155,7 +160,7 @@ def generate_dummy_rsa_key(key_id: str) -> dict:
 @respx.mock
 def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
     """Test that get_rsa_key retries after clearing cache when key is not found."""
-    token = jwt.encode({"some": "payload"}, "secret", algorithm="HS256")
+    token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "missing_key"}
 
     other_key = generate_dummy_rsa_key("other_key")
@@ -194,7 +199,7 @@ def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
 @respx.mock
 def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Settings):
     """Test that get_rsa_key doesn't retry when key is found on first attempt."""
-    token = jwt.encode({"some": "payload"}, "secret", algorithm="HS256")
+    token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "found_key"}
 
     # Generate test key using jose
@@ -307,7 +312,7 @@ def test_verify_jwt(mock_settings: Settings, mocker):
 
 def test_verify_jwt_invalid_issuer(mock_settings: Settings, mocker):
     """
-    Test invalid JWT issuer raises an error
+    Test invalid JWT issuer returns unauthorized.
     """
     mock_settings.auth0_audience = f"https://{mock_settings.auth0_domain}/api/"
     token = create_access_token(
@@ -316,8 +321,12 @@ def test_verify_jwt_invalid_issuer(mock_settings: Settings, mocker):
         aud=f"https://{mock_settings.auth0_domain}/api/",
     )
     mocker.patch("auth.validator.get_rsa_key", return_value=token.public_key)
-    with pytest.raises(HTTPException, match="Invalid issuer"):
+
+    with pytest.raises(HTTPException) as excinfo:
         verify_jwt(token.access_token_str, settings=mock_settings)
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Not authorized"
 
 
 def test_verify_jwt_custom_domain_issuer(mock_settings: Settings, mocker):
@@ -334,6 +343,25 @@ def test_verify_jwt_custom_domain_issuer(mock_settings: Settings, mocker):
     mocker.patch("auth.validator.get_rsa_key", return_value=token.public_key)
     decoded = verify_jwt(token.access_token_str, settings=mock_settings)
     assert decoded.email == "user@example.com"
+
+
+def test_verify_jwt_missing_kid_returns_unauthorized(mock_settings: Settings, mocker):
+    """
+    Test a token with no kid header returns 401 instead of crashing.
+    """
+    mock_settings.auth0_audience = f"https://{mock_settings.auth0_domain}/api/"
+    token = create_access_token(
+        email="user@example.com",
+        iss=f"https://{mock_settings.auth0_domain}/",
+        aud=f"https://{mock_settings.auth0_domain}/api/",
+    )
+    mocker.patch("auth.validator.jwt.get_unverified_header", return_value={"alg": "RS256"})
+
+    with pytest.raises(HTTPException) as excinfo:
+        verify_jwt(token.access_token_str, settings=mock_settings)
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Not authorized"
 
 
 def test_user_is_general_admin_returns_current_user_for_biocommons_admin(
@@ -454,7 +482,7 @@ def test_verify_action_token_success(mock_settings: Settings):
     """
     Test that verify_action_token successfully decodes a valid HS256 token.
     """
-    secret = "test-management-secret"
+    secret = TEST_MANAGEMENT_SECRET
     mock_settings.auth0_management_secret = secret
     payload = {
         "sub": "auth0|123",
@@ -471,7 +499,7 @@ def test_verify_action_token_expired(mock_settings: Settings):
     """
     Test that verify_action_token raises 401 when the token is expired.
     """
-    secret = "test-management-secret"
+    secret = TEST_MANAGEMENT_SECRET
     mock_settings.auth0_management_secret = secret
     payload = {
         "sub": "auth0|123",
@@ -490,13 +518,13 @@ def test_verify_action_token_invalid_signature(mock_settings: Settings):
     """
     Test that verify_action_token raises 401 when the signature is invalid.
     """
-    mock_settings.auth0_management_secret = "correct-secret"
+    mock_settings.auth0_management_secret = TEST_CORRECT_MANAGEMENT_SECRET
     payload = {
         "sub": "auth0|123",
         "exp": int((datetime.now() + timedelta(hours=1)).timestamp())
     }
     # Sign with a different secret
-    token = jwt.encode(payload, "wrong-secret", algorithm="HS256")
+    token = jwt.encode(payload, TEST_WRONG_MANAGEMENT_SECRET, algorithm="HS256")
 
     with pytest.raises(HTTPException) as excinfo:
         verify_action_token(token, mock_settings)
@@ -508,7 +536,7 @@ def test_verify_action_token_missing_exp(mock_settings: Settings):
     """
     Test that verify_action_token raises 401 when the exp claim is missing.
     """
-    secret = "test-management-secret"
+    secret = TEST_MANAGEMENT_SECRET
     mock_settings.auth0_management_secret = secret
     payload = {
         "sub": "auth0|123"
