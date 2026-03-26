@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.1...v1.1.2) (2026-03-26)
+
+
+### Bug Fixes
+
+* move email processing in it's own thread ([91be24e](https://github.com/AustralianBioCommons/aai-backend/commit/91be24e8319c87ac2d412eef87ad0c0c72e4555d))
+* move email processing in it's own thread ([25cb348](https://github.com/AustralianBioCommons/aai-backend/commit/25cb3483f93a6e00351be6eb4b96b15607a063af))
+
 ## [1.1.1](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.0...v1.1.1) (2026-03-26)
 
 
