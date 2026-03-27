@@ -48,7 +48,7 @@ from scheduled_tasks.email_retry import (
     next_retry_delay_seconds,
     retry_deadline,
 )
-from scheduled_tasks.scheduler import SCHEDULER
+from scheduled_tasks.scheduler import EMAIL_QUEUE_EXECUTOR, SCHEDULER
 from schemas.auth0 import (
     GROUP_ROLE_PATTERN,
     PLATFORM_ROLE_PATTERN,
@@ -248,9 +248,11 @@ async def process_email_queue(
             session.flush()
             job_id = f"{EMAIL_JOB_ID_PREFIX}{notification.id}"
             SCHEDULER.add_job(
-                send_email_notification,
+                send_email_notification_job,
                 args=[notification.id],
                 id=job_id,
+                executor=EMAIL_QUEUE_EXECUTOR,
+                max_instances=1,
                 replace_existing=True,
             )
             scheduled += 1
@@ -266,6 +268,38 @@ def process_email_queue_job(batch_size: int = EMAIL_QUEUE_BATCH_SIZE) -> int:
     Run the email queue poller in a worker thread so it does not block the main scheduler loop.
     """
     return asyncio.run(process_email_queue(batch_size=batch_size))
+
+
+def sync_auth0_roles_job() -> None:
+    asyncio.run(sync_auth0_roles())
+
+
+def sync_auth0_users_job() -> None:
+    asyncio.run(sync_auth0_users())
+
+
+def sync_group_user_roles_job() -> None:
+    asyncio.run(sync_group_user_roles())
+
+
+def sync_platform_user_roles_job() -> None:
+    asyncio.run(sync_platform_user_roles())
+
+
+def populate_db_groups_job() -> None:
+    asyncio.run(populate_db_groups())
+
+
+def populate_platforms_from_auth0_job() -> None:
+    asyncio.run(populate_platforms_from_auth0())
+
+
+def cleanup_email_otps_job() -> None:
+    asyncio.run(cleanup_email_otps())
+
+
+def send_email_notification_job(notification_id: UUID) -> bool:
+    return asyncio.run(send_email_notification(notification_id))
 
 
 async def send_email_notification(

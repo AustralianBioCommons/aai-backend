@@ -12,16 +12,20 @@ from loguru import logger
 from sqlalchemy import text
 
 from db.setup import create_db_and_tables, get_db_config, get_engine
-from scheduled_tasks.scheduler import EMAIL_QUEUE_EXECUTOR, SCHEDULER
+from scheduled_tasks.scheduler import (
+    EMAIL_QUEUE_EXECUTOR,
+    SCHEDULED_TASK_EXECUTOR,
+    SCHEDULER,
+)
 from scheduled_tasks.tasks import (
-    cleanup_email_otps,
-    populate_db_groups,
-    populate_platforms_from_auth0,
+    cleanup_email_otps_job,
+    populate_db_groups_job,
+    populate_platforms_from_auth0_job,
     process_email_queue_job,
-    sync_auth0_roles,
-    sync_auth0_users,
-    sync_group_user_roles,
-    sync_platform_user_roles,
+    sync_auth0_roles_job,
+    sync_auth0_users_job,
+    sync_group_user_roles_job,
+    sync_platform_user_roles_job,
 )
 
 
@@ -40,9 +44,11 @@ def schedule_jobs(scheduler: AsyncIOScheduler, email_only: bool = False):
     logger.info("Adding recurring cleanup job: cleanup_email_otps")
     cleanup_trigger = IntervalTrigger(minutes=15)
     scheduler.add_job(
-        cleanup_email_otps,
+        cleanup_email_otps_job,
         trigger=cleanup_trigger,
         id="cleanup_email_otps",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True,
         next_run_time=datetime.now(UTC),
     )
@@ -53,47 +59,59 @@ def schedule_jobs(scheduler: AsyncIOScheduler, email_only: bool = False):
     hourly_trigger = IntervalTrigger(minutes=60)
     logger.info("Adding one-off job: populate DB groups")
     scheduler.add_job(
-        populate_db_groups,
+        populate_db_groups_job,
         trigger=DateTrigger(run_date=datetime.now(UTC)),
         id="populate_db_groups",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True
     )
     logger.info("Adding one-off job: populate platforms")
     scheduler.add_job(
-        populate_platforms_from_auth0,
+        populate_platforms_from_auth0_job,
         trigger=DateTrigger(run_date=datetime.now(UTC)),
         id="populate_platforms_from_auth0",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True
     )
     logger.info("Adding hourly job: sync_auth0_roles")
     scheduler.add_job(
-        sync_auth0_roles,
+        sync_auth0_roles_job,
         trigger=hourly_trigger,
         id="sync_auth0_roles",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True,
         next_run_time=datetime.now(UTC)
     )
     logger.info("Adding hourly job: sync_auth0_users")
     scheduler.add_job(
-        sync_auth0_users,
+        sync_auth0_users_job,
         trigger=hourly_trigger,
         id="sync_auth0_users",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=15)
     )
     logger.info("Adding hourly job: sync_group_user_roles")
     scheduler.add_job(
-        sync_group_user_roles,
+        sync_group_user_roles_job,
         trigger=hourly_trigger,
         id="sync_group_user_roles",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=30)
     )
     logger.info("Adding hourly job: sync_platform_user_roles")
     scheduler.add_job(
-        sync_platform_user_roles,
+        sync_platform_user_roles_job,
         trigger=hourly_trigger,
         id="sync_platform_user_roles",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
         replace_existing=True,
         next_run_time=datetime.now(UTC) + timedelta(minutes=45)
     )
@@ -122,45 +140,57 @@ async def run_immediate(skip_full_sync: bool = False):
             clear_db_jobs()
         logger.info("Adding one-off job: sync_auth0_roles")
         SCHEDULER.add_job(
-            sync_auth0_roles,
+            sync_auth0_roles_job,
             trigger=offset_trigger(offset=0),
             id="sync_auth0_roles",
+            executor=SCHEDULED_TASK_EXECUTOR,
+            max_instances=1,
             replace_existing=True
         )
         logger.info("Adding one-off job: populate DB groups")
         SCHEDULER.add_job(
-            populate_db_groups,
+            populate_db_groups_job,
             trigger=offset_trigger(offset=5),
             id="populate_db_groups",
+            executor=SCHEDULED_TASK_EXECUTOR,
+            max_instances=1,
             replace_existing=True
         )
         logger.info("Adding one-off job: populate platforms")
         SCHEDULER.add_job(
-            populate_platforms_from_auth0,
+            populate_platforms_from_auth0_job,
             trigger=offset_trigger(offset=10),
             id="populate_platforms_from_auth0",
+            executor=SCHEDULED_TASK_EXECUTOR,
+            max_instances=1,
             replace_existing=True
         )
         if not skip_full_sync:
             logger.info("Adding one-off job: sync_auth0_users")
             SCHEDULER.add_job(
-                sync_auth0_users,
+                sync_auth0_users_job,
                 trigger=offset_trigger(offset=15),
                 id="sync_auth0_users",
+                executor=SCHEDULED_TASK_EXECUTOR,
+                max_instances=1,
                 replace_existing=True
             )
             logger.info("Adding one-off job: sync_group_user_roles")
             SCHEDULER.add_job(
-                sync_group_user_roles,
+                sync_group_user_roles_job,
                 trigger=offset_trigger(offset=20),
                 id="sync_group_user_roles",
+                executor=SCHEDULED_TASK_EXECUTOR,
+                max_instances=1,
                 replace_existing=True
             )
             logger.info("Adding one-off job: sync_platform_user_roles")
             SCHEDULER.add_job(
-                sync_platform_user_roles,
+                sync_platform_user_roles_job,
                 trigger=offset_trigger(offset=25),
                 id="sync_platform_user_roles",
+                executor=SCHEDULED_TASK_EXECUTOR,
+                max_instances=1,
                 replace_existing=True
             )
         logger.info("Adding one-off job: process_email_queue")
@@ -174,9 +204,11 @@ async def run_immediate(skip_full_sync: bool = False):
         )
         logger.info("Adding one-off job: cleanup_email_otps")
         SCHEDULER.add_job(
-            cleanup_email_otps,
+            cleanup_email_otps_job,
             trigger=offset_trigger(offset=35),
             id="cleanup_email_otps",
+            executor=SCHEDULED_TASK_EXECUTOR,
+            max_instances=1,
             replace_existing=True,
         )
         logger.info("Resuming scheduler and waiting for jobs to complete...")

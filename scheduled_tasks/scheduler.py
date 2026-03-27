@@ -12,6 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 
 EMAIL_QUEUE_EXECUTOR = "email_queue"
+SCHEDULED_TASK_EXECUTOR = "scheduled_tasks"
 
 
 def job_listener(event: JobExecutionEvent):
@@ -46,6 +47,7 @@ def create_scheduler():
         }
     executors = {
         "default": {"type": "asyncio"},
+        SCHEDULED_TASK_EXECUTOR: {"type": "threadpool", "max_workers": 1},
         EMAIL_QUEUE_EXECUTOR: {"type": "threadpool", "max_workers": 1},
     }
     scheduler = AsyncIOScheduler(
