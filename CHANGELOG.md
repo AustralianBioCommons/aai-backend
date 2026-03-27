@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.3](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.2...v1.1.3) (2026-03-27)
+
+
+### Bug Fixes
+
+* seperate scheduler executors ([8afb774](https://github.com/AustralianBioCommons/aai-backend/commit/8afb774f35d8ae77131d47d92fc47ea1fa4a4662))
+* seperate scheduler executors ([0f432ae](https://github.com/AustralianBioCommons/aai-backend/commit/0f432aec7c08eab973d05ea9b14ce9d22b5bcaf2))
+
 ## [1.1.2](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.1...v1.1.2) (2026-03-26)
 
 
