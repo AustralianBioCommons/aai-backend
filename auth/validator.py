@@ -89,7 +89,13 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
 
         jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
         response = httpx.get(jwks_url)
-        keys = response.json()
+        try:
+            response.raise_for_status()
+            keys = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.error(f"Failed to fetch JWKS from {jwks_url}: {exc}")
+            # Do not cache on error
+            raise InvalidTokenError("Failed to fetch JWKS") from exc
         KEY_CACHE[cache_key] = keys
         return keys
 
