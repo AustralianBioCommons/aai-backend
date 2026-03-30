@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -23,7 +25,13 @@ from jwt.algorithms import RSAAlgorithm
 
 from auth import auth0_security, get_auth0_token
 from auth.user_permissions import user_is_general_admin
-from auth.validator import get_rsa_key, verify_action_token, verify_jwt
+from auth.validator import (
+    KEY_CACHE,
+    _fetch_rsa_keys,
+    get_rsa_key,
+    verify_action_token,
+    verify_jwt,
+)
 from config import Settings
 from db.models import BiocommonsUser
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
@@ -548,3 +556,53 @@ def test_verify_action_token_missing_exp(mock_settings: Settings):
         verify_action_token(token, mock_settings)
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "invalid session_token"
+
+
+@respx.mock
+def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings: Settings):
+    """
+    Demonstrate that concurrent requests only trigger one JWKS refresh.
+    """
+    KEY_CACHE.clear()
+
+    jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
+    jwks_response = {"keys": [generate_dummy_rsa_key("test-key")]}
+
+    start_gate = threading.Barrier(5)
+    release_refresh = threading.Event()
+    call_count = 0
+    call_count_lock = threading.Lock()
+
+    def slow_response(*args, **kwargs):
+        nonlocal call_count
+        with call_count_lock:
+            call_count += 1
+        release_refresh.wait(timeout=2)
+        return Response(200, json=jwks_response)
+
+    respx.get(jwks_url).mock(side_effect=slow_response)
+
+    results = []
+    results_lock = threading.Lock()
+
+    def worker():
+        start_gate.wait(timeout=2)
+        result = _fetch_rsa_keys(mock_settings.auth0_domain)
+        with results_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+
+    time.sleep(0.1)
+    release_refresh.set()
+
+    for thread in threads:
+        thread.join(timeout=2)
+
+    # Check all calls went through
+    assert len(results) == 5
+    assert all(result == jwks_response for result in results)
+    # Check the Auth0 API was only called once
+    assert call_count == 1
