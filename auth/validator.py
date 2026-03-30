@@ -87,13 +87,23 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
         if cached is not None:
             return cached
 
-        jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
-        response = httpx.get(jwks_url)
         try:
+            metadata_url = f"https://{auth0_domain}/.well-known/openid-configuration"
+            metadata_response = httpx.get(metadata_url)
+            metadata_response.raise_for_status()
+            metadata = metadata_response.json()
+
+            jwks_url = metadata["jwks_uri"]
+            response = httpx.get(jwks_url)
             response.raise_for_status()
             keys = response.json()
+        except KeyError as exc:
+            logger.error(f"OIDC metadata from {metadata_url} did not include jwks_uri")
+            raise InvalidTokenError("Failed to fetch JWKS") from exc
         except (httpx.HTTPError, ValueError) as exc:
-            logger.error(f"Failed to fetch JWKS from {jwks_url}: {exc}")
+            logger.error(
+                f"Failed to fetch OIDC metadata or JWKS for domain {auth0_domain}: {exc}"
+            )
             # Do not cache on error
             raise InvalidTokenError("Failed to fetch JWKS") from exc
         KEY_CACHE[cache_key] = keys
