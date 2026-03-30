@@ -39,6 +39,7 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
         issuers.append(settings.auth0_issuer)
 
     payload = None
+    last_issuer_error = None
     for issuer in issuers:
         try:
             payload = jwt.decode(
@@ -50,14 +51,16 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
             )
             break
         except InvalidIssuerError as e:
-            logger.warning(f"JWT rejected due to invalid issuer: {e}")
+            last_issuer_error = e
             continue
         except InvalidTokenError as e:
             logger.warning(f"JWT rejected during decode: {e}")
             raise HTTPException(status_code=401, detail="Not authorized")
 
     if payload is None:
-        logger.warning("JWT rejected: issuer validation failed for all configured issuers")
+        logger.warning(
+            f"JWT rejected: issuer validation failed for all configured issuers: {last_issuer_error}"
+        )
         raise HTTPException(status_code=401, detail="Not authorized")
 
     roles_claim = "https://biocommons.org.au/roles"
