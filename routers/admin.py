@@ -1,3 +1,4 @@
+import http
 import inspect
 import logging
 import math
@@ -350,7 +351,7 @@ class UserQueryParams(BaseModel):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
         if self.approval_status and (self.platform_approval_status or self.group_approval_status):
             raise HTTPException(
-                status_code=400,
+                status_code=http.HTTPStatus.BAD_REQUEST,
                 detail="approval_status cannot be used with platform_approval_status or group_approval_status",
             )
 
