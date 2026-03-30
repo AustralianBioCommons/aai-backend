@@ -1,5 +1,6 @@
 import json
 import logging
+from threading import Lock
 
 import httpx
 import jwt
@@ -14,6 +15,7 @@ from schemas.tokens import AccessTokenPayload
 logger = logging.getLogger("uvicorn.error")
 
 KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
+KEY_CACHE_LOCK = Lock()
 
 
 def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
