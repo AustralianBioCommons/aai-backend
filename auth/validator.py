@@ -14,7 +14,8 @@ from schemas.tokens import AccessTokenPayload
 
 logger = logging.getLogger("uvicorn.error")
 
-KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
+KEY_CACHE_TIMEOUT = 6 * 60 * 60  # 6 hours
+KEY_CACHE = TTLCache(maxsize=10, ttl=KEY_CACHE_TIMEOUT)
 KEY_CACHE_LOCK = Lock()
 
 
