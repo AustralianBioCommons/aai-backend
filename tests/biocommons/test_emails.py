@@ -12,13 +12,13 @@ from tests.datagen import RoleUserDataFactory
 
 def test_get_default_sender(mock_settings):
     email = get_default_sender_email(mock_settings)
-    assert email == mock_settings.default_email_sender
+    assert email == mock_settings.no_reply_email_sender
 
 
 def test_get_default_sender_email_fetches_settings(mock_settings, mocker):
     mocker.patch('biocommons.emails.get_settings', return_value=mock_settings)
     email = get_default_sender_email()
-    assert email == mock_settings.default_email_sender
+    assert email == mock_settings.no_reply_email_sender
 
 
 def test_format_first_name_prefers_given_name():

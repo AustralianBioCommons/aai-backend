@@ -158,6 +158,36 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
     assert all(u.id not in user_ids for u in invalid_users)
 
 
+def test_get_users_excludes_current_admin_user(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    test_db_session,
+    persistent_factories,
+):
+    admin_db_user = as_admin_user
+    membership = PlatformMembershipFactory.create_sync(
+        user_id=admin_db_user.id,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    admin_db_user.platform_memberships.append(membership)
+    test_db_session.add(admin_db_user)
+    test_db_session.commit()
+
+    other_user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+
+    resp = test_client.get("/admin/users")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["id"] == other_user.id
+
+
 def test_get_users_platform_or_group_access(
     test_client,
     as_admin_user,
@@ -608,6 +638,56 @@ def test_get_user_counts(
         "revoked": len(revoked_users),
         "unverified": 1,
     }
+
+
+def test_get_user_counts_platform_admin_revoked_scoped(
+    test_client,
+    galaxy_platform,
+    tsi_group,
+    test_db_session,
+    persistent_factories,
+):
+    token = AccessTokenPayloadFactory.build(
+        biocommons_roles=["biocommons/role/galaxy/admin"]
+    )
+    platform_admin = SessionUserFactory.build(access_token=token)
+    BiocommonsUserFactory.create_sync(
+        id=platform_admin.access_token.sub,
+        group_memberships=[],
+        platform_memberships=[],
+    )
+    app.dependency_overrides[get_session_user] = lambda: platform_admin
+    app.dependency_overrides[get_management_token] = lambda: "mock_token"
+    try:
+        _create_user_with_platform_membership(
+            db_session=test_db_session,
+            platform_id=galaxy_platform.id,
+            approval_status=ApprovalStatusEnum.REVOKED,
+        )
+        group_revoked = _create_user_with_platform_membership(
+            db_session=test_db_session,
+            platform_id=galaxy_platform.id,
+            approval_status=ApprovalStatusEnum.APPROVED,
+        )
+        group_membership = GroupMembershipFactory.create_sync(
+            group_id=tsi_group.group_id,
+            user_id=group_revoked.id,
+            approval_status=ApprovalStatusEnum.REVOKED,
+        )
+        group_revoked.group_memberships.append(group_membership)
+        test_db_session.add(group_revoked)
+        test_db_session.commit()
+
+        resp = test_client.get("/admin/users/counts")
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "all": 2,
+            "pending": 0,
+            "revoked": 1,
+            "unverified": 0,
+        }
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_get_user_page_info(

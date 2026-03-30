@@ -77,12 +77,15 @@ if metrics_enabled:
 def public_route():
     return {"message": "AAI Backend API", "version": SERVICE_VERSION}
 
+CURRENT_ENVIRONMENT = read_setting("ENVIRONMENT", "dev")
 
 app.include_router(admin.router)
 app.include_router(biocommons_admin.router)
 app.include_router(user.router)
 app.include_router(biocommons_register.router)
-app.include_router(sbp_register.router)
+# Disable SBP registration in production for now
+if not CURRENT_ENVIRONMENT.startswith("prod"):
+    app.include_router(sbp_register.router)
 app.include_router(utils.router)
 try:
     SERVICE_VERSION = version("aai-backend")

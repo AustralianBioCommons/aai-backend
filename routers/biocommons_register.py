@@ -10,7 +10,6 @@ from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
 from biocommons.emails import (
     compose_group_approval_email,
-    get_default_sender_email,
     get_group_admin_contacts,
     get_requester_identity,
 )
@@ -29,7 +28,7 @@ from schemas.responses import (
 )
 from services.email_queue import enqueue_email
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 # Bundle configuration mapping bundle names to their groups and included extra_platforms
 # Note: Platforms listed here are auto-approved upon registration,
@@ -133,9 +132,9 @@ def _notify_bundle_group_admins(
         enqueue_email(
             db_session,
             to_address=email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
 
 

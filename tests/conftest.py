@@ -176,7 +176,7 @@ def mock_settings():
         auth0_domain="mock-domain",
         auth0_issuer=None,
         auth0_management_id="mock-id",
-        auth0_management_secret="mock-secret",
+        auth0_management_secret="mock-secret-key-with-32-bytes-min",
         auth0_audience="mock-audience",
         auth0_db_connection="Username-Password-Authentication",
         jwt_secret_key="mock-secret-key",
@@ -184,6 +184,7 @@ def mock_settings():
         admin_roles=["Admin"],
         auth0_algorithms=["RS256"],
         recaptcha_secret="mock-secret",
+        no_reply_email_sender="no-reply@example.com",
     )
 
 

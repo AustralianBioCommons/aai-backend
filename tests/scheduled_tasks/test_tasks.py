@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
+from httpx import HTTPStatusError
 from sqlmodel import Session, select
 
 from db.models import (
@@ -33,6 +34,7 @@ from scheduled_tasks.tasks import (
     link_admin_roles,
     parse_auth0_export,
     populate_db_groups,
+    populate_platforms_from_auth0,
     process_email_queue,
     send_email_notification,
     sync_auth0_roles,
@@ -59,7 +61,11 @@ from tests.db.datagen import (
 
 def _task_session_iter(bind):
     while True:
-        yield Session(bind)
+        session = Session(bind)
+        try:
+            yield session
+        finally:
+            session.close()
 
 
 def _get_notification_fresh(test_db_session, notification_id):
@@ -109,6 +115,24 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
     mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
+    auth0_client_cls = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    auth0_client = auth0_client_cls.return_value.__enter__.return_value
+
+    def _get_user(user_id):
+        if user_id == existing_user.id:
+            return existing_user_data
+        if user_id == new_user_data.user_id:
+            return new_user_data
+        if user_id == extra_user_data.user_id:
+            return extra_user_data
+        if user_id == user_not_in_auth0.id:
+            raise HTTPStatusError(
+                message="Not Found",
+                request=mocker.Mock(),
+                response=mocker.Mock(status_code=404),
+            )
+
+    auth0_client.get_user.side_effect = _get_user
 
     await sync_auth0_users()
 
@@ -123,7 +147,93 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     assert second_created is not None
 
 
-def test_update_auth0_user_updates_existing(test_db_session, mocker, persistent_factories):
+@pytest.mark.asyncio
+async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
+    mocker, test_db_session, persistent_factories
+):
+    """
+    If a user is created in Auth0 after the export is fetched but before the soft-delete pass,
+    the user should not be soft deleted once the individual Auth0 lookup confirms they exist.
+    """
+    existing_user = BiocommonsUserFactory.create_sync(
+        email="stale.user@example.com",
+        username="stale_user",
+        email_verified=True,
+        blocked=False,
+    )
+    late_user = BiocommonsUserFactory.create_sync(
+        email="late.user@example.com",
+        username="late_user",
+    )
+
+    existing_user_export = ExportedUserFactory.build(
+        user_id=existing_user.id,
+        email=existing_user.email,
+        username=existing_user.username,
+        email_verified=True,
+        blocked=False,
+    )
+    exported = [existing_user_export]
+
+    mocker.patch("scheduled_tasks.tasks.get_settings")
+    mocker.patch("scheduled_tasks.tasks.get_management_token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=exported)
+
+    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    auth0_instance = auth0_client.return_value.__enter__.return_value
+    auth0_instance.get_user.side_effect = lambda user_id: Auth0UserDataFactory.build(
+        user_id=user_id,
+        email=late_user.email,
+        username=late_user.username,
+        email_verified=True,
+        blocked=False,
+    ) if user_id == late_user.id else (_ for _ in ()).throw(AssertionError("Unexpected user lookup"))
+
+    await sync_auth0_users()
+
+    test_db_session.refresh(existing_user)
+    test_db_session.refresh(late_user)
+
+    assert existing_user.is_deleted is False
+    assert late_user.is_deleted is False
+
+
+@pytest.mark.asyncio
+async def test_sync_auth0_users_logs_and_skips_delete_when_auth0_lookup_raises(
+    mocker, test_db_session, persistent_factories
+):
+    stale_user = BiocommonsUserFactory.create_sync(
+        email="stale.lookup@example.com",
+        username="stale_lookup",
+    )
+
+    mocker.patch("scheduled_tasks.tasks.get_settings")
+    mocker.patch("scheduled_tasks.tasks.get_management_token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=[])
+    mocker.patch("scheduled_tasks.tasks.user_exists_in_auth0", side_effect=RuntimeError("lookup failed"))
+    warning = mocker.patch("scheduled_tasks.tasks.logger.warning")
+    auth0_client_cls = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+
+    await sync_auth0_users()
+
+    test_db_session.refresh(stale_user)
+
+    assert stale_user.is_deleted is False
+    warning.assert_called_once()
+    assert stale_user.id in warning.call_args.args[0]
+    assert "lookup failed" in warning.call_args.args[0]
+    auth0_client_cls.return_value.__exit__.assert_called_once()
+
+
+def test_update_auth0_user_updates_existing(test_db_session, mocker, mock_auth0_client, persistent_factories):
     """
     Updating an existing user applies Auth0 data and commits changes.
     """
@@ -138,25 +248,24 @@ def test_update_auth0_user_updates_existing(test_db_session, mocker, persistent_
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
+    mock_auth0_client.get_user.return_value = user_data
 
-    update_auth0_user(user_data=user_data, session=test_db_session)
+    update_auth0_user(user_data=user_data, session=test_db_session, auth0_client=mock_auth0_client)
     test_db_session.commit()
 
     test_db_session.refresh(db_user)
     assert db_user.email_verified is True
 
 
-def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
+def test_update_auth0_user_creates_when_missing(test_db_session, mocker, mock_auth0_client):
     """
     Missing users are created when encountered during the update.
     """
     user_data = Auth0UserDataFactory.build()
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
+    mock_auth0_client.get_user.return_value = user_data
 
-    result = update_auth0_user(user_data=user_data, session=test_db_session)
+    result = update_auth0_user(user_data=user_data, session=test_db_session,
+                               auth0_client=mock_auth0_client)
     test_db_session.commit()
 
     created = test_db_session.get(BiocommonsUser, user_data.user_id)
@@ -165,7 +274,7 @@ def test_update_auth0_user_creates_when_missing(test_db_session, mocker):
 
 
 @pytest.mark.asyncio
-async def test_update_auth0_user_batch_closes_session(mocker):
+async def test_update_auth0_user_batch_closes_session(mocker, mock_auth0_client):
     """
     Check that the session is closed after the update.
     """
@@ -182,7 +291,7 @@ async def test_update_auth0_user_batch_closes_session(mocker):
     )
 
     # Empty user list (actual user list does nested transactions + hard to mock)
-    await update_auth0_users_batch(users=[])
+    await update_auth0_users_batch(users=[], auth0_client=mock_auth0_client)
 
     fake_session.commit.assert_called_once()
     fake_session.close.assert_called_once()
@@ -368,7 +477,8 @@ async def test_sync_auth0_roles_updates_and_soft_deletes(mocker, test_db_session
     role_restored_data = SimpleNamespace(id="role-restored", name="Restored", description="restored desc")
     mock_auth0_client = MagicMock()
     mock_auth0_client.get_all_roles.return_value = [role_existing_data, role_new_data, role_restored_data]
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
@@ -460,7 +570,8 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
         auth0_user_pending,
         auth0_user_new,
     ]
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
@@ -593,8 +704,9 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
     mock_auth0_client.get_all_roles.return_value = [
         SimpleNamespace(id=platform_role.id, name=platform_role.name, description=platform_role.description)
     ]
-    mock_auth0_client.get_all_role_users_generator.return_value = (x for x in [[role_user_keep, role_user_pending, role_user_new]])
-    mocker.patch("scheduled_tasks.tasks.Auth0Client", return_value=mock_auth0_client)
+    mock_auth0_client.get_all_role_users_generator.return_value = (x for x in [[role_user_keep, role_user_pending], [role_user_new]])
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
@@ -651,10 +763,133 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
 
 
 @pytest.mark.asyncio
+async def test_populate_platforms_from_auth0_creates_missing_platform_and_links_admin_roles(
+    mocker, test_db_session, mock_settings, persistent_factories
+):
+    admin_role = Auth0RoleFactory.create_sync(
+        id="role-galaxy-admin",
+        name="biocommons/role/galaxy/admin",
+        description="Galaxy Admin",
+    )
+    platform_role_data = SimpleNamespace(
+        id="role-galaxy-platform",
+        name="biocommons/platform/galaxy",
+        description="Galaxy Platform",
+    )
+    ignored_role = SimpleNamespace(
+        id="role-ignore",
+        name="biocommons/role/not-a-platform/admin",
+        description="Ignore",
+    )
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [platform_role_data, ignored_role]
+    mock_auth0_client.get_role_by_id.return_value = platform_role_data
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    link_admin_roles_spy = mocker.spy(__import__("scheduled_tasks.tasks", fromlist=["link_admin_roles"]), "link_admin_roles")
+
+    await populate_platforms_from_auth0()
+
+    created_platform = Platform.get_by_id(PlatformEnum.GALAXY, test_db_session)
+    created_platform_role = test_db_session.get(Auth0Role, platform_role_data.id)
+
+    assert created_platform is not None
+    assert created_platform.role_id == platform_role_data.id
+    assert created_platform.name == platform_role_data.description
+    assert created_platform_role is not None
+    assert admin_role in created_platform.admin_roles
+    link_admin_roles_spy.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_populate_platforms_from_auth0_updates_existing_platform(
+    mocker, test_db_session, mock_settings, persistent_factories
+):
+    Auth0RoleFactory.create_sync(
+        id="role-galaxy-admin",
+        name="biocommons/role/galaxy/admin",
+        description="Galaxy Admin",
+    )
+    existing_platform = PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY,
+        name="Old Galaxy",
+        role_id="old-role-id",
+    )
+    platform_role_data = SimpleNamespace(
+        id="role-galaxy-platform-updated",
+        name="biocommons/platform/galaxy",
+        description="Galaxy Updated",
+    )
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [platform_role_data]
+    mock_auth0_client.get_role_by_id.return_value = platform_role_data
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+
+    await populate_platforms_from_auth0()
+
+    test_db_session.refresh(existing_platform)
+    created_platform_role = test_db_session.get(Auth0Role, platform_role_data.id)
+
+    assert existing_platform.role_id == platform_role_data.id
+    assert existing_platform.name == platform_role_data.description
+    assert created_platform_role is not None
+
+
+@pytest.mark.asyncio
+async def test_populate_platforms_from_auth0_closes_db_session_on_error(mocker, mock_settings):
+    platform_role_data = SimpleNamespace(
+        id="role-galaxy-platform",
+        name="biocommons/platform/galaxy",
+        description="Galaxy Platform",
+    )
+    fake_role = Auth0RoleFactory.build(
+        id=platform_role_data.id,
+        name=platform_role_data.name,
+        description=platform_role_data.description,
+    )
+    fake_session = mocker.MagicMock()
+    fake_session.begin.return_value = mocker.MagicMock()
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [platform_role_data]
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch("scheduled_tasks.tasks.get_db_session", return_value=iter([fake_session]))
+    mocker.patch("scheduled_tasks.tasks.Auth0Role.get_by_id", return_value=None)
+    mocker.patch("scheduled_tasks.tasks.Auth0Role.get_or_create_by_id", return_value=fake_role)
+    mocker.patch("scheduled_tasks.tasks.Platform.get_by_id", return_value=None)
+    mocker.patch(
+        "scheduled_tasks.tasks.Platform.create_from_auth0_role",
+        side_effect=RuntimeError("platform create failed"),
+    )
+
+    with pytest.raises(RuntimeError, match="platform create failed"):
+        await populate_platforms_from_auth0()
+
+    fake_session.close.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_process_email_queue_sends_notifications(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=mock_settings.default_email_sender,
+        from_address=mock_settings.no_reply_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -664,6 +899,7 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
 
     mock_service = mocker.Mock()
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -681,46 +917,15 @@ async def test_process_email_queue_sends_notifications(test_db_session, mock_set
         "user@example.com",
         "Hello",
         "<p>Test</p>",
-        sender=mock_settings.default_email_sender,
+        settings=mock_settings
     )
-
-
-@pytest.mark.asyncio
-async def test_send_email_notification_uses_custom_sender(test_db_session, mocker):
-    notification = EmailNotification(
-        to_address="user@example.com",
-        from_address="custom@example.com",
-        subject="Hello",
-        body_html="<p>Test</p>",
-    )
-    test_db_session.add(notification)
-    test_db_session.commit()
-    notification_id = notification.id
-
-    mock_service = mocker.Mock()
-    mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
-
-    await send_email_notification(notification_id)
-
-    mock_service.send.assert_called_once_with(
-        "user@example.com",
-        "Hello",
-        "<p>Test</p>",
-        sender="custom@example.com",
-    )
-    updated = _get_notification_fresh(test_db_session, notification_id)
-    assert updated.status == EmailStatusEnum.SENT
 
 
 @pytest.mark.asyncio
 async def test_send_email_notification_retries_transient_errors(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=mock_settings.default_email_sender,
+        from_address=mock_settings.no_reply_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -731,6 +936,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
     mock_service = mocker.Mock()
     mock_service.send.side_effect = EndpointConnectionError(endpoint_url="https://ses")
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -755,7 +961,7 @@ async def test_send_email_notification_retries_transient_errors(test_db_session,
 async def test_send_email_notification_does_not_retry_non_transient_error(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=mock_settings.default_email_sender,
+        from_address=mock_settings.no_reply_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
     )
@@ -775,6 +981,7 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
     mock_service = mocker.Mock()
     mock_service.send.side_effect = error
     mocker.patch("scheduled_tasks.tasks.get_email_service", return_value=mock_service)
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
@@ -792,7 +999,7 @@ async def test_send_email_notification_does_not_retry_non_transient_error(test_d
 async def test_process_email_queue_skips_when_max_attempts_reached(test_db_session, mock_settings, mocker):
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=mock_settings.default_email_sender,
+        from_address=mock_settings.no_reply_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,
@@ -825,7 +1032,7 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
     )
     notification = EmailNotification(
         to_address="user@example.com",
-        from_address=mock_settings.default_email_sender,
+        from_address=mock_settings.no_reply_email_sender,
         subject="Hello",
         body_html="<p>Test</p>",
         status=EmailStatusEnum.FAILED,

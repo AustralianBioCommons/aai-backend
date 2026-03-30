@@ -1,7 +1,9 @@
+import asyncio
 import csv
 import math
 import re
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,7 @@ from db.models import (
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
+    BiocommonsUserHistory,
     EmailChangeOtp,
     EmailNotification,
     GroupMembership,
@@ -45,7 +48,7 @@ from scheduled_tasks.email_retry import (
     next_retry_delay_seconds,
     retry_deadline,
 )
-from scheduled_tasks.scheduler import SCHEDULER
+from scheduled_tasks.scheduler import EMAIL_QUEUE_EXECUTOR, SCHEDULER
 from schemas.auth0 import (
     GROUP_ROLE_PATTERN,
     PLATFORM_ROLE_PATTERN,
@@ -245,9 +248,11 @@ async def process_email_queue(
             session.flush()
             job_id = f"{EMAIL_JOB_ID_PREFIX}{notification.id}"
             SCHEDULER.add_job(
-                send_email_notification,
+                send_email_notification_job,
                 args=[notification.id],
                 id=job_id,
+                executor=EMAIL_QUEUE_EXECUTOR,
+                max_instances=1,
                 replace_existing=True,
             )
             scheduled += 1
@@ -258,6 +263,45 @@ async def process_email_queue(
         session.close()
 
 
+def process_email_queue_job(batch_size: int = EMAIL_QUEUE_BATCH_SIZE) -> int:
+    """
+    Run the email queue poller in a worker thread so it does not block the main scheduler loop.
+    """
+    return asyncio.run(process_email_queue(batch_size=batch_size))
+
+
+def sync_auth0_roles_job() -> None:
+    asyncio.run(sync_auth0_roles())
+
+
+def sync_auth0_users_job() -> None:
+    asyncio.run(sync_auth0_users())
+
+
+def sync_group_user_roles_job() -> None:
+    asyncio.run(sync_group_user_roles())
+
+
+def sync_platform_user_roles_job() -> None:
+    asyncio.run(sync_platform_user_roles())
+
+
+def populate_db_groups_job() -> None:
+    asyncio.run(populate_db_groups())
+
+
+def populate_platforms_from_auth0_job() -> None:
+    asyncio.run(populate_platforms_from_auth0())
+
+
+def cleanup_email_otps_job() -> None:
+    asyncio.run(cleanup_email_otps())
+
+
+def send_email_notification_job(notification_id: UUID) -> bool:
+    return asyncio.run(send_email_notification(notification_id))
+
+
 async def send_email_notification(
     notification_id: UUID,
 ) -> bool:
@@ -265,6 +309,7 @@ async def send_email_notification(
     Deliver a single queued email notification.
     """
     session = next(get_db_session())
+    settings = get_settings()
     try:
         notification = session.get(EmailNotification, notification_id)
         if notification is None:
@@ -276,7 +321,7 @@ async def send_email_notification(
                 notification.to_address,
                 notification.subject,
                 notification.body_html,
-                sender=notification.from_address,
+                settings=settings,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to send email %s: %s", notification.id, exc)
@@ -360,35 +405,67 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
     return users
 
 
+def user_exists_in_auth0(auth0_client: Auth0Client, user_id: str):
+    """
+    Check if a user exists in Auth0
+    """
+    try:
+        auth0_client.get_user(user_id)
+        return True
+    except HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return False
+        else:
+            raise exc
+
+
 async def sync_auth0_users():
     logger.info("Syncing Auth0 users")
     logger.info("Setting up Auth0 client")
     settings = get_settings()
     token = get_management_token(settings=settings)
-    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    users = await export_auth0_users(auth0_client)
-    db_session = next(get_db_session())
-    auth0_user_ids: set[str] = set()
-    try:
-        batch_size = 500
-        total_batches = math.ceil(len(users) / batch_size)
-        for batch_index, user_batch in enumerate(chunked(users, batch_size)):
-            logger.info(f"Syncing Auth0 user batch {batch_index + 1}/{total_batches}")
-            for user in user_batch:
-                auth0_user_ids.add(user.user_id)
-            await update_auth0_users_batch(user_batch)
-        # Soft delete any users no longer present in Auth0
-        existing_users = BiocommonsUser.list_all(db_session)
-        for db_user in existing_users:
-            if db_user.id not in auth0_user_ids:
-                logger.info(f"Soft deleting user {db_user.id} absent from Auth0")
-                db_user.delete(db_session, commit=False)
-        db_session.commit()
-    finally:
-        db_session.close()
+    with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
+        users = await export_auth0_users(auth0_client)
+        db_session = next(get_db_session())
+        auth0_user_ids: set[str] = set()
+        try:
+            batch_size = 500
+            total_batches = math.ceil(len(users) / batch_size)
+            for batch_index, user_batch in enumerate(chunked(users, batch_size)):
+                logger.info(f"Syncing Auth0 user batch {batch_index + 1}/{total_batches}")
+                for user in user_batch:
+                    auth0_user_ids.add(user.user_id)
+                await update_auth0_users_batch(user_batch, auth0_client=auth0_client)
+            # Soft delete any users no longer present in Auth0
+            existing_users = BiocommonsUser.list_all(db_session)
+            for db_user in existing_users:
+                if db_user.id not in auth0_user_ids:
+                    # Double check if in Auth0 before deleting (something could have changed since export)
+                    try:
+                        user_in_auth0 = user_exists_in_auth0(auth0_client, db_user.id)
+                        time.sleep(0.5)
+                        if user_in_auth0:
+                            continue
+                        else:
+                            logger.info(f"Soft deleting user {db_user.id} not found in Auth0")
+                            db_user.delete(db_session, reason="auth0_sync", commit=False)
+                    except Exception as exc:
+                        logger.warning(f"Failed to check if user {db_user.id} exists in Auth0: {exc}")
+            db_session.commit()
+        finally:
+            db_session.close()
 
 
-async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) -> dict[str, int]:
+async def update_auth0_users_batch(
+        users: list[ExportedUser],
+        auth0_client: Auth0Client) -> dict[str, int]:
+    """
+    Update a batch of users, starting with data from the Auth0 export.
+
+    Note that if the exported user data suggests a change is needed,
+    we get the latest user data from Auth0 to confirm, but we don't
+    want to look up every user
+    """
     updated = 0
     skipped = 0
 
@@ -397,14 +474,10 @@ async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) ->
         for user_data in users:
             try:
                 with session.begin_nested():
-                    success = update_auth0_user(user_data, session=session)
+                    success = update_auth0_user(user_data, session=session, auth0_client=auth0_client)
             except (UserSyncConflictError, IntegrityError) as exc:
                 # Roll back this user's changes and continue with the next user
-                logger.warning(
-                    "Error while updating Auth0 user %r: %s",
-                    getattr(user_data, "user_id", None),
-                    exc,
-                )
+                logger.warning(f"Error while updating Auth0 user {getattr(user_data, 'user_id', None)}: {exc}")
                 success = False
             if success:
                 updated += 1
@@ -420,12 +493,62 @@ async def update_auth0_users_batch(users: list[Auth0UserData | ExportedUser]) ->
     return {"updated": updated, "skipped": skipped}
 
 
-def update_auth0_user(user_data: Auth0UserData | ExportedUser, session: Session):
+def _user_data_is_different(db_user: BiocommonsUser, user_data: Auth0UserData | ExportedUser) -> bool:
     """
-    Update a single user from Auth0. Called by update_auth0_users_batch, which handles session
-    creation/committing
+    Check if a DB user appears to need an update.
+    We check against CSV export data, and if an update seems to be
+    needed, we get the latest user data from Auth0 to confirm.
     """
-    db_user, created, restored = _ensure_user_from_auth0(session, user_data)
+    conditions = [
+        user_data.email != db_user.email,
+        user_data.username is not None and user_data.username != db_user.username,
+        user_data.email_verified != db_user.email_verified,
+        user_data.blocked != db_user.is_deleted,
+    ]
+    return any(conditions)
+
+
+def _create_user_in_db(user_data: ExportedUser, session: Session):
+    """
+    Create a user in the database from Auth0 user data.
+    """
+    username_conflict = BiocommonsUserHistory.is_username_used(user_data.username, session=session)
+    if username_conflict:
+        raise UserSyncConflictError(f"Username {user_data.username} is already in use")
+    email_conflict = BiocommonsUser.get_by_email(user_data.email, session, include_deleted=True)
+    if email_conflict is not None:
+        raise UserSyncConflictError(f"Email {user_data.email} is already in use")
+    db_user = BiocommonsUser.from_auth0_data(user_data)
+    session.add(db_user)
+    return db_user
+
+
+def update_auth0_user(user_data: ExportedUser, session: Session, auth0_client: Auth0Client) -> bool:
+    """
+    Create or update a single user in the DB using Auth0 export data, optionally refreshing
+    from live Auth0 data if the export appears to differ from the current DB record.
+
+    Called by update_auth0_users_batch, which handles session creation/committing.
+    """
+    db_user = BiocommonsUser.get_by_id(user_data.user_id, session, include_deleted=True)
+
+    # If not in DB, create from CSV data
+    # Do this first as it's faster if we need to bulk create users after an import
+    if db_user is None:
+        try:
+            db_user = _create_user_in_db(user_data, session)
+        except UserSyncConflictError as exc:
+            logger.warning(f"Skipping user {user_data.user_id} due to conflict: {exc}")
+            return False
+
+    needs_update = _user_data_is_different(db_user, user_data)
+    # No change needed
+    if not needs_update:
+        return True
+    # Get user data from Auth0 to ensure we have the latest
+    fresh_data: Auth0UserData = auth0_client.get_user(user_data.user_id)
+    time.sleep(1 / 3)
+    db_user, created, restored = _ensure_user_from_auth0(session, fresh_data)
     if db_user is None:
         if user_data.blocked:
             logger.warning(f"Blocked {user_data.user_id} not found in DB, skipping")
@@ -450,54 +573,54 @@ async def sync_auth0_roles():
     logger.info("Setting up Auth0 client")
     settings = get_settings()
     token = get_management_token(settings=settings)
-    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    roles = auth0_client.get_all_roles()
-    logger.info(f"Found {len(roles)} roles")
+    with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
+        roles = auth0_client.get_all_roles()
+        logger.info(f"Found {len(roles)} roles")
 
-    db_session = next(get_db_session())
-    auth0_role_ids: set[str] = set()
-    db_roles_by_name: dict[str, Auth0Role] = {}
-    try:
-        for role in roles:
-            logger.info(f"  Role: {role.name}")
-            auth0_role_ids.add(role.id)
-            db_role = db_session.get(Auth0Role, role.id)
-            created = False
-            restored = False
-            if db_role is None:
-                db_role = Auth0Role.get_deleted_by_id(db_session, role.id)
-                if db_role is not None:
-                    restored = True
-                    db_role.restore(db_session, commit=False)
+        db_session = next(get_db_session())
+        auth0_role_ids: set[str] = set()
+        db_roles_by_name: dict[str, Auth0Role] = {}
+        try:
+            for role in roles:
+                logger.info(f"  Role: {role.name}")
+                auth0_role_ids.add(role.id)
+                db_role = db_session.get(Auth0Role, role.id)
+                created = False
+                restored = False
+                if db_role is None:
+                    db_role = Auth0Role.get_deleted_by_id(db_session, role.id)
+                    if db_role is not None:
+                        restored = True
+                        db_role.restore(db_session, commit=False)
+                    else:
+                        created = True
+                        db_role = Auth0Role(
+                            id=role.id,
+                            name=role.name,
+                            description=role.description,
+                        )
+                db_session.add(db_role)
+                if created:
+                    logger.info("    Role created in DB")
+                elif restored:
+                    logger.info("    Role restored from soft delete")
                 else:
-                    created = True
-                    db_role = Auth0Role(
-                        id=role.id,
-                        name=role.name,
-                        description=role.description,
-                    )
-            db_session.add(db_role)
-            if created:
-                logger.info("    Role created in DB")
-            elif restored:
-                logger.info("    Role restored from soft delete")
-            else:
-                logger.info("    Role exists in DB, updating fields if necessary")
-            if db_role.name != role.name or db_role.description != role.description:
-                db_role.name = role.name
-                db_role.description = role.description
-            db_roles_by_name[db_role.name] = db_role
-        # Soft delete roles missing from Auth0
-        db_session.flush()
-        existing_roles = Auth0Role.get_all(db_session)
-        for db_role in existing_roles:
-            if db_role.id not in auth0_role_ids:
-                logger.info(f"    Soft deleting role {db_role.name} ({db_role.id}) absent from Auth0")
-                db_role.delete(db_session, commit=False)
-        link_admin_roles(db_session, db_roles_by_name)
-        db_session.commit()
-    finally:
-        db_session.close()
+                    logger.info("    Role exists in DB, updating fields if necessary")
+                if db_role.name != role.name or db_role.description != role.description:
+                    db_role.name = role.name
+                    db_role.description = role.description
+                db_roles_by_name[db_role.name] = db_role
+            # Soft delete roles missing from Auth0
+            db_session.flush()
+            existing_roles = Auth0Role.get_all(db_session)
+            for db_role in existing_roles:
+                if db_role.id not in auth0_role_ids:
+                    logger.info(f"    Soft deleting role {db_role.name} ({db_role.id}) absent from Auth0")
+                    db_role.delete(db_session, commit=False)
+            link_admin_roles(db_session, db_roles_by_name)
+            db_session.commit()
+        finally:
+            db_session.close()
 
 
 def link_admin_roles(session: Session, db_roles_by_name: dict[str, Auth0Role]) -> None:
@@ -629,15 +752,15 @@ async def sync_group_user_roles():
     logger.info("Syncing Auth0 user-role assignments for groups")
     settings = get_settings()
     token = get_management_token(settings=settings)
-    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    roles = [role for role in auth0_client.get_all_roles()
-             if re.match(GROUP_ROLE_PATTERN, role.name)]
-    for role in roles:
-        db_session = next(get_db_session())
-        try:
-            await sync_group_memberships_for_role(role, auth0_client, db_session)
-        finally:
-            db_session.close()
+    with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
+        roles = [role for role in auth0_client.get_all_roles()
+                 if re.match(GROUP_ROLE_PATTERN, role.name)]
+        for role in roles:
+            db_session = next(get_db_session())
+            try:
+                await sync_group_memberships_for_role(role, auth0_client, db_session)
+            finally:
+                db_session.close()
 
 
 def _get_platform_membership_including_deleted(session: Session, user_id: str, platform_id: str) -> PlatformMembership | None:
@@ -668,7 +791,7 @@ async def sync_platform_memberships_for_role(
     created = 0
     restored = 0
     role_users = []
-    for user_batch in auth0_client.get_all_role_users_generator(role_id=platform.role_id):
+    for user_batch in auth0_client.get_all_role_users_generator(role_id=role.id):
         for role_user in user_batch:
             role_users.append(role_user)
             sync_status = MembershipSyncStatus(created=False, restored=False, status_changed=False)
@@ -712,51 +835,51 @@ async def sync_platform_memberships_for_role(
                         elif sync_status.restored:
                             restored += 1
                             logger.debug(f"    Restored membership for {db_user.id} -> {platform_id}")
-            except UserSyncConflictError as exc:
-                logger.warning(f"    Skipping user {auth0_user.user_id} for platform {platform_id}: {exc}")
+            except (UserSyncConflictError, IntegrityError) as exc:
+                logger.warning(f"    Skipping user {role_user.user_id} for platform {platform_id}: {exc}")
                 continue
+        session.commit()
     logger.info(f"  Created {created} new memberships, restored {restored} memberships")
     # Soft delete memberships that are approved but no longer present
-    session.flush()
-    all_memberships = PlatformMembership.list_by_platform_id(
-        platform_id,
-        session,
-        include_deleted=True,
-    )
     all_in_auth0 = {user.user_id for user in role_users}
-    for membership in all_memberships:
-        if membership.is_deleted:
-            continue
-        if membership.approval_status != ApprovalStatusEnum.APPROVED:
-            continue
-        if membership.user_id not in all_in_auth0:
-            logger.info(
-                f"    Soft deleting membership {membership.user_id} -> {membership.platform_id} absent from Auth0"
-            )
-            membership.delete(session, commit=False)
-    session.commit()
+    with session.begin():
+        all_memberships = PlatformMembership.list_by_platform_id(
+            platform_id,
+            session,
+            include_deleted=True,
+        )
+        for membership in all_memberships:
+            if membership.is_deleted:
+                continue
+            if membership.approval_status != ApprovalStatusEnum.APPROVED:
+                continue
+            if membership.user_id not in all_in_auth0:
+                logger.info(
+                    f"    Soft deleting membership {membership.user_id} -> {membership.platform_id} absent from Auth0"
+                )
+                membership.delete(session, commit=False)
 
 
 async def sync_platform_user_roles():
     logger.info("Syncing Auth0 user-role assignments for platforms")
     settings = get_settings()
     token = get_management_token(settings=settings)
-    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    exported_users = await export_auth0_users(auth0_client)
-    exported_users_by_id = {user.user_id: user for user in exported_users}
-    roles = [role for role in auth0_client.get_all_roles()
-             if re.match(PLATFORM_ROLE_PATTERN, role.name)]
-    for role in roles:
-        db_session = next(get_db_session())
-        try:
-            await sync_platform_memberships_for_role(
-                role,
-                auth0_client,
-                db_session,
-                exported_users_by_id=exported_users_by_id
-            )
-        finally:
-            db_session.close()
+    with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
+        exported_users = await export_auth0_users(auth0_client)
+        exported_users_by_id = {user.user_id: user for user in exported_users}
+        roles = [role for role in auth0_client.get_all_roles()
+                 if re.match(PLATFORM_ROLE_PATTERN, role.name)]
+        for role in roles:
+            db_session = next(get_db_session())
+            try:
+                await sync_platform_memberships_for_role(
+                    role,
+                    auth0_client,
+                    db_session,
+                    exported_users_by_id=exported_users_by_id
+                )
+            finally:
+                db_session.close()
 
 
 # Allow changing the groups argument for easy testing
@@ -795,30 +918,30 @@ async def populate_platforms_from_auth0():
     logger.info("Populating platforms from Auth0 roles")
     settings = get_settings()
     token = get_management_token(settings=settings)
-    auth0_client = Auth0Client(domain=settings.auth0_domain, management_token=token)
-    roles = auth0_client.get_all_roles()
-    db_session = next(get_db_session())
-    platform_roles = [role for role in roles if re.match(PLATFORM_ROLE_PATTERN, role.name) is not None]
-    try:
-        with db_session.begin():
-            for role in platform_roles:
-                db_role = Auth0Role.get_by_id(role.id, db_session)
-                if db_role is None:
-                    db_role = Auth0Role.get_or_create_by_id(role.id, db_session, auth0_client)
-                platform_id = get_platform_id_from_role_name(role.name)
-                platform = Platform.get_by_id(platform_id=platform_id, session=db_session)
-                if platform is None:
-                    logger.info(f"  Creating platform {platform_id}")
-                    Platform.create_from_auth0_role(db_role, db_session, commit=False)
-                else:
-                    logger.info(f"  Updating platform {platform_id} (if needed)")
-                    platform.update_from_auth0_role(db_role, db_session, commit=False)
-        db_session.commit()
-        roles_by_name = {role.name: role for role in Auth0Role.get_all(db_session)}
-        link_admin_roles(db_session, roles_by_name)
-        db_session.commit()
-    finally:
-        db_session.close()
+    with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
+        roles = auth0_client.get_all_roles()
+        db_session = next(get_db_session())
+        platform_roles = [role for role in roles if re.match(PLATFORM_ROLE_PATTERN, role.name) is not None]
+        try:
+            with db_session.begin():
+                for role in platform_roles:
+                    db_role = Auth0Role.get_by_id(role.id, db_session)
+                    if db_role is None:
+                        db_role = Auth0Role.get_or_create_by_id(role.id, db_session, auth0_client)
+                    platform_id = get_platform_id_from_role_name(role.name)
+                    platform = Platform.get_by_id(platform_id=platform_id, session=db_session)
+                    if platform is None:
+                        logger.info(f"  Creating platform {platform_id}")
+                        Platform.create_from_auth0_role(db_role, db_session, commit=False)
+                    else:
+                        logger.info(f"  Updating platform {platform_id} (if needed)")
+                        platform.update_from_auth0_role(db_role, db_session, commit=False)
+            db_session.commit()
+            roles_by_name = {role.name: role for role in Auth0Role.get_all(db_session)}
+            link_admin_roles(db_session, roles_by_name)
+            db_session.commit()
+        finally:
+            db_session.close()
 
 
 async def cleanup_email_otps():

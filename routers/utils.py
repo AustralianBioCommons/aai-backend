@@ -10,7 +10,6 @@ from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import (
     compose_welcome_email,
     format_first_name,
-    get_default_sender_email,
 )
 from config import Settings, get_settings
 from db.models import EmailNotification
@@ -20,7 +19,7 @@ from schemas.biocommons import AppId
 from schemas.responses import FieldError
 from services.email_queue import enqueue_email
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 router = APIRouter(prefix="/utils", tags=["utils"])
 
@@ -191,9 +190,9 @@ async def send_welcome_email(
     enqueue_email(
         db_session,
         to_address=str(user.email),
-        from_address=get_default_sender_email(settings),
         subject=subject,
         body_html=body_html,
+        settings=settings,
     )
     db_session.commit()
     return {"message": "Welcome email sent."}

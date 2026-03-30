@@ -13,7 +13,14 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse, Response
 from starlette.routing import Route
-from starlette_admin import BaseAdmin, EnumField, HasMany, HasOne, row_action
+from starlette_admin import (
+    BaseAdmin,
+    EnumField,
+    HasMany,
+    HasOne,
+    StringField,
+    row_action,
+)
 from starlette_admin.auth import AdminUser, AuthProvider, login_not_required
 from starlette_admin.contrib.sqlmodel import Admin, ModelView
 
@@ -114,7 +121,8 @@ class DeletedUserView(UserView):
         logger.info("Setting up Auth0 client")
         settings = get_settings()
         management_token = get_management_token(settings=settings)
-        auth0_client = get_auth0_client(settings=settings, management_token=management_token)
+        auth0_client_gen = get_auth0_client(settings=settings, management_token=management_token)
+        auth0_client = next(auth0_client_gen)
         db_session_gen = get_db_session()
         db_session = next(db_session_gen)
         try:
@@ -129,6 +137,8 @@ class DeletedUserView(UserView):
             user.admin_restore(admin, reason, db_session, auth0_client=auth0_client)
             return "User restored successfully"
         finally:
+            auth0_client_gen.close()
+            db_session_gen.close()
             db_session.close()
 
 
@@ -226,6 +236,7 @@ class PlatformMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
         "platform_id",
         HasOne("user", identity="user"),
         "approval_status",
+        StringField("revocation_reason", label="Revocation Reason"),
         "updated_at",
         HasOne("updated_by", identity="user"),
         "id",
@@ -237,6 +248,7 @@ class GroupMembershipHistoryView(DefaultView, IncludeDeletedUserMixin):
         "group_id",
         HasOne("user", identity="user"),
         "approval_status",
+        StringField("revocation_reason", label="Revocation Reason"),
         "updated_at",
         HasOne("updated_by", identity="user"),
         "id",

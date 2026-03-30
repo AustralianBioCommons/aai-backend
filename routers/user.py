@@ -27,7 +27,6 @@ from biocommons.emails import (
     compose_group_approval_email,
     compose_welcome_email,
     format_first_name,
-    get_default_sender_email,
     get_group_admin_contacts,
     get_requester_identity,
 )
@@ -380,9 +379,9 @@ def request_group_access(
         enqueue_email(
             db_session,
             to_address=email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
     db_session.commit()
     return {"message": f"Group membership for {group_id} requested successfully."}
@@ -553,6 +552,7 @@ async def update_email(
     user: Annotated[SessionUser, Depends(get_session_user)],
     db_session: Annotated[Session, Depends(get_db_session)],
     email_service: Annotated[EmailService, Depends(get_email_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
     response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
@@ -604,6 +604,7 @@ async def update_email(
             to_address=payload.email,
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
     except ClientError as exc:
         message = exc.response.get("Error", {}).get("Message") or str(exc)
@@ -866,9 +867,9 @@ def finish_migrate_password(state: str,
         enqueue_email(
             db_session,
             to_address=auth0_user.email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
         db_session.commit()
 

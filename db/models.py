@@ -61,7 +61,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     )
 
     @classmethod
-    def get_by_id(cls, user_id: str, session: Session) -> Self | None:
+    def get_by_id(cls, user_id: str, session: Session, include_deleted: bool = False) -> Self | None:
+        if include_deleted:
+            return session.get(BiocommonsUser, user_id, execution_options={"include_deleted": True})
         return session.get(BiocommonsUser, user_id)
 
     @classmethod
@@ -750,6 +752,12 @@ class PlatformMembershipHistory(SoftDeleteModel, table=True):
         sa_column=Column(String(1024), nullable=True)
     )
 
+    @property
+    def revocation_reason(self) -> str:
+        if self.approval_status != ApprovalStatusEnum.REVOKED:
+            return "null"
+        return self.reason or "null"
+
 
 class GroupMembership(SoftDeleteModel, table=True):
     """
@@ -1053,6 +1061,12 @@ class GroupMembershipHistory(SoftDeleteModel, table=True):
         default=None,
         sa_column=Column(String(1024), nullable=True)
     )
+
+    @property
+    def revocation_reason(self) -> str:
+        if self.approval_status != ApprovalStatusEnum.REVOKED:
+            return "null"
+        return self.reason or "null"
 
     @classmethod
     def get_by_user_id_and_group_id(

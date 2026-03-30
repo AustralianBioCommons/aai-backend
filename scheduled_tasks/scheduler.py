@@ -11,6 +11,9 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from loguru import logger
 
+EMAIL_QUEUE_EXECUTOR = "email_queue"
+SCHEDULED_TASK_EXECUTOR = "scheduled_tasks"
+
 
 def job_listener(event: JobExecutionEvent):
     scheduled_time = getattr(event, "scheduled_run_time", None)
@@ -44,6 +47,8 @@ def create_scheduler():
         }
     executors = {
         "default": {"type": "asyncio"},
+        SCHEDULED_TASK_EXECUTOR: {"type": "threadpool", "max_workers": 1},
+        EMAIL_QUEUE_EXECUTOR: {"type": "threadpool", "max_workers": 1},
     }
     scheduler = AsyncIOScheduler(
         jobstores=jobstores,

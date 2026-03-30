@@ -1,4 +1,5 @@
 import html
+import logging
 
 from pydantic import EmailStr
 
@@ -6,11 +7,15 @@ from auth0.client import Auth0Client
 from config import Settings, get_settings
 from db.models import BiocommonsGroup
 
+logger = logging.getLogger("uvicorn.error")
+
 
 def get_default_sender_email(settings: Settings | None = None) -> str:
     if settings is None:
         settings = get_settings()
-    email: EmailStr = settings.no_reply_email_sender or settings.default_email_sender
+    email: EmailStr = settings.no_reply_email_sender
+    logger.info(f"Got default sender email: {email}")
+    logger.info(f"Email settings: {settings.no_reply_email_sender=}")
     return str(email)
 
 
@@ -108,8 +113,6 @@ def compose_group_approval_email(
     settings: Settings,
 ) -> tuple[str, str]:
     subject = f"{bundle_name} Service Bundle request"
-    portal_url = settings.aai_portal_url.rstrip("/")
-    user_detail_url = f"{portal_url}/user/{requester_user_id}"
     reason = request_reason.strip() if request_reason else "Not provided"
     body_html = f"""
         <p>Dear {admin_first_name},</p>
@@ -117,9 +120,9 @@ def compose_group_approval_email(
         <p><strong>Name:</strong> {requester_full_name}</p>
         <p><strong>Email:</strong> {requester_email}</p>
         <p><strong>Reason:</strong> {reason}</p>
-        <p>Please click <a href="{user_detail_url}">here</a> to approve or decline this request via the user detail page.</p>
+        <p>Please log into the BioCommons Access bundle dashboard to review and approve or decline this request.</p>
         <p>Thank you,</p>
-        <p>The BioCommons Access team.</p>
+        <p>BioCommons Access team</p>
     """
     return subject, body_html
 
@@ -146,9 +149,9 @@ def compose_group_membership_approved_email(
         <p>Dear {safe_first_name},</p>
         <p>Your request to join the {safe_group_name}{short_suffix} service bundle has been approved.</p>
         <p>If you are logged into either of the BioPlatforms Data Portal or Galaxy Australia, please log out and log back in again to ensure your access rights are updated.</p>
-        <p><a href="{portal_url}">Click here</a> to go to the BioCommons Access user portal. From there you can launch Services, and view/update your user information.</p>
+        <p><a href="{portal_url}" target="_blank" rel="noopener noreferrer">Click here</a> to go to the BioCommons Access user portal. From there you can launch Services, and view/update your user information.</p>
         <p>Thank you,</p>
-        <p>The BioCommons Access team.</p>
+        <p>BioCommons Access team</p>
     """
     return subject, body_html
 
@@ -211,11 +214,10 @@ def compose_email_change_otp_email(
         f"<p>Your verification code is <strong>{code}</strong>.</p>"
         f"<p>This code is valid for {expiration_minutes} minutes.</p>"
         "<p>Thank you,</p>"
-        "<p>The BioCommons Access team.</p>"
-        "<p>If you experience any issues, please refer to the FAQs or contact "
-        "support via the BioCommons Access support page "
-        "<a href=\"https://www.biocommons.org.au/access-support\">"
-        "www.biocommons.org.au/access-support</a>.</p>"
+        "<p>BioCommons Access team</p>"
+        "<p>If you experience any issues, please refer to the "
+        "<a href=\"https://biocommonsaccess.freshdesk.com/support/home\">"
+        "FAQs or contact support</a>.</p>"
     )
     return subject, body_html
 
@@ -234,16 +236,17 @@ def compose_welcome_email(
     body_html = (
         f"<p>Dear {safe_first_name},</p>"
         "<p>Welcome to your new BioCommons Access account!</p>"
-        '<p><a href="https://www.biocommons.org.au/access" target="_blank" rel="noopener noreferrer">BioCommons Access</a> is your key to unlocking analysis services and research data '
-        "across the Australian BioCommons ecosystem. A single log in offers convenient and "
-        "secure access to a growing number of services.</p>"
+        '<p><strong><a href="https://www.biocommons.org.au/access" target="_blank" rel="noopener noreferrer">BioCommons Access</a> is your key to unlocking analysis services '
+        "and research data across the Australian BioCommons ecosystem. A single log in offers convenient and secure access to a growing number of services.</strong></p>"
         f'<p>Consider bookmarking <a href="{safe_portal_url}" target="_blank" rel="noopener noreferrer">{safe_portal_url}</a> for future logins. '
-        "Use the BioCommons Access portal to access connected services, update your profile "
-        "and apply for Service Bundles.</p>"
+        "Use the BioCommons Access portal to access connected services, update your profile and apply for Service Bundles.</p>"
+        f'<a href="{safe_portal_url}" target="_blank" rel="noopener noreferrer" '
+        'style="display: inline-block; background-color: #171717; color: #ffffff; font-weight: 600; padding: 12px 18px; line-height: 20px; border-radius: 8px; text-decoration: none; font-size: 14px;">'
+        "BioCommons Access Login"
+        "</a>"
         "<p>The BioCommons Access portal contains links to services including Galaxy Australia "
-        "and the Bioplatforms Australia Data Portal. If you prefer to access the services "
-        "directly, your BioCommons Access credentials can be entered there too.</p>"
-        '<p>You can <a href="https://www.biocommons.org.au/access-support" target="_blank" rel="noopener noreferrer">access support for your BioCommons Access account</a>, or find help related to '
+        "and the Bioplatforms Australia Data Portal. You can also access these services directly with your BioCommons Access credentials.</p>"
+        '<p>You can <a href="https://biocommonsaccess.freshdesk.com/support/home" target="_blank" rel="noopener noreferrer">access support for your BioCommons Access account</a>, or find help related to '
         '<a href="https://www.biocommons.org.au/access-existing-users" target="_blank" rel="noopener noreferrer">migrating existing Galaxy Australia or Bioplatforms Australia Data Portal accounts</a>.</p>'
         "<p>To hear when future services come online, as well as relevant training and other "
         'ways to connect, <a href="https://www.biocommons.org.au/subscribe" target="_blank" rel="noopener noreferrer">subscribe to the Australian BioCommons monthly newsletter</a>.</p>'

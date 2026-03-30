@@ -1,8 +1,12 @@
-name: build-and-push-release
+name: Build And Push Backend Release Image Manual
+
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and push, for example v1.0.1
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,14 +20,22 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Sync uv lockfile for release tag
+        run: |
+          set -euo pipefail
+          python -m pip install uv==0.4.20
+          uv lock
 
       - name: Validate required secrets
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ECR_IMAGE_REPO: ${{ secrets.AWS_ECR_IMAGE_REPO }}
           AWS_ROLE_ECR_PUSH: ${{ secrets.AWS_ROLE_ECR_PUSH }}
-          AWS_ROLE_BACKEND_DEPLOY_STAGING: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_STAGING }}
         run: |
           set -euo pipefail
           if [ -z "${AWS_REGION}" ]; then
@@ -36,10 +48,6 @@ jobs:
           fi
           if [ -z "${AWS_ROLE_ECR_PUSH}" ]; then
             echo "Missing required secret AWS_ROLE_ECR_PUSH" >&2
-            exit 1
-          fi
-          if [ -z "${AWS_ROLE_BACKEND_DEPLOY_STAGING}" ]; then
-            echo "Missing required secret AWS_ROLE_BACKEND_DEPLOY_STAGING" >&2
             exit 1
           fi
 
@@ -60,53 +68,8 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ${{ env.IMAGE_REPO }}:${{ github.ref_name }}
+          tags: ${{ env.IMAGE_REPO }}:${{ inputs.tag }}
           provenance: false
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Configure AWS credentials for staging deploy
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_STAGING }}
-          role-session-name: backend-staging-deploy
-          aws-region: ${{ env.AWS_REGION }}
-          role-chaining: true
-          role-skip-session-tagging: true
-
-      - name: Deploy staging backend via Lambda
-        env:
-          DEPLOY_FUNCTION_NAME: AaiBackendStagingDeploymentFunction
-          IMAGE_TAG: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-
-          export AWS_MAX_ATTEMPTS=1
-
-          PAYLOAD=$(jq -n --arg tag "${IMAGE_TAG}" '{tag: $tag}')
-          RESPONSE_FILE=$(mktemp)
-
-          INVOKE_METADATA=$(aws lambda invoke \
-            --function-name "${DEPLOY_FUNCTION_NAME}" \
-            --payload "${PAYLOAD}" \
-            --cli-binary-format raw-in-base64-out \
-            --cli-read-timeout 0 \
-            "${RESPONSE_FILE}")
-
-          echo "${INVOKE_METADATA}"
-
-          FUNCTION_ERROR=$(echo "${INVOKE_METADATA}" | jq -r '.FunctionError // empty')
-          if [ -n "${FUNCTION_ERROR}" ]; then
-            echo "Deployment lambda reported an error: ${FUNCTION_ERROR}" >&2
-            cat "${RESPONSE_FILE}" >&2 || true
-            exit 1
-          fi
-
-          cat "${RESPONSE_FILE}"
-
-          STATUS=$(jq -r '.status // empty' "${RESPONSE_FILE}")
-          if [ "${STATUS}" != "SUCCESS" ]; then
-            echo "Deployment lambda returned unexpected status: ${STATUS}" >&2
-            exit 1
-          fi

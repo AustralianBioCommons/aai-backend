@@ -31,7 +31,6 @@ from biocommons.emails import (
     compose_group_membership_approved_email,
     compose_username_change_notification,
     format_first_name,
-    get_default_sender_email,
 )
 from config import Settings, get_settings
 from db.models import (
@@ -415,26 +414,38 @@ class UserQueryParams(BaseModel):
         )
         return or_(platform_access_condition, group_access_condition)
 
-    def _get_combined_query(self, admin_roles: list[str]):
+    def _get_combined_query(
+        self,
+        admin_roles: list[str],
+        exclude_user_id: str | None = None,
+    ):
         """
         Combine admin permissions and queries from the params to get the overall
         user query
         """
         self._set_allowed_resource_subqueries(admin_roles)
-        return (
+        query = (
             self.get_base_query()
             .where(
                 self.get_admin_permissions_query(admin_roles),
                 *self.get_query_conditions(admin_roles))
             .distinct()
         )
+        if exclude_user_id:
+            query = query.where(BiocommonsUser.id != exclude_user_id)
+        return query
 
-    def get_complete_query(self, admin_roles: list[str], pagination: PaginationParams = None) -> SelectOfScalar[BiocommonsUser]:
+    def get_complete_query(
+        self,
+        admin_roles: list[str],
+        pagination: PaginationParams = None,
+        exclude_user_id: str | None = None,
+    ) -> SelectOfScalar[BiocommonsUser]:
         """
         Return a full user query, with permissions from admin roles and pagination applied
         """
         return (
-            self._get_combined_query(admin_roles)
+            self._get_combined_query(admin_roles, exclude_user_id=exclude_user_id)
             .offset(pagination.start_index)
             .limit(pagination.per_page)
         )
@@ -562,11 +573,16 @@ class UserQueryParams(BaseModel):
         )
         return or_(platform_status_exists, group_status_exists)
 
-    def get_count(self, db_session: Session, admin_roles: list[str]) -> int:
+    def get_count(
+        self,
+        db_session: Session,
+        admin_roles: list[str],
+        exclude_user_id: str | None = None,
+    ) -> int:
         """
         Count distinct users matching the current filters and admin permissions.
         """
-        query = self._get_combined_query(admin_roles)
+        query = self._get_combined_query(admin_roles, exclude_user_id=exclude_user_id)
         count_statement = select(func.count()).select_from(query.subquery())
         return db_session.exec(count_statement).one()
 
@@ -624,7 +640,11 @@ def get_filtered_user_query(
     filtered to only return users the admin has permission to view/manage.
     """
     admin_roles = admin_user.access_token.biocommons_roles
-    return user_query.get_complete_query(admin_roles, pagination)
+    return user_query.get_complete_query(
+        admin_roles,
+        pagination,
+        exclude_user_id=admin_user.access_token.sub,
+    )
 
 
 @router.get("/users",
@@ -672,7 +692,11 @@ def get_users_page_info(db_session: Annotated[Session, Depends(get_db_session)],
     """
     admin_roles = admin_user.access_token.biocommons_roles
     query_params.check_missing_ids(db_session)
-    total = query_params.get_count(db_session=db_session, admin_roles=admin_roles)
+    total = query_params.get_count(
+        db_session=db_session,
+        admin_roles=admin_roles,
+        exclude_user_id=admin_user.access_token.sub,
+    )
     return UsersPageInfoResponse(total=total, pages=math.ceil(total / pagination.per_page), per_page=pagination.per_page)
 
 @router.get(
@@ -690,6 +714,14 @@ def get_user_counts(
     """
     query_params.check_missing_ids(db_session)
     admin_roles = admin_user.access_token.biocommons_roles
+    admin_platforms = Platform.get_for_admin_roles(
+        role_names=admin_roles,
+        session=db_session,
+    )
+    admin_groups = BiocommonsGroup.get_for_admin_roles(
+        role_names=admin_roles,
+        session=db_session,
+    )
     base_params = query_params.model_dump()
 
     def count_with(overrides: dict[str, object] | None = None) -> int:
@@ -698,7 +730,20 @@ def get_user_counts(
         return params.get_count(
             db_session=db_session,
             admin_roles=admin_roles,
+            exclude_user_id=admin_user.access_token.sub,
         )
+
+    revoked_overrides: dict[str, object] = {
+        "approval_status": ApprovalStatusEnum.REVOKED,
+        "platform_approval_status": None,
+        "group_approval_status": None,
+    }
+    if len(admin_platforms) == 1 and len(admin_groups) == 0:
+        revoked_overrides = {
+            "approval_status": None,
+            "platform_approval_status": ApprovalStatusEnum.REVOKED,
+            "group_approval_status": None,
+        }
 
     return UserCountsResponse(
         all=count_with(),
@@ -707,11 +752,7 @@ def get_user_counts(
             "platform_approval_status": None,
             "group_approval_status": None,
         }),
-        revoked=count_with({
-            "approval_status": ApprovalStatusEnum.REVOKED,
-            "platform_approval_status": None,
-            "group_approval_status": None,
-        }),
+        revoked=count_with(revoked_overrides),
         unverified=count_with({"email_verified": False}),
     )
 
@@ -898,7 +939,7 @@ def update_user_email(
         to_address=old_email,
         subject=subject,
         body_html=body_html,
-        from_address=get_default_sender_email(settings),
+        settings=settings,
     )
     db_session.commit()
 
@@ -1000,7 +1041,7 @@ def update_user_username(
         to_address=db_user.email,
         subject=subject,
         body_html=body_html,
-        from_address=get_default_sender_email(settings),
+        settings=settings,
     )
     db_session.commit()
 
@@ -1160,11 +1201,11 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
             settings=settings,
         )
         enqueue_email(
-            db_session,
+            session=db_session,
             to_address=membership.user.email,
-            from_address=get_default_sender_email(settings),
             subject=subject,
             body_html=body_html,
+            settings=settings,
         )
     db_session.commit()
     return MembershipUpdateResponse(status="ok", updated=True)

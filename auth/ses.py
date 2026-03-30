@@ -4,28 +4,37 @@ import boto3
 from botocore.exceptions import ClientError
 
 from biocommons.emails import get_default_sender_email
+from config import Settings
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('uvicorn.error')
 
 
 class EmailService:
     def __init__(self, region_name="ap-southeast-2"):
-        self.client = boto3.client("ses", region_name=region_name)
+        self.client = boto3.client("sesv2", region_name=region_name)
 
-    def send(self, to_address: str, subject: str, body_html: str, sender: str | None = None):
-        sender = sender or get_default_sender_email()
+    def send(self, to_address: str, subject: str, body_html: str, settings: Settings):
+        source = get_default_sender_email(settings=settings)
+        send_email_kwargs = None
         try:
-            response = self.client.send_email(
-                Source=sender,
-                Destination={"ToAddresses": [to_address]},
-                Message={
-                    "Subject": {"Data": subject},
-                    "Body": {"Html": {"Data": body_html}}
+            send_email_kwargs = {
+                "FromEmailAddress": source,
+                "Destination": {"ToAddresses": [to_address]},
+                "Content": {
+                    "Simple": {
+                        "Subject": {"Data": subject, "Charset": "UTF-8"},
+                        "Body": {"Html": {"Data": body_html, "Charset": "UTF-8"}}
+                    }
                 }
-            )
-            logger.info(f"Email sent: {response['MessageId']}")
+            }
+            if settings.ses_resource_arn is not None:
+                send_email_kwargs["FromEmailAddressIdentityArn"] = settings.ses_resource_arn
+            response = self.client.send_email(**send_email_kwargs)
+            logger.info(f"Email sent from {source}: {response['MessageId']}")
         except ClientError as e:
-            logger.error(f"Failed to send email: {e.response['Error']['Message']}")
+            logger.error(f"Failed to send email: {e.response}")
+            logger.error(f"From address: {send_email_kwargs['FromEmailAddress']}")
+            logger.error(f"Identity ARN: {send_email_kwargs.get('FromEmailAddressIdentityArn', 'None')}")
             raise
 
 

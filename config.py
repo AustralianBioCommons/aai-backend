@@ -26,10 +26,10 @@ class Settings(BaseSettings):
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
     aai_portal_url: Optional[str] = None
-    # Default sender for outbound emails
-    default_email_sender: Optional[EmailStr] = None
     # Sender override for emails that should come from a no-reply address
-    no_reply_email_sender: Optional[EmailStr] = None
+    no_reply_email_sender: EmailStr
+    # SES resource ARN for sending emails
+    ses_resource_arn: Optional[str] = None
     # Allowed email domains for SBP registration
     sbp_allowed_email_domains: list[str] = [
         # UNSW
@@ -83,7 +83,7 @@ class Settings(BaseSettings):
         env_to_url = {
             "dev": "https://dev.portal.aai.test.biocommons.org.au",
             "staging": "https://staging.portal.aai.test.biocommons.org.au",
-            "production": "https://production.portal.aai.test.biocommons.org.au",
+            "production": "https://portal.access.services.biocommons.org.au",
         }
         default_url = env_to_url.get(self.environment)
         if not default_url:
@@ -91,16 +91,6 @@ class Settings(BaseSettings):
                 "Unknown ENVIRONMENT value and AAI_PORTAL_URL is not set."
             )
         self.aai_portal_url = default_url
-        return self
-
-    @model_validator(mode="after")
-    def set_default_email_sender(self) -> "Settings":
-        """
-        Set based on environment name if not set explicitly
-        """
-        if self.default_email_sender:
-            return self
-        self.default_email_sender = f"{self.environment}@aai.test.biocommons.org.au"
         return self
 
 
