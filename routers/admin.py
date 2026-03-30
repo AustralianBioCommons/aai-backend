@@ -555,6 +555,7 @@ class UserQueryParams(BaseModel):
         group_status_exists = exists(
             select(1).where(
                 GroupMembership.user_id == BiocommonsUser.id,
+                GroupMembership.group_id.in_(self._allowed_groups_subquery),
                 GroupMembership.approval_status == self.approval_status,
                 GroupMembership.is_deleted.is_(False),
             )
