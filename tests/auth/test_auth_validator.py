@@ -1,6 +1,5 @@
 import json
 import threading
-import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -569,6 +568,7 @@ def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings:
     jwks_response = {"keys": [generate_dummy_rsa_key("test-key")]}
 
     start_gate = threading.Barrier(5)
+    first_request_started = threading.Event()
     release_refresh = threading.Event()
     call_count = 0
     call_count_lock = threading.Lock()
@@ -577,7 +577,8 @@ def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings:
         nonlocal call_count
         with call_count_lock:
             call_count += 1
-        release_refresh.wait(timeout=2)
+        first_request_started.set()
+        release_refresh.wait()
         return Response(200, json=jwks_response)
 
     respx.get(jwks_url).mock(side_effect=slow_response)
@@ -586,7 +587,7 @@ def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings:
     results_lock = threading.Lock()
 
     def worker():
-        start_gate.wait(timeout=2)
+        start_gate.wait(timeout=10)
         result = _fetch_rsa_keys(mock_settings.auth0_domain)
         with results_lock:
             results.append(result)
@@ -595,11 +596,11 @@ def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings:
     for thread in threads:
         thread.start()
 
-    time.sleep(0.1)
+    first_request_started.wait()
     release_refresh.set()
 
     for thread in threads:
-        thread.join(timeout=2)
+        thread.join(timeout=10)
 
     # Check all calls went through
     assert len(results) == 5
