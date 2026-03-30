@@ -70,14 +70,28 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
 
 
 def _fetch_rsa_keys(auth0_domain: str) -> dict:
+    """
+    Try to get cached keys if possible, otherwise
+    refresh from Auth0
+    """
     cache_key = f"jwks_{auth0_domain}"
     if cache_key in KEY_CACHE:
         return KEY_CACHE[cache_key]
-    jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
-    response = httpx.get(jwks_url)
-    keys = response.json()
-    KEY_CACHE[cache_key] = keys
-    return keys
+
+    # Lock so we don't do the lookup multiple times
+    #   if multiple requests come in while cache is expired
+    with KEY_CACHE_LOCK:
+        # Check again: another request may have refreshed while
+        #   this was waiting
+        cached = KEY_CACHE.get(cache_key, None)
+        if cached is not None:
+            return cached
+
+        jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
+        response = httpx.get(jwks_url)
+        keys = response.json()
+        KEY_CACHE[cache_key] = keys
+        return keys
 
 
 def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
