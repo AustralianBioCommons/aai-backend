@@ -105,9 +105,10 @@ def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
         if key.get("kid") == key_id:
             return RSAAlgorithm.from_jwk(json.dumps(key))
 
-    # Retry without cache on failure
+    # Retry without cache on failure (but only once, to prevent infinite retry)
     if retry_on_failure:
-        KEY_CACHE.clear()
+        with KEY_CACHE_LOCK:
+            KEY_CACHE.clear()
         return get_rsa_key(token, settings, retry_on_failure=False)
 
     return None
