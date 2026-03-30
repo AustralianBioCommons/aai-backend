@@ -363,7 +363,10 @@ class UserQueryParams(BaseModel):
             select(BiocommonsUser)
             .options(
                 selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.platform),
-                selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.group),)
+                selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.updated_by),
+                selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.group),
+                selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.updated_by),
+            )
         )
 
     def _set_allowed_resource_subqueries(self, admin_roles: list[str]) -> None:
