@@ -1,10 +1,10 @@
+import asyncio
 import json
-import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import jwt
 import pytest
@@ -129,14 +129,15 @@ def create_access_token(
     )
 
 
-def test_get_rsa_key_returns_key(mock_settings: Settings):
+@pytest.mark.asyncio
+async def test_get_rsa_key_returns_key(mock_settings: Settings):
     token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "testkey"}
     metadata_url = f"https://{mock_settings.auth0_domain}/.well-known/openid-configuration"
     jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
 
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header), \
-         patch("auth.validator.httpx.get") as mock_get:
+         patch("auth.validator.httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
         metadata_response = Response(
             200,
             json={"jwks_uri": jwks_url},
@@ -153,10 +154,10 @@ def test_get_rsa_key_returns_key(mock_settings: Settings):
         }, request=Request("GET", jwks_url))
         mock_get.side_effect = [metadata_response, jwks_response]
 
-        key = get_rsa_key(token, settings=mock_settings)
+        key = await get_rsa_key(token, settings=mock_settings)
         assert key is not None
-        assert mock_get.call_args_list[0].args == (metadata_url,)
-        assert mock_get.call_args_list[1].args == (jwks_url,)
+        assert mock_get.await_args_list[0].args == (metadata_url,)
+        assert mock_get.await_args_list[1].args == (jwks_url,)
 
 
 def generate_dummy_rsa_key(key_id: str) -> dict:
@@ -173,8 +174,9 @@ def generate_dummy_rsa_key(key_id: str) -> dict:
     return jwk_dict
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
+async def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
     """Test that get_rsa_key retries after clearing cache when key is not found."""
     token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "missing_key"}
@@ -212,7 +214,7 @@ def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
     KEY_CACHE.clear()
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header):
         # Call get_rsa_key
-        key = get_rsa_key(token, settings=mock_settings)
+        key = await get_rsa_key(token, settings=mock_settings)
         # Verify the key was found after retry
         assert key is not None
         # Verify that metadata and key lookups were retried after cache clear.
@@ -220,8 +222,9 @@ def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
         assert jwks_route.call_count == 2
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Settings):
+async def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Settings):
     """Test that get_rsa_key doesn't retry when key is found on first attempt."""
     token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "found_key"}
@@ -246,7 +249,7 @@ def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Se
 
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header):
         # Call get_rsa_key
-        key = get_rsa_key(token, settings=mock_settings)
+        key = await get_rsa_key(token, settings=mock_settings)
 
         # Verify key was found
         assert key is not None
@@ -323,7 +326,8 @@ def test_get_auth0_token_invalid_authorization_scheme_returns_unauthorized():
     assert "detail" in body
 
 
-def test_verify_jwt(mock_settings: Settings, mocker):
+@pytest.mark.asyncio
+async def test_verify_jwt(mock_settings: Settings, mocker):
     """
     Test we can verify a JWT based on issuer and audience.
     """
@@ -334,12 +338,13 @@ def test_verify_jwt(mock_settings: Settings, mocker):
         iss=f"https://{mock_settings.auth0_domain}/",
         aud=f"https://{mock_settings.auth0_domain}/api/",
     )
-    mocker.patch("auth.validator.get_rsa_key", return_value=token.public_key)
-    decoded = verify_jwt(token.access_token_str, settings=mock_settings)
+    mocker.patch("auth.validator.get_rsa_key", new=AsyncMock(return_value=token.public_key))
+    decoded = await verify_jwt(token.access_token_str, settings=mock_settings)
     assert decoded.email == "user@example.com"
 
 
-def test_verify_jwt_invalid_issuer(mock_settings: Settings, mocker):
+@pytest.mark.asyncio
+async def test_verify_jwt_invalid_issuer(mock_settings: Settings, mocker):
     """
     Test invalid JWT issuer returns unauthorized.
     """
@@ -349,16 +354,17 @@ def test_verify_jwt_invalid_issuer(mock_settings: Settings, mocker):
         iss="https://other.example.com/",
         aud=f"https://{mock_settings.auth0_domain}/api/",
     )
-    mocker.patch("auth.validator.get_rsa_key", return_value=token.public_key)
+    mocker.patch("auth.validator.get_rsa_key", new=AsyncMock(return_value=token.public_key))
 
     with pytest.raises(HTTPException) as excinfo:
-        verify_jwt(token.access_token_str, settings=mock_settings)
+        await verify_jwt(token.access_token_str, settings=mock_settings)
 
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "Not authorized"
 
 
-def test_verify_jwt_custom_domain_issuer(mock_settings: Settings, mocker):
+@pytest.mark.asyncio
+async def test_verify_jwt_custom_domain_issuer(mock_settings: Settings, mocker):
     """
     Check that our verify code also works with the auth0_issuer setting
     """
@@ -369,12 +375,13 @@ def test_verify_jwt_custom_domain_issuer(mock_settings: Settings, mocker):
         iss=mock_settings.auth0_issuer,
         aud=mock_settings.auth0_audience,
     )
-    mocker.patch("auth.validator.get_rsa_key", return_value=token.public_key)
-    decoded = verify_jwt(token.access_token_str, settings=mock_settings)
+    mocker.patch("auth.validator.get_rsa_key", new=AsyncMock(return_value=token.public_key))
+    decoded = await verify_jwt(token.access_token_str, settings=mock_settings)
     assert decoded.email == "user@example.com"
 
 
-def test_verify_jwt_missing_kid_returns_unauthorized(mock_settings: Settings, mocker):
+@pytest.mark.asyncio
+async def test_verify_jwt_missing_kid_returns_unauthorized(mock_settings: Settings, mocker):
     """
     Test a token with no kid header returns 401 instead of crashing.
     """
@@ -387,7 +394,7 @@ def test_verify_jwt_missing_kid_returns_unauthorized(mock_settings: Settings, mo
     mocker.patch("auth.validator.jwt.get_unverified_header", return_value={"alg": "RS256"})
 
     with pytest.raises(HTTPException) as excinfo:
-        verify_jwt(token.access_token_str, settings=mock_settings)
+        await verify_jwt(token.access_token_str, settings=mock_settings)
 
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "Not authorized"
@@ -579,8 +586,9 @@ def test_verify_action_token_missing_exp(mock_settings: Settings):
     assert excinfo.value.detail == "invalid session_token"
 
 
+@pytest.mark.asyncio
 @respx.mock
-def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings: Settings):
+async def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings: Settings):
     """
     Demonstrate that concurrent requests only trigger one JWKS refresh.
     """
@@ -590,18 +598,18 @@ def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings:
     jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
     jwks_response = {"keys": [generate_dummy_rsa_key("test-key")]}
 
-    start_gate = threading.Barrier(5)
-    first_request_started = threading.Event()
-    release_refresh = threading.Event()
+    start_gate = asyncio.Event()
+    first_request_started = asyncio.Event()
+    release_refresh = asyncio.Event()
     call_count = 0
-    call_count_lock = threading.Lock()
+    call_count_lock = asyncio.Lock()
 
-    def slow_jwks_response(*args, **kwargs):
+    async def slow_jwks_response(*args, **kwargs):
         nonlocal call_count
-        with call_count_lock:
+        async with call_count_lock:
             call_count += 1
         first_request_started.set()
-        release_refresh.wait()
+        await release_refresh.wait()
         return Response(200, json=jwks_response)
 
     metadata_route = respx.get(metadata_url).mock(
@@ -609,24 +617,19 @@ def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings:
     )
     jwks_route = respx.get(jwks_url).mock(side_effect=slow_jwks_response)
 
-    results = []
-    results_lock = threading.Lock()
+    results: list[dict] = []
 
-    def worker():
-        start_gate.wait(timeout=10)
-        result = _fetch_rsa_keys(mock_settings.auth0_domain)
-        with results_lock:
-            results.append(result)
+    async def worker():
+        await start_gate.wait()
+        result = await _fetch_rsa_keys(mock_settings.auth0_domain)
+        results.append(result)
 
-    threads = [threading.Thread(target=worker) for _ in range(5)]
-    for thread in threads:
-        thread.start()
+    tasks = [asyncio.create_task(worker()) for _ in range(5)]
+    start_gate.set()
 
-    first_request_started.wait()
+    await first_request_started.wait()
     release_refresh.set()
-
-    for thread in threads:
-        thread.join(timeout=10)
+    await asyncio.gather(*tasks)
 
     # Check all calls went through
     assert len(results) == 5

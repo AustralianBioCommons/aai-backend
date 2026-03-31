@@ -50,7 +50,8 @@ def mock_auth_token(mocker):
         sub="auth0|123456789",
         biocommons_roles=["acdc/indexd_admin"],
     )
-    mocker.patch("auth.validator.verify_jwt", return_value=token)
+    mocker.patch("auth.validator.verify_jwt", new=AsyncMock(return_value=token))
+    mocker.patch("auth.user_permissions.verify_jwt", new=AsyncMock(return_value=token))
     mocker.patch("auth.management.get_management_token", return_value="mock_token")
     return token
 
@@ -176,8 +177,8 @@ def test_check_is_admin_with_admin_role(test_client, mock_settings, mocker, test
     )
     admin_user = SessionUserFactory.build(access_token=admin_token)
 
-    mocker.patch("auth.user_permissions.verify_jwt", return_value=admin_token)
-    mocker.patch("auth.user_permissions.get_session_user", return_value=admin_user)
+    mocker.patch("auth.user_permissions.verify_jwt", new=AsyncMock(return_value=admin_token))
+    mocker.patch("auth.user_permissions.get_session_user", new=AsyncMock(return_value=admin_user))
 
     response = test_client.get(
         "/me/is-general-admin",
@@ -198,8 +199,8 @@ def test_check_is_admin_with_non_admin_role(test_client, mock_settings, mocker, 
     )
     user = SessionUserFactory.build(access_token=user_token)
 
-    mocker.patch("auth.user_permissions.verify_jwt", return_value=user_token)
-    mocker.patch("auth.user_permissions.get_session_user", return_value=user)
+    mocker.patch("auth.user_permissions.verify_jwt", new=AsyncMock(return_value=user_token))
+    mocker.patch("auth.user_permissions.get_session_user", new=AsyncMock(return_value=user))
 
     response = test_client.get(
         "/me/is-general-admin",
@@ -223,8 +224,8 @@ def _act_as_user(mocker, db_user, roles: list[str] = None):
     """
     access_token = AccessTokenPayloadFactory.build(sub=db_user.id, biocommons_roles=roles or [])
     auth0_user = SessionUserFactory.build(access_token=access_token)
-    mocker.patch("auth.user_permissions.verify_jwt", return_value=access_token)
-    mocker.patch("routers.user.get_session_user", return_value=auth0_user)
+    mocker.patch("auth.user_permissions.verify_jwt", new=AsyncMock(return_value=access_token))
+    mocker.patch("routers.user.get_session_user", new=AsyncMock(return_value=auth0_user))
     return auth0_user
 
 

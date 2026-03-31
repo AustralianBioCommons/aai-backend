@@ -111,7 +111,7 @@ async def test_auth_callback_invalid_jwt_raises(mocker, mock_settings, mock_requ
     oauth = Mock()
     oauth.create_client.return_value = AsyncMock(authorize_access_token=AsyncMock(return_value={"access_token": "token"}))
     mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
-    mocker.patch("db.st_admin.verify_jwt", return_value=None)
+    mocker.patch("db.st_admin.verify_jwt", new=AsyncMock(return_value=None))
 
     from db.st_admin import Auth0AuthProvider
     provider = Auth0AuthProvider()
@@ -134,7 +134,7 @@ async def test_auth_callback_missing_admin_role_raises(mocker, mock_settings, mo
 
     payload = Mock()
     payload.has_admin_role.return_value = False
-    mocker.patch("db.st_admin.verify_jwt", return_value=payload)
+    mocker.patch("db.st_admin.verify_jwt", new=AsyncMock(return_value=payload))
 
     from db.st_admin import Auth0AuthProvider
     provider = Auth0AuthProvider()
@@ -160,7 +160,7 @@ async def test_auth_callback_success_sets_session_and_redirects(mocker, mock_set
 
     payload = Mock()
     payload.has_admin_role.return_value = True
-    mocker.patch("db.st_admin.verify_jwt", return_value=payload)
+    mocker.patch("db.st_admin.verify_jwt", new=AsyncMock(return_value=payload))
 
     # emulate ?next=/db-admin/
     mock_request.query_params = {"next": "/db-admin/"}
