@@ -338,7 +338,7 @@ class Auth0AuthProvider(AuthProvider):
         access_token = token.get("access_token")
         if not access_token:
             raise HTTPException(status_code=401, detail="Could not get access token.")
-        payload = verify_jwt(access_token, settings)
+        payload = await verify_jwt(access_token, settings)
         if not payload:
             raise HTTPException(status_code=401, detail="Could not verify JWT.")
         if not payload.has_admin_role(settings):
