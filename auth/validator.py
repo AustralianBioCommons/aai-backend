@@ -1,5 +1,6 @@
 import json
 import logging
+from threading import Lock
 
 import httpx
 import jwt
@@ -13,7 +14,9 @@ from schemas.tokens import AccessTokenPayload
 
 logger = logging.getLogger("uvicorn.error")
 
-KEY_CACHE = TTLCache(maxsize=10, ttl=30 * 60)
+KEY_CACHE_TIMEOUT = 6 * 60 * 60  # 6 hours
+KEY_CACHE = TTLCache(maxsize=10, ttl=KEY_CACHE_TIMEOUT)
+KEY_CACHE_LOCK = Lock()
 
 
 def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
@@ -36,6 +39,7 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
         issuers.append(settings.auth0_issuer)
 
     payload = None
+    last_issuer_error = None
     for issuer in issuers:
         try:
             payload = jwt.decode(
@@ -47,14 +51,16 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
             )
             break
         except InvalidIssuerError as e:
-            logger.warning(f"JWT rejected due to invalid issuer: {e}")
+            last_issuer_error = e
             continue
         except InvalidTokenError as e:
             logger.warning(f"JWT rejected during decode: {e}")
             raise HTTPException(status_code=401, detail="Not authorized")
 
     if payload is None:
-        logger.warning("JWT rejected: issuer validation failed for all configured issuers")
+        logger.warning(
+            f"JWT rejected: issuer validation failed for all configured issuers: {last_issuer_error}"
+        )
         raise HTTPException(status_code=401, detail="Not authorized")
 
     roles_claim = "https://biocommons.org.au/roles"
@@ -67,14 +73,44 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
 
 
 def _fetch_rsa_keys(auth0_domain: str) -> dict:
+    """
+    Try to get cached keys if possible, otherwise
+    refresh from Auth0
+    """
     cache_key = f"jwks_{auth0_domain}"
     if cache_key in KEY_CACHE:
         return KEY_CACHE[cache_key]
-    jwks_url = f"https://{auth0_domain}/.well-known/jwks.json"
-    response = httpx.get(jwks_url)
-    keys = response.json()
-    KEY_CACHE[cache_key] = keys
-    return keys
+
+    # Lock so we don't do the lookup multiple times
+    #   if multiple requests come in while cache is expired
+    with KEY_CACHE_LOCK:
+        # Check again: another request may have refreshed while
+        #   this was waiting
+        cached = KEY_CACHE.get(cache_key, None)
+        if cached is not None:
+            return cached
+
+        try:
+            metadata_url = f"https://{auth0_domain}/.well-known/openid-configuration"
+            metadata_response = httpx.get(metadata_url)
+            metadata_response.raise_for_status()
+            metadata = metadata_response.json()
+
+            jwks_url = metadata["jwks_uri"]
+            response = httpx.get(jwks_url)
+            response.raise_for_status()
+            keys = response.json()
+        except KeyError as exc:
+            logger.error(f"OIDC metadata from {metadata_url} did not include jwks_uri")
+            raise InvalidTokenError("Failed to fetch JWKS") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.error(
+                f"Failed to fetch OIDC metadata or JWKS for domain {auth0_domain}: {exc}"
+            )
+            # Do not cache on error
+            raise InvalidTokenError("Failed to fetch JWKS") from exc
+        KEY_CACHE[cache_key] = keys
+        return keys
 
 
 def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
@@ -88,9 +124,10 @@ def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
         if key.get("kid") == key_id:
             return RSAAlgorithm.from_jwk(json.dumps(key))
 
-    # Retry without cache on failure
+    # Retry without cache on failure (but only once, to prevent infinite retry)
     if retry_on_failure:
-        KEY_CACHE.clear()
+        with KEY_CACHE_LOCK:
+            KEY_CACHE.clear()
         return get_rsa_key(token, settings, retry_on_failure=False)
 
     return None

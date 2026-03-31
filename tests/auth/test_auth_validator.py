@@ -1,4 +1,5 @@
 import json
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -18,12 +19,18 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
-from httpx import Response
+from httpx import Request, Response
 from jwt.algorithms import RSAAlgorithm
 
 from auth import auth0_security, get_auth0_token
 from auth.user_permissions import user_is_general_admin
-from auth.validator import get_rsa_key, verify_action_token, verify_jwt
+from auth.validator import (
+    KEY_CACHE,
+    _fetch_rsa_keys,
+    get_rsa_key,
+    verify_action_token,
+    verify_jwt,
+)
 from config import Settings
 from db.models import BiocommonsUser
 from tests.datagen import AccessTokenPayloadFactory, SessionUserFactory
@@ -125,11 +132,17 @@ def create_access_token(
 def test_get_rsa_key_returns_key(mock_settings: Settings):
     token = jwt.encode({"some": "payload"}, TEST_HS256_SECRET, algorithm="HS256")
     unverified_header = {"kid": "testkey"}
+    metadata_url = f"https://{mock_settings.auth0_domain}/.well-known/openid-configuration"
+    jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
 
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header), \
          patch("auth.validator.httpx.get") as mock_get:
-
-        mock_get.return_value.json.return_value = {
+        metadata_response = Response(
+            200,
+            json={"jwks_uri": jwks_url},
+            request=Request("GET", metadata_url),
+        )
+        jwks_response = Response(200, json={
             "keys": [{
                 "kid": "testkey",
                 "kty": "RSA",
@@ -137,10 +150,13 @@ def test_get_rsa_key_returns_key(mock_settings: Settings):
                 "n": "sXchfZm9UOCNHQ",  # base64url-encoded dummy values
                 "e": "AQAB"
             }]
-        }
+        }, request=Request("GET", jwks_url))
+        mock_get.side_effect = [metadata_response, jwks_response]
 
         key = get_rsa_key(token, settings=mock_settings)
         assert key is not None
+        assert mock_get.call_args_list[0].args == (metadata_url,)
+        assert mock_get.call_args_list[1].args == (jwks_url,)
 
 
 def generate_dummy_rsa_key(key_id: str) -> dict:
@@ -176,8 +192,15 @@ def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
         "keys": [other_key, missing_key]
     }
 
+    metadata_url = f"https://{mock_settings.auth0_domain}/.well-known/openid-configuration"
     jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
-    route = respx.get(jwks_url).mock(
+    metadata_route = respx.get(metadata_url).mock(
+        side_effect=[
+            Response(200, json={"jwks_uri": jwks_url}),
+            Response(200, json={"jwks_uri": jwks_url}),
+        ]
+    )
+    jwks_route = respx.get(jwks_url).mock(
         side_effect=[
             Response(200, json=cached_jwks),
             Response(200, json=fresh_jwks)
@@ -192,8 +215,9 @@ def test_get_rsa_key_retry_on_failure(mock_settings: Settings):
         key = get_rsa_key(token, settings=mock_settings)
         # Verify the key was found after retry
         assert key is not None
-        # Verify that the endpoint was called twice (cached + fresh)
-        assert route.call_count == 2
+        # Verify that metadata and key lookups were retried after cache clear.
+        assert metadata_route.call_count == 2
+        assert jwks_route.call_count == 2
 
 
 @respx.mock
@@ -209,8 +233,12 @@ def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Se
         "keys": [found_key]
     }
 
+    metadata_url = f"https://{mock_settings.auth0_domain}/.well-known/openid-configuration"
     jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
-    route = respx.get(jwks_url).mock(return_value=Response(200, json=jwks_response))
+    metadata_route = respx.get(metadata_url).mock(
+        return_value=Response(200, json={"jwks_uri": jwks_url})
+    )
+    jwks_route = respx.get(jwks_url).mock(return_value=Response(200, json=jwks_response))
 
     # Clear the cache before the test to ensure clean state
     from auth.validator import KEY_CACHE
@@ -223,8 +251,9 @@ def test_get_rsa_key_no_retry_needed_when_key_found_first_time(mock_settings: Se
         # Verify key was found
         assert key is not None
 
-        # Verify endpoint was called only once (no retry needed)
-        assert route.call_count == 1
+        # Verify metadata and JWKS were each fetched once.
+        assert metadata_route.call_count == 1
+        assert jwks_route.call_count == 1
 
 
 def test_auth0_security_passes_bearer_token_to_route():
@@ -548,3 +577,61 @@ def test_verify_action_token_missing_exp(mock_settings: Settings):
         verify_action_token(token, mock_settings)
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "invalid session_token"
+
+
+@respx.mock
+def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_settings: Settings):
+    """
+    Demonstrate that concurrent requests only trigger one JWKS refresh.
+    """
+    KEY_CACHE.clear()
+
+    metadata_url = f"https://{mock_settings.auth0_domain}/.well-known/openid-configuration"
+    jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
+    jwks_response = {"keys": [generate_dummy_rsa_key("test-key")]}
+
+    start_gate = threading.Barrier(5)
+    first_request_started = threading.Event()
+    release_refresh = threading.Event()
+    call_count = 0
+    call_count_lock = threading.Lock()
+
+    def slow_jwks_response(*args, **kwargs):
+        nonlocal call_count
+        with call_count_lock:
+            call_count += 1
+        first_request_started.set()
+        release_refresh.wait()
+        return Response(200, json=jwks_response)
+
+    metadata_route = respx.get(metadata_url).mock(
+        return_value=Response(200, json={"jwks_uri": jwks_url})
+    )
+    jwks_route = respx.get(jwks_url).mock(side_effect=slow_jwks_response)
+
+    results = []
+    results_lock = threading.Lock()
+
+    def worker():
+        start_gate.wait(timeout=10)
+        result = _fetch_rsa_keys(mock_settings.auth0_domain)
+        with results_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(5)]
+    for thread in threads:
+        thread.start()
+
+    first_request_started.wait()
+    release_refresh.set()
+
+    for thread in threads:
+        thread.join(timeout=10)
+
+    # Check all calls went through
+    assert len(results) == 5
+    assert all(result == jwks_response for result in results)
+    # Check the OIDC metadata and JWKS endpoints were each only called once.
+    assert metadata_route.call_count == 1
+    assert jwks_route.call_count == 1
+    assert call_count == 1
