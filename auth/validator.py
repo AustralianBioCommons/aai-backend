@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import weakref
 
 import httpx
 import jwt
@@ -16,7 +17,19 @@ logger = logging.getLogger("uvicorn.error")
 
 KEY_CACHE_TIMEOUT = 6 * 60 * 60  # 6 hours
 KEY_CACHE = TTLCache(maxsize=10, ttl=KEY_CACHE_TIMEOUT)
-KEY_CACHE_LOCK = asyncio.Lock()
+# Lock the key cache per-loop
+_KEY_CACHE_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def get_key_cache_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _KEY_CACHE_LOCKS.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _KEY_CACHE_LOCKS[loop] = lock
+    return lock
 
 
 async def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
@@ -83,7 +96,7 @@ async def _fetch_rsa_keys(auth0_domain: str) -> dict:
 
     # Lock so we don't do the lookup multiple times
     #   if multiple requests come in while cache is expired
-    async with KEY_CACHE_LOCK:
+    async with get_key_cache_lock():
         # Check again: another request may have refreshed while
         #   this was waiting
         cached = KEY_CACHE.get(cache_key, None)
@@ -127,7 +140,7 @@ async def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = T
 
     # Retry without cache on failure (but only once, to prevent infinite retry)
     if retry_on_failure:
-        async with KEY_CACHE_LOCK:
+        async with get_key_cache_lock():
             KEY_CACHE.clear()
         return await get_rsa_key(token, settings, retry_on_failure=False)
 
