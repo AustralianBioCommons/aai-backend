@@ -344,19 +344,19 @@ class UserQueryParams(BaseModel):
                 detail="approval_status cannot be used with platform_approval_status or group_approval_status",
             )
 
-    def get_base_query(self):
+    def get_base_query(self, *, include_memberships: bool = True):
         """
         Default user query that conditions can be added to
         """
-        return (
-            select(BiocommonsUser)
-            .options(
+        query = select(BiocommonsUser)
+        if include_memberships:
+            query = query.options(
                 selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.platform),
                 selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.updated_by),
                 selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.group),
                 selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.updated_by),
             )
-        )
+        return query
 
     def _set_allowed_resource_subqueries(self, admin_roles: list[str]) -> None:
         """
@@ -387,18 +387,19 @@ class UserQueryParams(BaseModel):
         Get the query for only returning users the admin has permission to view/manage,
         based on group/platform roles
         """
-        allowed_platforms_subquery, allowed_groups_subquery = self.get_allowed_resource_subqueries(admin_roles)
+        if self._allowed_platforms_subquery is None or self._allowed_groups_subquery is None:
+            self._set_allowed_resource_subqueries(admin_roles)
         platform_access_condition = exists(
             select(1).where(
                 PlatformMembership.user_id == BiocommonsUser.id,
-                PlatformMembership.platform_id.in_(allowed_platforms_subquery),
+                PlatformMembership.platform_id.in_(self._allowed_platforms_subquery),
                 PlatformMembership.is_deleted.is_(False),
             )
         )
         group_access_condition = exists(
             select(1).where(
                 GroupMembership.user_id == BiocommonsUser.id,
-                GroupMembership.group_id.in_(allowed_groups_subquery),
+                GroupMembership.group_id.in_(self._allowed_groups_subquery),
                 GroupMembership.is_deleted.is_(False),
             )
         )
@@ -415,11 +416,10 @@ class UserQueryParams(BaseModel):
         """
         self._set_allowed_resource_subqueries(admin_roles)
         query = (
-            self.get_base_query()
+            self.get_base_query(include_memberships=True)
             .where(
                 self.get_admin_permissions_query(admin_roles),
                 *self.get_query_conditions(admin_roles))
-            .distinct()
         )
         if exclude_user_id:
             query = query.where(BiocommonsUser.id != exclude_user_id)
@@ -572,8 +572,18 @@ class UserQueryParams(BaseModel):
         """
         Count distinct users matching the current filters and admin permissions.
         """
-        query = self._get_combined_query(admin_roles, exclude_user_id=exclude_user_id)
-        count_statement = select(func.count()).select_from(query.subquery())
+        self._set_allowed_resource_subqueries(admin_roles)
+        id_query = (
+            self.get_base_query(include_memberships=False)
+            .where(
+                self.get_admin_permissions_query(admin_roles),
+                *self.get_query_conditions(admin_roles),
+            )
+        )
+        if exclude_user_id:
+            id_query = id_query.where(BiocommonsUser.id != exclude_user_id)
+        filtered_users = id_query.subquery()
+        count_statement = select(func.count()).select_from(filtered_users)
         return db_session.exec(count_statement).one()
 
     def email_verified_query(self):
