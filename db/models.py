@@ -724,6 +724,14 @@ class PlatformMembership(SoftDeleteModel, table=True):
             request_reason=self.request_reason,
         )
 
+    @property
+    def platform_name(self) -> str:
+        return self.platform.name
+
+    @property
+    def updated_by_email(self) -> str:
+        return self.updated_by.email if self.updated_by is not None else "(automatic)"
+
 
 
 class PlatformMembershipHistory(SoftDeleteModel, table=True):
@@ -1027,6 +1035,18 @@ class GroupMembership(SoftDeleteModel, table=True):
             rejection_reason=self.rejection_reason,
             request_reason=self.request_reason,
         )
+
+    @property
+    def group_name(self) -> str:
+        return self.group.name
+
+    @property
+    def group_short_name(self) -> str:
+        return self.group.short_name
+
+    @property
+    def updated_by_email(self) -> str:
+        return self.updated_by.email if self.updated_by is not None else "(automatic)"
 
 
 
