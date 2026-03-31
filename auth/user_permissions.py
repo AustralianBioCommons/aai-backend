@@ -13,13 +13,13 @@ from schemas.biocommons import ServiceIdParam, UserIdParam
 from schemas.user import SessionUser
 
 
-def get_session_user(
+async def get_session_user(
     auth0_token: str = Depends(get_auth0_token), settings: Settings = Depends(get_settings)
 ) -> SessionUser:
     """
     Get the current user's session data (access token).
     """
-    access_token = verify_jwt(auth0_token, settings=settings)
+    access_token = await verify_jwt(auth0_token, settings=settings)
     return SessionUser(access_token=access_token)
 
 

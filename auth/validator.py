@@ -1,6 +1,6 @@
+import asyncio
 import json
 import logging
-from threading import Lock
 
 import httpx
 import jwt
@@ -16,12 +16,12 @@ logger = logging.getLogger("uvicorn.error")
 
 KEY_CACHE_TIMEOUT = 6 * 60 * 60  # 6 hours
 KEY_CACHE = TTLCache(maxsize=10, ttl=KEY_CACHE_TIMEOUT)
-KEY_CACHE_LOCK = Lock()
+KEY_CACHE_LOCK = asyncio.Lock()
 
 
-def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
+async def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     try:
-        rsa_key = get_rsa_key(token, settings=settings)
+        rsa_key = await get_rsa_key(token, settings=settings)
     except InvalidTokenError as e:
         logger.warning(f"JWT rejected during RSA key lookup: {e}")
         raise HTTPException(status_code=401, detail="Not authorized")
@@ -72,7 +72,7 @@ def verify_jwt(token: str, settings: Settings) -> AccessTokenPayload:
     return AccessTokenPayload(**payload)
 
 
-def _fetch_rsa_keys(auth0_domain: str) -> dict:
+async def _fetch_rsa_keys(auth0_domain: str) -> dict:
     """
     Try to get cached keys if possible, otherwise
     refresh from Auth0
@@ -83,7 +83,7 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
 
     # Lock so we don't do the lookup multiple times
     #   if multiple requests come in while cache is expired
-    with KEY_CACHE_LOCK:
+    async with KEY_CACHE_LOCK:
         # Check again: another request may have refreshed while
         #   this was waiting
         cached = KEY_CACHE.get(cache_key, None)
@@ -92,14 +92,15 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
 
         try:
             metadata_url = f"https://{auth0_domain}/.well-known/openid-configuration"
-            metadata_response = httpx.get(metadata_url)
-            metadata_response.raise_for_status()
-            metadata = metadata_response.json()
+            async with httpx.AsyncClient() as client:
+                metadata_response = await client.get(metadata_url)
+                metadata_response.raise_for_status()
+                metadata = metadata_response.json()
 
-            jwks_url = metadata["jwks_uri"]
-            response = httpx.get(jwks_url)
-            response.raise_for_status()
-            keys = response.json()
+                jwks_url = metadata["jwks_uri"]
+                response = await client.get(jwks_url)
+                response.raise_for_status()
+                keys = response.json()
         except KeyError as exc:
             logger.error(f"OIDC metadata from {metadata_url} did not include jwks_uri")
             raise InvalidTokenError("Failed to fetch JWKS") from exc
@@ -113,8 +114,8 @@ def _fetch_rsa_keys(auth0_domain: str) -> dict:
         return keys
 
 
-def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
-    jwks = _fetch_rsa_keys(settings.auth0_domain)
+async def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
+    jwks = await _fetch_rsa_keys(settings.auth0_domain)
     unverified_header = jwt.get_unverified_header(token)
     key_id = unverified_header.get("kid")
     if not key_id:
@@ -126,9 +127,9 @@ def get_rsa_key(token: str, settings: Settings, retry_on_failure: bool = True):
 
     # Retry without cache on failure (but only once, to prevent infinite retry)
     if retry_on_failure:
-        with KEY_CACHE_LOCK:
+        async with KEY_CACHE_LOCK:
             KEY_CACHE.clear()
-        return get_rsa_key(token, settings, retry_on_failure=False)
+        return await get_rsa_key(token, settings, retry_on_failure=False)
 
     return None
 
