@@ -493,6 +493,47 @@ def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, 
     assert isinstance(response_data["group_memberships"], list)
 
 
+def test_get_user_returns_nested_membership_attributes_from_db_instance(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    galaxy_platform,
+    tsi_group,
+    persistent_factories,
+):
+    db_user = BiocommonsUserFactory.create_sync(group_memberships=[], platform_memberships=[])
+    PlatformMembershipFactory.create_sync(
+        user=db_user,
+        platform=galaxy_platform,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by=as_admin_user,
+    )
+    GroupMembershipFactory.create_sync(
+        user=db_user,
+        group=tsi_group,
+        approval_status=ApprovalStatusEnum.APPROVED,
+        updated_by=as_admin_user,
+    )
+    test_db_session.commit()
+    test_db_session.expire_all()
+
+    resp = test_client.get(f"/admin/users/{db_user.id}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    platform_membership = data["platform_memberships"][0]
+    assert platform_membership["platform_id"] == galaxy_platform.id
+    assert platform_membership["platform_name"] == galaxy_platform.name
+    assert platform_membership["updated_by"] == as_admin_user.email
+
+    group_membership = data["group_memberships"][0]
+    assert group_membership["group_id"] == tsi_group.group_id
+    assert group_membership["group_name"] == tsi_group.name
+    assert group_membership["group_short_name"] == tsi_group.short_name
+    assert group_membership["updated_by"] == as_admin_user.email
+
+
 def test_get_user_forbidden_without_admin_role(test_client, test_db_session, as_admin_user, persistent_factories):
     # Create user with platform membership that admin can't access
     platform = PlatformFactory.create_sync(id=PlatformEnum.BPA_DATA_PORTAL)
