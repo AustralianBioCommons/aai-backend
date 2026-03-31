@@ -1,3 +1,4 @@
+import http
 import inspect
 import logging
 import math
@@ -8,8 +9,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
 from httpx import HTTPStatusError
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import func, or_
+from sqlalchemy import exists, func, or_
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 from starlette import status
@@ -349,7 +351,7 @@ class UserQueryParams(BaseModel):
                 raise NotImplementedError(f"Missing query method for field '{field_name}'")
         if self.approval_status and (self.platform_approval_status or self.group_approval_status):
             raise HTTPException(
-                status_code=400,
+                status_code=http.HTTPStatus.BAD_REQUEST,
                 detail="approval_status cannot be used with platform_approval_status or group_approval_status",
             )
 
@@ -359,6 +361,12 @@ class UserQueryParams(BaseModel):
         """
         return (
             select(BiocommonsUser)
+            .options(
+                selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.platform),
+                selectinload(BiocommonsUser.platform_memberships).selectinload(PlatformMembership.updated_by),
+                selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.group),
+                selectinload(BiocommonsUser.group_memberships).selectinload(GroupMembership.updated_by),
+            )
         )
 
     def _set_allowed_resource_subqueries(self, admin_roles: list[str]) -> None:
@@ -391,14 +399,18 @@ class UserQueryParams(BaseModel):
         based on group/platform roles
         """
         allowed_platforms_subquery, allowed_groups_subquery = self.get_allowed_resource_subqueries(admin_roles)
-        platform_access_condition = BiocommonsUser.id.in_(
-            select(PlatformMembership.user_id).where(
-                PlatformMembership.platform_id.in_(allowed_platforms_subquery)
+        platform_access_condition = exists(
+            select(1).where(
+                PlatformMembership.user_id == BiocommonsUser.id,
+                PlatformMembership.platform_id.in_(allowed_platforms_subquery),
+                PlatformMembership.is_deleted.is_(False),
             )
         )
-        group_access_condition = BiocommonsUser.id.in_(
-            select(GroupMembership.user_id).where(
-                GroupMembership.group_id.in_(allowed_groups_subquery)
+        group_access_condition = exists(
+            select(1).where(
+                GroupMembership.user_id == BiocommonsUser.id,
+                GroupMembership.group_id.in_(allowed_groups_subquery),
+                GroupMembership.is_deleted.is_(False),
             )
         )
         return or_(platform_access_condition, group_access_condition)
@@ -489,30 +501,36 @@ class UserQueryParams(BaseModel):
         so we need special logic for combining them.
         :return:
         """
-        conditions = [PlatformMembership.platform_id == self.platform]
+        conditions = [
+            PlatformMembership.user_id == BiocommonsUser.id,
+            PlatformMembership.platform_id == self.platform,
+            PlatformMembership.is_deleted.is_(False),
+        ]
         if self.platform_approval_status is not None:
             conditions.append(PlatformMembership.approval_status == self.platform_approval_status)
-        platform_query = select(PlatformMembership.user_id).where(*conditions)
-        return BiocommonsUser.id.in_(platform_query)
+        return exists(select(1).where(*conditions))
 
     def platform_approval_status_query(self):
         # If platform is set, let platform_query handle the combined query
         if self.platform is not None:
             return None
-        platform_status_query = select(PlatformMembership.user_id).where(
-            PlatformMembership.approval_status == self.platform_approval_status
-        )
+        conditions = [
+            PlatformMembership.user_id == BiocommonsUser.id,
+            PlatformMembership.approval_status == self.platform_approval_status,
+            PlatformMembership.is_deleted.is_(False),
+        ]
         if self._allowed_platforms_subquery is not None:
-            platform_status_query = platform_status_query.where(
-                PlatformMembership.platform_id.in_(self._allowed_platforms_subquery)
-            )
-        return BiocommonsUser.id.in_(platform_status_query)
+            conditions.append(PlatformMembership.platform_id.in_(self._allowed_platforms_subquery))
+        return exists(select(1).where(*conditions))
 
     def group_query(self):
-        group_query = select(GroupMembership.user_id).where(
-            GroupMembership.group_id == self.group
+        return exists(
+            select(1).where(
+                GroupMembership.user_id == BiocommonsUser.id,
+                GroupMembership.group_id == self.group,
+                GroupMembership.is_deleted.is_(False),
+            )
         )
-        return BiocommonsUser.id.in_(group_query)
 
     def group_approval_status_query(self):
         """
@@ -521,10 +539,13 @@ class UserQueryParams(BaseModel):
         already enforces visibility. That allows platform admins (who may not be
         group admins) to still see group-status results for the users they manage.
         """
-        group_status_query = select(GroupMembership.user_id).where(
-            GroupMembership.approval_status == self.group_approval_status
+        return exists(
+            select(1).where(
+                GroupMembership.user_id == BiocommonsUser.id,
+                GroupMembership.approval_status == self.group_approval_status,
+                GroupMembership.is_deleted.is_(False),
+            )
         )
-        return BiocommonsUser.id.in_(group_status_query)
 
     def approval_status_query(self, admin_roles: list[str] | None = None):
         """
@@ -535,17 +556,23 @@ class UserQueryParams(BaseModel):
                 raise ValueError("Allowed resource subqueries must be set before calling approval_status_query")
             self._set_allowed_resource_subqueries(admin_roles)
 
-        platform_status_query = select(PlatformMembership.user_id).where(
-            PlatformMembership.platform_id.in_(self._allowed_platforms_subquery),
-            PlatformMembership.approval_status == self.approval_status,
+        platform_status_exists = exists(
+            select(1).where(
+                PlatformMembership.user_id == BiocommonsUser.id,
+                PlatformMembership.platform_id.in_(self._allowed_platforms_subquery),
+                PlatformMembership.approval_status == self.approval_status,
+                PlatformMembership.is_deleted.is_(False),
+            )
         )
-        group_status_query = select(GroupMembership.user_id).where(
-            GroupMembership.approval_status == self.approval_status,
+        group_status_exists = exists(
+            select(1).where(
+                GroupMembership.user_id == BiocommonsUser.id,
+                GroupMembership.group_id.in_(self._allowed_groups_subquery),
+                GroupMembership.approval_status == self.approval_status,
+                GroupMembership.is_deleted.is_(False),
+            )
         )
-        return or_(
-            BiocommonsUser.id.in_(platform_status_query),
-            BiocommonsUser.id.in_(group_status_query),
-        )
+        return or_(platform_status_exists, group_status_exists)
 
     def get_count(
         self,
@@ -580,21 +607,28 @@ class UserQueryParams(BaseModel):
     def filter_by_query(self):
         if self.filter_by in GROUP_MAPPING:
             full_group_id = GROUP_MAPPING[self.filter_by]["enum"].value
-            group_subquery = select(GroupMembership.user_id).where(
-                GroupMembership.group_id == full_group_id
+            return exists(
+                select(1).where(
+                    GroupMembership.user_id == BiocommonsUser.id,
+                    GroupMembership.group_id == full_group_id,
+                    GroupMembership.is_deleted.is_(False),
+                )
             )
-            return BiocommonsUser.id.in_(group_subquery)
         elif self.filter_by in PLATFORM_MAPPING:
             platform_enum_value = PLATFORM_MAPPING[self.filter_by]["enum"]
-            platform_subquery = select(PlatformMembership.user_id).where(
-                PlatformMembership.platform_id == platform_enum_value
+            return exists(
+                select(1).where(
+                    PlatformMembership.user_id == BiocommonsUser.id,
+                    PlatformMembership.platform_id == platform_enum_value,
+                    PlatformMembership.is_deleted.is_(False),
+                )
             )
-            return BiocommonsUser.id.in_(platform_subquery)
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid filter_by value '{self.filter_by}'"
             )
+
 
 
 def get_filtered_user_query(
