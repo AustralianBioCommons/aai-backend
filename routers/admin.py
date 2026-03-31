@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
 from httpx import HTTPStatusError
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import exists, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -79,6 +79,8 @@ class BiocommonsUserResponse(BaseModel):
     """
     Response schema for BiocommonsUser from the database
     """
+    model_config = ConfigDict(from_attributes=True)
+
     id: str = Field(description="Auth0 user ID")
     email: str = Field(description="User email address")
     username: str = Field(description="User username")
@@ -92,19 +94,6 @@ class BiocommonsUserResponse(BaseModel):
         default_factory=list,
         description="List of group memberships with approval status and metadata"
     )
-
-    @classmethod
-    def from_db_user(cls, user: BiocommonsUser) -> "BiocommonsUserResponse":
-        """Convert a BiocommonsUser DB model to a response model with membership data."""
-        return cls(
-            id=user.id,
-            email=user.email,
-            username=user.username,
-            email_verified=user.email_verified,
-            created_at=user.created_at,
-            platform_memberships=[m.get_data() for m in user.platform_memberships],
-            group_memberships=[m.get_data() for m in user.group_memberships],
-        )
 
 
 class UserCountsResponse(BaseModel):
@@ -672,7 +661,7 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
     query_params.check_missing_ids(db_session)
     users = db_session.exec(user_query).all()
-    return [BiocommonsUserResponse.from_db_user(user) for user in users]
+    return users
 
 
 class UsersPageInfoResponse(BaseModel):
@@ -771,7 +760,7 @@ def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
         pagination=pagination,
     )
     users = db_session.exec(user_query).all()
-    return [BiocommonsUserResponse.from_db_user(user) for user in users]
+    return users
 
 
 @router.get("/users/pending",
@@ -789,7 +778,7 @@ def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
         pagination=pagination,
     )
     users = db_session.exec(user_query).all()
-    return [BiocommonsUserResponse.from_db_user(user) for user in users]
+    return users
 
 
 @router.get("/users/revoked",
@@ -807,7 +796,7 @@ def get_revoked_users(db_session: Annotated[Session, Depends(get_db_session)],
         pagination=pagination,
     )
     users = db_session.exec(user_query).all()
-    return [BiocommonsUserResponse.from_db_user(user) for user in users]
+    return users
 
 
 @router.get("/users/unverified", response_model=list[BiocommonsUserResponse])
@@ -825,7 +814,7 @@ def get_unverified_users(
         pagination=pagination,
     )
     users = db_session.exec(user_query).all()
-    return [BiocommonsUserResponse.from_db_user(user) for user in users]
+    return users
 
 
 @router.get("/users/{user_id}",
@@ -834,7 +823,7 @@ def get_unverified_users(
 def get_user(user_id: Annotated[str, UserIdParam],
              db_session: Annotated[Session, Depends(get_db_session)]):
     user = db_session.get_one(BiocommonsUser, user_id)
-    return BiocommonsUserResponse.from_db_user(user)
+    return user
 
 
 @router.get("/users/{user_id}/details",
