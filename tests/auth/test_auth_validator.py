@@ -609,7 +609,7 @@ async def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_set
         async with call_count_lock:
             call_count += 1
         first_request_started.set()
-        await release_refresh.wait()
+        await asyncio.wait_for(release_refresh.wait(), timeout=10)
         return Response(200, json=jwks_response)
 
     metadata_route = respx.get(metadata_url).mock(
@@ -620,14 +620,14 @@ async def test_fetch_rsa_keys_only_refreshes_once_when_cache_is_expired(mock_set
     results: list[dict] = []
 
     async def worker():
-        await start_gate.wait()
+        await asyncio.wait_for(start_gate.wait(), timeout=10)
         result = await _fetch_rsa_keys(mock_settings.auth0_domain)
         results.append(result)
 
     tasks = [asyncio.create_task(worker()) for _ in range(5)]
     start_gate.set()
 
-    await first_request_started.wait()
+    await asyncio.wait_for(first_request_started.wait(), timeout=10)
     release_refresh.set()
     await asyncio.gather(*tasks)
 
