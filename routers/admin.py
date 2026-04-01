@@ -573,17 +573,12 @@ class UserQueryParams(BaseModel):
         Count distinct users matching the current filters and admin permissions.
         """
         self._set_allowed_resource_subqueries(admin_roles)
-        id_query = (
-            self.get_base_query(include_memberships=False)
-            .where(
-                self.get_admin_permissions_query(admin_roles),
-                *self.get_query_conditions(admin_roles),
-            )
+        count_statement = select(func.count(BiocommonsUser.id)).where(
+            self.get_admin_permissions_query(admin_roles),
+            *self.get_query_conditions(admin_roles)
         )
         if exclude_user_id:
-            id_query = id_query.where(BiocommonsUser.id != exclude_user_id)
-        filtered_users = id_query.subquery()
-        count_statement = select(func.count()).select_from(filtered_users)
+            count_statement = count_statement.where(BiocommonsUser.id != exclude_user_id)
         return db_session.exec(count_statement).one()
 
     def email_verified_query(self):
