@@ -577,7 +577,7 @@ class UserQueryParams(BaseModel):
             self.get_admin_permissions_query(admin_roles),
             *self.get_query_conditions(admin_roles)
         )
-        if exclude_user_id:
+        if exclude_user_id is not None:
             count_statement = count_statement.where(BiocommonsUser.id != exclude_user_id)
         return db_session.exec(count_statement).one()
 
