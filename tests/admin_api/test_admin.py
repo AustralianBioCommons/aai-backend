@@ -788,6 +788,78 @@ def test_get_user_page_info(
     }
 
 
+def test_get_user_page_info_excludes_current_admin_user(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    bpa_platform,
+    test_db_session,
+    persistent_factories,
+):
+    admin_db_user = as_admin_user
+    admin_membership = PlatformMembershipFactory.create_sync(
+        user_id=admin_db_user.id,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    admin_db_user.platform_memberships.append(admin_membership)
+
+    _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    _users_with_platform_membership(
+        3,
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        approval_status=ApprovalStatusEnum.PENDING,
+    )
+    _users_with_platform_membership(
+        2,
+        db_session=test_db_session,
+        platform_id=bpa_platform.id,
+    )
+    test_db_session.add(admin_db_user)
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users/pages")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 5,
+        "pages": 1,
+        "per_page": 100,
+    }
+
+    resp = test_client.get("/admin/users/pages?per_page=2")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 5,
+        "pages": 3,
+        "per_page": 2,
+    }
+
+    resp = test_client.get(
+        f"/admin/users/pages?approval_status={ApprovalStatusEnum.APPROVED.value}"
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 2,
+        "pages": 1,
+        "per_page": 100,
+    }
+
+    resp = test_client.get(
+        f"/admin/users/pages?approval_status={ApprovalStatusEnum.PENDING.value}"
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "total": 3,
+        "pages": 1,
+        "per_page": 100,
+    }
+
+
 def test_user_query_params_get_count(
     test_db_session,
     admin_user,
