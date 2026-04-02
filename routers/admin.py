@@ -403,7 +403,23 @@ class UserQueryParams(BaseModel):
                 GroupMembership.is_deleted.is_(False),
             )
         )
+        if self._is_platform_scoped_query() and not self._is_group_scoped_query():
+            return platform_access_condition
         return or_(platform_access_condition, group_access_condition)
+
+    def _is_platform_scoped_query(self) -> bool:
+        return (
+            self.platform is not None
+            or self.platform_approval_status is not None
+            or (self.filter_by is not None and self.filter_by in PLATFORM_MAPPING)
+        )
+
+    def _is_group_scoped_query(self) -> bool:
+        return (
+            self.group is not None
+            or self.group_approval_status is not None
+            or (self.filter_by is not None and self.filter_by in GROUP_MAPPING)
+        )
 
     def _get_combined_query(
         self,
