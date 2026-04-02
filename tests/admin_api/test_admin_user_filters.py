@@ -41,6 +41,7 @@ def test_platform_filter_scopes_admin_permissions_to_platforms_only():
 
     assert "platformrolelink" in sql
     assert "grouprolelink" not in sql
+    assert sql.count("FROM platformmembership") == 1
 
 
 def test_user_query_params_missing_method(monkeypatch):

@@ -389,13 +389,17 @@ class UserQueryParams(BaseModel):
         """
         if self._allowed_platforms_subquery is None or self._allowed_groups_subquery is None:
             self._set_allowed_resource_subqueries(admin_roles)
-        platform_access_condition = exists(
-            select(1).where(
-                PlatformMembership.user_id == BiocommonsUser.id,
-                PlatformMembership.platform_id.in_(self._allowed_platforms_subquery),
-                PlatformMembership.is_deleted.is_(False),
-            )
-        )
+        platform_conditions = [
+            PlatformMembership.user_id == BiocommonsUser.id,
+            PlatformMembership.platform_id.in_(self._allowed_platforms_subquery),
+            PlatformMembership.is_deleted.is_(False),
+        ]
+        requested_platform_id = self._get_requested_platform_id()
+        if self._platform_scope_handled_by_permissions() and requested_platform_id is not None:
+            platform_conditions.append(PlatformMembership.platform_id == requested_platform_id)
+        if self._platform_scope_handled_by_permissions() and self.platform_approval_status is not None:
+            platform_conditions.append(PlatformMembership.approval_status == self.platform_approval_status)
+        platform_access_condition = exists(select(1).where(*platform_conditions))
         group_access_condition = exists(
             select(1).where(
                 GroupMembership.user_id == BiocommonsUser.id,
@@ -420,6 +424,16 @@ class UserQueryParams(BaseModel):
             or self.group_approval_status is not None
             or (self.filter_by is not None and self.filter_by in GROUP_MAPPING)
         )
+
+    def _get_requested_platform_id(self) -> PlatformEnum | None:
+        if self.platform is not None:
+            return self.platform
+        if self.filter_by is not None and self.filter_by in PLATFORM_MAPPING:
+            return PLATFORM_MAPPING[self.filter_by]["enum"]
+        return None
+
+    def _platform_scope_handled_by_permissions(self) -> bool:
+        return self._is_platform_scoped_query() and not self._is_group_scoped_query()
 
     def _get_combined_query(
         self,
@@ -506,6 +520,8 @@ class UserQueryParams(BaseModel):
         so we need special logic for combining them.
         :return:
         """
+        if self._platform_scope_handled_by_permissions():
+            return None
         conditions = [
             PlatformMembership.user_id == BiocommonsUser.id,
             PlatformMembership.platform_id == self.platform,
@@ -516,6 +532,8 @@ class UserQueryParams(BaseModel):
         return exists(select(1).where(*conditions))
 
     def platform_approval_status_query(self):
+        if self._platform_scope_handled_by_permissions():
+            return None
         # If platform is set, let platform_query handle the combined query
         if self.platform is not None:
             return None
@@ -625,6 +643,8 @@ class UserQueryParams(BaseModel):
                 )
             )
         elif self.filter_by in PLATFORM_MAPPING:
+            if self._platform_scope_handled_by_permissions():
+                return None
             platform_enum_value = PLATFORM_MAPPING[self.filter_by]["enum"]
             return exists(
                 select(1).where(
