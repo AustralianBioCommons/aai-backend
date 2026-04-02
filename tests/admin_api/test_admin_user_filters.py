@@ -1,6 +1,8 @@
 import random
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import sqlite
 
 from db.models import BiocommonsUser
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
@@ -26,6 +28,19 @@ def test_user_query_no_params():
     """
     query = UserQueryParams()
     assert query.get_query_conditions() == []
+
+
+def test_platform_filter_scopes_admin_permissions_to_platforms_only():
+    query = UserQueryParams(filter_by="bpa_data_portal", email_verified=False)
+    sql = str(
+        query.get_complete_query(
+            admin_roles=["biocommons/role/bpa_data_portal/admin"],
+            pagination=SimpleNamespace(start_index=0, per_page=50),
+        ).compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": False})
+    )
+
+    assert "platformrolelink" in sql
+    assert "grouprolelink" not in sql
 
 
 def test_user_query_params_missing_method(monkeypatch):
