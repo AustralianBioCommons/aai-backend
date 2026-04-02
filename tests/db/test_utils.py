@@ -22,14 +22,14 @@ def test_refresh_unverified_users_throttling(test_db_session):
     # Patch session.exec to see if it gets called
     with patch.object(test_db_session, 'exec', wraps=test_db_session.exec) as spy_exec:
         # First call: should proceed and update LAST_UNVERIFIED_REFRESH_TIME
-        refresh_unverified_users_task(test_db_session, auth0_client)
+        refresh_unverified_users_task(auth0_client, session=test_db_session)
         assert spy_exec.call_count == 1
 
         spy_exec.reset_mock()
 
         # Second call: should hit the global throttle and return immediately
         with patch("db.utils.logger") as mock_logger:
-            refresh_unverified_users_task(test_db_session, auth0_client)
+            refresh_unverified_users_task(auth0_client, session=test_db_session)
 
             # Verify the "Skipping refresh" log was emitted
             mock_logger.info.assert_called_once()
@@ -59,7 +59,7 @@ def test_refresh_unverified_users_updates_status(test_db_session: Session):
     auth0_data.email_verified = True
     auth0_client.get_user.return_value = auth0_data
 
-    refresh_unverified_users_task(test_db_session, auth0_client)
+    refresh_unverified_users_task(auth0_client, session=test_db_session)
 
     # Re-fetch user to check update
     db_session_new = Session(test_db_session.bind)  # Use fresh session to avoid cache
@@ -79,7 +79,7 @@ def test_refresh_unverified_users_skips_verified_users(test_db_session):
     test_db_session.commit()
 
     auth0_client = MagicMock()
-    refresh_unverified_users_task(test_db_session, auth0_client)
+    refresh_unverified_users_task(auth0_client, session=test_db_session)
 
     # Auth0 should not have been called for this user
     auth0_client.get_user.assert_not_called()
@@ -97,6 +97,6 @@ def test_refresh_unverified_users_no_change(test_db_session, persistent_factorie
     auth0_client.get_user.return_value = auth0_data
 
     with patch.object(test_db_session, 'add') as mock_add:
-        refresh_unverified_users_task(test_db_session, auth0_client)
+        refresh_unverified_users_task(auth0_client, session=test_db_session)
         # session.add(user) should NOT be called if status is the same
         mock_add.assert_not_called()
