@@ -50,7 +50,7 @@ from db.types import (
     GroupMembershipData,
     PlatformMembershipData,
 )
-from db.utils import refresh_unverified_users
+from db.utils import refresh_unverified_users_task
 from schemas.biocommons import (
     Auth0UserDataWithMemberships,
     BiocommonsEmail,
@@ -659,8 +659,7 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
     if query_params.email_verified is not None:
         logger.info("Refreshing unverified users")
         background_tasks.add_task(
-            refresh_unverified_users,
-            session=db_session,
+            refresh_unverified_users_task,
             auth0_client=auth0_client,
         )
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
