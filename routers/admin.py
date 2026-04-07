@@ -696,7 +696,6 @@ def get_users(db_session: Annotated[Session, Depends(get_db_session)],
         logger.info("Refreshing unverified users")
         background_tasks.add_task(
             refresh_unverified_users_task,
-            auth0_client=auth0_client,
         )
     # Check for missing IDs in the database (e.g. group ID not found) and raise 404
     query_params.check_missing_ids(db_session)

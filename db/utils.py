@@ -4,7 +4,9 @@ from typing import Sequence
 
 from sqlmodel import Session
 
-from auth0.client import Auth0Client
+from auth.management import get_management_token
+from auth0.client import Auth0Client, get_auth0_client
+from config import get_settings
 from db.models import BiocommonsUser
 from db.setup import get_engine
 
@@ -29,7 +31,7 @@ def refresh_unverified_users(session: Session, auth0_client: Auth0Client):
     session.commit()
 
 
-def refresh_unverified_users_task(auth0_client: Auth0Client, session: Session | None = None):
+def refresh_unverified_users_task(auth0_client: Auth0Client | None = None, session: Session | None = None):
     """
     Background task wrapper for refreshing unverified users.
 
@@ -46,9 +48,14 @@ def refresh_unverified_users_task(auth0_client: Auth0Client, session: Session | 
     owns_session = session is None
     if session is None:
         session = Session(get_engine())
+    if auth0_client is None:
+        settings = get_settings()
+        token = get_management_token(settings)
+        auth0_client = get_auth0_client(settings=settings, management_token=token)
 
     try:
         refresh_unverified_users(session, auth0_client)
     finally:
         if owns_session:
             session.close()
+        auth0_client.close()
