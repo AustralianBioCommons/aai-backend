@@ -192,5 +192,4 @@ def test_get_users_email_verified_refreshes_status(test_client, as_admin_user, t
     )
     assert resp.status_code == 200
     assert mock_background_tasks.called
-    print(mock_background_tasks.call_args)
     assert mock_background_tasks.call_args[0][0] == refresh_unverified_users_task
