@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.3...v1.2.0) (2026-04-07)
+
+
+### Features
+
+* better caching/fetching of JWKs from Auth0 ([#244](https://github.com/AustralianBioCommons/aai-backend/issues/244)) ([9bb0755](https://github.com/AustralianBioCommons/aai-backend/commit/9bb0755867f886200f6ee54a824cc9ca0acbd156))
+* update emails with branding template ([482c424](https://github.com/AustralianBioCommons/aai-backend/commit/482c42478bfc686b11437e8f69cea9a9e4bb6789))
+
 ## [1.1.3](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.2...v1.1.3) (2026-03-27)
 
 
