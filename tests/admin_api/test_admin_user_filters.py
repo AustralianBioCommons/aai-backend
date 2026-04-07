@@ -1,10 +1,12 @@
 import random
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import sqlite
 
 from db.models import BiocommonsUser
 from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
-from db.utils import refresh_unverified_users
+from db.utils import refresh_unverified_users_task
 from routers.admin import UserQueryParams
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -26,6 +28,20 @@ def test_user_query_no_params():
     """
     query = UserQueryParams()
     assert query.get_query_conditions() == []
+
+
+def test_platform_filter_scopes_admin_permissions_to_platforms_only():
+    query = UserQueryParams(filter_by="bpa_data_portal", email_verified=False)
+    sql = str(
+        query.get_complete_query(
+            admin_roles=["biocommons/role/bpa_data_portal/admin"],
+            pagination=SimpleNamespace(start_index=0, per_page=50),
+        ).compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": False})
+    )
+
+    assert "platformrolelink" in sql
+    assert "grouprolelink" not in sql
+    assert sql.count("FROM platformmembership") == 1
 
 
 def test_user_query_params_missing_method(monkeypatch):
@@ -176,5 +192,4 @@ def test_get_users_email_verified_refreshes_status(test_client, as_admin_user, t
     )
     assert resp.status_code == 200
     assert mock_background_tasks.called
-    print(mock_background_tasks.call_args)
-    assert mock_background_tasks.call_args[0][0] == refresh_unverified_users
+    assert mock_background_tasks.call_args[0][0] == refresh_unverified_users_task

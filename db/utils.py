@@ -4,8 +4,11 @@ from typing import Sequence
 
 from sqlmodel import Session
 
-from auth0.client import Auth0Client
+from auth.management import get_management_token
+from auth0.client import Auth0Client, get_auth0_client
+from config import get_settings
 from db.models import BiocommonsUser
+from db.setup import get_engine
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -17,9 +20,22 @@ LAST_UNVERIFIED_REFRESH_TIME: datetime | None = None
 def refresh_unverified_users(session: Session, auth0_client: Auth0Client):
     """
     Update all unverified users with their latest email_verified status from Auth0.
-    Run as a background task, triggered when an admin looks at unverified users.
+    """
+    unverified_users: Sequence[BiocommonsUser] = BiocommonsUser.list_unverified(session)
+    for user in unverified_users:
+        auth0_data = auth0_client.get_user(user.id)
+        if auth0_data.email_verified != user.email_verified:
+            logger.info(f"Updating email_verified status for user {user.id}: {auth0_data.email_verified}")
+            user.email_verified = auth0_data.email_verified
+            session.add(user)
+    session.commit()
 
-    Uses a simple time-based throttle to avoid excessive API calls.
+
+def refresh_unverified_users_task(auth0_client: Auth0Client | None = None, session: Session | None = None):
+    """
+    Background task wrapper for refreshing unverified users.
+
+    Uses a dedicated session by default so it does not outlive the request-scoped session.
     """
     global LAST_UNVERIFIED_REFRESH_TIME
     if LAST_UNVERIFIED_REFRESH_TIME is not None:
@@ -28,14 +44,18 @@ def refresh_unverified_users(session: Session, auth0_client: Auth0Client):
             logger.info(f"Skipping refresh of unverified users: last refresh was {LAST_UNVERIFIED_REFRESH_TIME}")
             return
     LAST_UNVERIFIED_REFRESH_TIME = datetime.now(UTC)
-    unverified_users: Sequence[BiocommonsUser] = BiocommonsUser.list_unverified(session)
+
+    owns_session = session is None
+    if session is None:
+        session = Session(get_engine())
+    if auth0_client is None:
+        settings = get_settings()
+        token = get_management_token(settings)
+        auth0_client = get_auth0_client(settings=settings, management_token=token)
+
     try:
-        for user in unverified_users:
-            auth0_data = auth0_client.get_user(user.id)
-            if auth0_data.email_verified != user.email_verified:
-                logger.info(f"Updating email_verified status for user {user.id}: {auth0_data.email_verified}")
-                user.email_verified = auth0_data.email_verified
-                session.add(user)
-        session.commit()
+        refresh_unverified_users(session, auth0_client)
     finally:
-        session.close()
+        if owns_session:
+            session.close()
+        auth0_client.close()

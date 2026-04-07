@@ -29,6 +29,9 @@ logger = getLogger(__name__)
 
 class BiocommonsUser(SoftDeleteModel, table=True):
     __tablename__ = "biocommons_user"
+    __table_args__ = (
+        Index("ix_biocommons_user_email_verified_deleted", "email_verified", "is_deleted"),
+    )
     # Auth0 ID
     id: str = Field(primary_key=True)
     # Note: sqlmodel can't validate emails easily.
@@ -519,6 +522,7 @@ class Platform(SoftDeleteModel, table=True):
 class PlatformMembership(SoftDeleteModel, table=True):
     __table_args__ = (
         UniqueConstraint("platform_id", "user_id", name="platform_user_id_platform_id"),
+        Index("ix_platformmembership_user_platform_deleted", "user_id", "platform_id", "is_deleted"),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     platform_id: PlatformEnum = Field(foreign_key="platform.id", sa_type=DbEnum(PlatformEnum, name="PlatformEnum"))
@@ -776,6 +780,7 @@ class GroupMembership(SoftDeleteModel, table=True):
 
     __table_args__ = (
         UniqueConstraint("group_id", "user_id", name="user_group_pairing"),
+        Index("ix_groupmembership_user_group_deleted", "user_id", "group_id", "is_deleted"),
     )
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     group_id: str = Field(foreign_key="biocommonsgroup.group_id")
