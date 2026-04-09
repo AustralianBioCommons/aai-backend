@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.2.0...v1.3.0) (2026-04-09)
+
+
+### Features
+
+* send confirmation email to bundle requester ([2cb5152](https://github.com/AustralianBioCommons/aai-backend/commit/2cb515258bb3856b1258adbfad88b149a129504d))
+* Send confirmation email to bundle requester (AAI-785) ([cf4073a](https://github.com/AustralianBioCommons/aai-backend/commit/cf4073a318003cfc915c3251d0af1ab37eb221bd))
+
+
+### Bug Fixes
+
+* undo uvlock changes ([494fd78](https://github.com/AustralianBioCommons/aai-backend/commit/494fd789e437f6460cb3fba9373496592ba2caa9))
+
 ## [1.2.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.3...v1.2.0) (2026-04-07)
 
 
