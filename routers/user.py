@@ -23,6 +23,7 @@ from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
 from biocommons.emails import (
+    compose_bundle_request_confirmation_email,
     compose_email_change_otp_email,
     compose_group_approval_email,
     compose_welcome_email,
@@ -379,6 +380,25 @@ def request_group_access(
         enqueue_email(
             db_session,
             to_address=email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
+    if requester_email:
+        requester_first_name = format_first_name(
+            full_name=requester_full_name,
+            given_name=None,
+            fallback="there",
+        )
+        subject, body_html = compose_bundle_request_confirmation_email(
+            first_name=requester_first_name,
+            bundle_name=membership.group.name,
+            request_reason=membership.request_reason,
+            settings=settings,
+        )
+        enqueue_email(
+            db_session,
+            to_address=requester_email,
             subject=subject,
             body_html=body_html,
             settings=settings,

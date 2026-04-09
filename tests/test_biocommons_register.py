@@ -313,10 +313,11 @@ def test_successful_biocommons_registration_endpoint(
     assert PlatformEnum.GALAXY in platform_ids
 
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 1
-    email = queued_emails[0]
-    assert email.to_address == admin_stub.email
-    assert email.status == EmailStatusEnum.PENDING
+    assert len(queued_emails) == 2
+    email_addresses = {e.to_address for e in queued_emails}
+    assert admin_stub.email in email_addresses
+    assert str(auth0_data.email) in email_addresses
+    assert all(e.status == EmailStatusEnum.PENDING for e in queued_emails)
 
 
 @respx.mock

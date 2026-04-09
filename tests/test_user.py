@@ -402,11 +402,11 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert len(history) == 1
     assert history[0].approval_status == "pending"
     assert membership.user == user
-    # Check approval email is queued for admin review
+    # Check approval email is queued for admin review, and confirmation email for requester
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 1
-    assert queued_emails[0].to_address == admin_info.email
-    assert queued_emails[0].status == EmailStatusEnum.PENDING
+    assert len(queued_emails) == 2
+    assert all(e.to_address == admin_info.email for e in queued_emails)
+    assert all(e.status == EmailStatusEnum.PENDING for e in queued_emails)
 
 
 @respx.mock
@@ -459,9 +459,9 @@ def test_request_group_membership_after_rejection(
     assert history[-1].approval_status == ApprovalStatusEnum.PENDING
 
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 1
-    assert queued_emails[0].to_address == admin_info.email
-    assert queued_emails[0].status == EmailStatusEnum.PENDING
+    assert len(queued_emails) == 2
+    assert all(e.to_address == admin_info.email for e in queued_emails)
+    assert all(e.status == EmailStatusEnum.PENDING for e in queued_emails)
 
 
 def test_request_group_membership_revoked_returns_conflict(
