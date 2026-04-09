@@ -407,6 +407,9 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert len(queued_emails) == 2
     assert all(e.to_address == admin_info.email for e in queued_emails)
     assert all(e.status == EmailStatusEnum.PENDING for e in queued_emails)
+    subjects = {e.subject for e in queued_emails}
+    assert f"{group.name} Service Bundle request" in subjects
+    assert f"Your {group.name} Service Bundle request has been received" in subjects
 
 
 @respx.mock
@@ -462,6 +465,9 @@ def test_request_group_membership_after_rejection(
     assert len(queued_emails) == 2
     assert all(e.to_address == admin_info.email for e in queued_emails)
     assert all(e.status == EmailStatusEnum.PENDING for e in queued_emails)
+    subjects = {e.subject for e in queued_emails}
+    assert f"{group.name} Service Bundle request" in subjects
+    assert f"Your {group.name} Service Bundle request has been received" in subjects
 
 
 def test_request_group_membership_revoked_returns_conflict(
@@ -1202,6 +1208,7 @@ def test_finish_migrate_password_queues_welcome_email(
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued_emails) == 1
     assert queued_emails[0].to_address == "user@example.com"
+    assert queued_emails[0].subject == "Welcome to BioCommons Access"
 
 
 def test_finish_migrate_password_no_email_skips_welcome_email(

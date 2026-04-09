@@ -314,10 +314,16 @@ def test_successful_biocommons_registration_endpoint(
 
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued_emails) == 2
-    email_addresses = {e.to_address for e in queued_emails}
-    assert admin_stub.email in email_addresses
-    assert str(auth0_data.email) in email_addresses
+    emails_by_address = {e.to_address: e for e in queued_emails}
+    assert admin_stub.email in emails_by_address
+    assert str(auth0_data.email) in emails_by_address
     assert all(e.status == EmailStatusEnum.PENDING for e in queued_emails)
+
+    admin_email = emails_by_address[admin_stub.email]
+    assert admin_email.subject == "Threatened Species Initiative Service Bundle request"
+
+    user_email = emails_by_address[str(auth0_data.email)]
+    assert user_email.subject == "Your Threatened Species Initiative Service Bundle request has been received"
 
 
 @respx.mock
