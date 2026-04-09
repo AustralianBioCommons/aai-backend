@@ -331,3 +331,31 @@ def compose_welcome_email(
         <p style="{_P}">The Australian BioCommons<br/><a href="https://www.biocommons.org.au" target="_blank" rel="noopener noreferrer" style="{_A}">www.biocommons.org.au</a></p>
     """
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
+
+
+def compose_bundle_request_confirmation_email(
+    *,
+    first_name: str,
+    bundle_name: str,
+    request_reason: str | None,
+    settings: Settings,
+) -> tuple[str, str]:
+    """
+    Confirmation email sent to a user after they request access to a bundle/group.
+    Informs them their request was received and explains next steps.
+    """
+    portal_url = settings.aai_portal_url or ""
+    reason = request_reason.strip() if request_reason else "Not provided"
+    safe_first_name = html.escape(first_name)
+    safe_bundle_name = html.escape(bundle_name)
+    safe_reason = html.escape(reason)
+    subject = f"Your {bundle_name} Service Bundle request has been received"
+    body_content = f"""
+        <p style="{_P}">Dear {safe_first_name},</p>
+        <p style="{_P}">Thank you for submitting a request to join the <strong>{safe_bundle_name}</strong> Service Bundle. Your request has been received and is currently under review.</p>
+        <p style="{_P}"><strong>Bundle requested:</strong> {safe_bundle_name}<br/><strong>Reason provided:</strong> {safe_reason}</p>
+        <p style="{_P}">A bundle administrator will review your request. If your request is approved, you will receive a confirmation email with further details.</p>
+        <p style="{_P_SIGN_OFF}">Thank you,</p>
+        <p style="{_P}">BioCommons Access team</p>
+    """
+    return subject, _wrap_email_html(subject, subject, body_content, portal_url)

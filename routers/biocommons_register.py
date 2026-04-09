@@ -9,7 +9,9 @@ from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.default import DEFAULT_PLATFORMS
 from biocommons.emails import (
+    compose_bundle_request_confirmation_email,
     compose_group_approval_email,
+    format_first_name,
     get_group_admin_contacts,
     get_requester_identity,
 )
@@ -138,6 +140,56 @@ def _notify_bundle_group_admins(
         )
 
 
+def _notify_bundle_requester(
+    *,
+    bundle: BiocommonsBundle,
+    user: BiocommonsUser,
+    auth0_user_data: Auth0UserData,
+    db_session: Session,
+    settings: Settings,
+    request_reason: Optional[str],
+) -> None:
+    """
+    Queue a confirmation email to the user after they request bundle access.
+    """
+    if bundle.group_auto_approve:
+        return
+
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=user.id,
+        group_id=bundle.group_id.value,
+        session=db_session,
+    )
+    if membership is None:
+        logger.warning(
+            "Unable to find group membership for user %s and bundle %s",
+            user.id,
+            bundle.id,
+        )
+        return
+
+    db_session.refresh(membership, attribute_names=["group"])
+
+    first_name = format_first_name(
+        full_name=auth0_user_data.name,
+        given_name=auth0_user_data.given_name,
+        fallback="there",
+    )
+    subject, body_html = compose_bundle_request_confirmation_email(
+        first_name=first_name,
+        bundle_name=membership.group.name,
+        request_reason=request_reason,
+        settings=settings,
+    )
+    enqueue_email(
+        db_session,
+        to_address=str(auth0_user_data.email),
+        subject=subject,
+        body_html=body_html,
+        settings=settings,
+    )
+
+
 @router.post(
     "/register",
     responses={
@@ -196,6 +248,14 @@ async def register_biocommons_user(
                 auth0_client=auth0_client,
                 db_session=db_session,
                 settings=settings,
+            )
+            _notify_bundle_requester(
+                bundle=bundle,
+                user=db_user,
+                auth0_user_data=auth0_user_data,
+                db_session=db_session,
+                settings=settings,
+                request_reason=registration.request_reason,
             )
 
         db_session.commit()
