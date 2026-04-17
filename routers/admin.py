@@ -30,6 +30,7 @@ from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
+    compose_group_membership_rejected_email,
     compose_username_change_notification,
     format_first_name,
 )
@@ -1246,8 +1247,11 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
 def reject_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RejectServiceRequest,
+                            client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
-                            db_session: Annotated[Session, Depends(get_db_session)]):
+                            db_session: Annotated[Session, Depends(get_db_session)],
+                            settings: Annotated[Settings, Depends(get_settings)]):
+    group_record = BiocommonsGroup.get_by_id_or_404(group_id, db_session)
     membership = GroupMembership.get_by_user_id_and_group_id_or_404(
         user_id=user_id,
         group_id=group_id,
@@ -1264,6 +1268,30 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         session=db_session,
         commit=False,
     )
+    if membership.user and membership.user.email:
+        first_name = "there"
+        try:
+            auth0_user = client.get_user(membership.user.id)
+            first_name = format_first_name(
+                full_name=auth0_user.name,
+                given_name=auth0_user.given_name,
+                fallback="there",
+            )
+        except Exception:
+            pass
+        subject, body_html = compose_group_membership_rejected_email(
+            group_name=group_record.name,
+            group_short_name=group_record.short_name,
+            first_name=first_name,
+            settings=settings,
+        )
+        enqueue_email(
+            session=db_session,
+            to_address=membership.user.email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
     db_session.commit()
     logger.info(
         "Rejected group %s for user %s: %s",
