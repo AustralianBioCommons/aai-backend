@@ -1268,7 +1268,7 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         session=db_session,
         commit=False,
     )
-    if membership.user and membership.user.email:
+    if group_id == GroupEnum.TSI.value and membership.user and membership.user.email:
         first_name = "there"
         try:
             auth0_user = client.get_user(membership.user.id)
@@ -1281,7 +1281,6 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
             pass
         subject, body_html = compose_group_membership_rejected_email(
             group_name=group_record.name,
-            group_short_name=group_record.short_name,
             first_name=first_name,
             settings=settings,
         )

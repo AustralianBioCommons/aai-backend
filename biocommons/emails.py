@@ -336,7 +336,6 @@ def compose_welcome_email(
 def compose_group_membership_rejected_email(
     *,
     group_name: str,
-    group_short_name: str,
     first_name: str,
     settings: Settings,
 ) -> tuple[str, str]:
@@ -349,9 +348,9 @@ def compose_group_membership_rejected_email(
     safe_first_name = html.escape(first_name or "")
     subject = f"Your {group_name} Service Bundle request"
 
-    is_tsi = (group_short_name or "").upper() == "TSI"
-    if is_tsi:
-        extra_content = f"""
+    body_content = f"""
+        <p style="{_P}">Dear {safe_first_name},</p>
+        <p style="{_P}">Thank you for your interest in the {safe_group_name} Bundle.</p>
         <p style="{_P}">The TSI Bundle available on the Australian BioCommons Access is only for members of the Threatened Species Initiative consortium.</p>
         <p style="{_P}">Members are collaborators who have projects supported through our request for partnership rounds. They can access datasets that are under embargo for the first 12 months following their generation.</p>
         <p style="{_P}">The Threatened Species Initiative is generating genomic resources that are made openly accessible to the community with the standard registration to the Bioplatforms Australia data portal (now Australian BioCommons Access). You do not need to apply to the TSI Bundle to obtain access to these open access genomics datasets. This is also the case for datasets of all other initiatives presented on the Bioplatforms Data Portal.</p>
@@ -364,14 +363,7 @@ def compose_group_membership_rejected_email(
           <li style="font-size: 16px; line-height: 24px; color: #171717;">Bioplatforms Australia Data Portal — <a href="mailto:help@bioplatforms.com" style="{_A}">help@bioplatforms.com</a></li>
           <li style="font-size: 16px; line-height: 24px; color: #171717;"><a href="https://site.usegalaxy.org.au/" target="_blank" rel="noopener noreferrer" style="{_A}">Galaxy Australia</a></li>
           <li style="font-size: 16px; line-height: 24px; color: #171717;">TSI specific enquiries — <a href="mailto:smazard@bioplatforms.com" style="{_A}">smazard@bioplatforms.com</a></li>
-        </ul>"""
-    else:
-        extra_content = ""
-
-    body_content = f"""
-        <p style="{_P}">Dear {safe_first_name},</p>
-        <p style="{_P}">Thank you for your interest in the {safe_group_name} Bundle.</p>
-        {extra_content}
+        </ul>
         <p style="{_P_SIGN_OFF}">Thank you,</p>
         <p style="{_P}">BioCommons Access team</p>
     """
