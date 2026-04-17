@@ -1335,6 +1335,7 @@ def test_reject_group_membership_records_reason(
     test_db_session,
     as_admin_user,
     tsi_group,
+    mock_auth0_client,
     persistent_factories,
 ):
     user = BiocommonsUserFactory.create_sync(group_memberships=[])
@@ -1367,6 +1368,35 @@ def test_reject_group_membership_records_reason(
         session=test_db_session,
     )
     assert history[-1].reason == reason
+
+
+def test_reject_group_membership_sends_email(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    tsi_group,
+    mock_auth0_client,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    group_url = quote(tsi_group.group_id, safe='')
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/{group_url}/reject",
+        json={"reason": "Not a TSI consortium member"},
+    )
+
+    assert resp.status_code == 200
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 def test_reject_group_membership_forbidden_without_group_role(
