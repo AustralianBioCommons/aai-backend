@@ -1,4 +1,9 @@
-import os, re, json, urllib.request, urllib.error, base64
+import base64
+import json
+import os
+import re
+import urllib.error
+import urllib.request
 
 base_url = os.environ['JIRA_BASE_URL']
 tag = os.environ['RELEASE_TAG']
