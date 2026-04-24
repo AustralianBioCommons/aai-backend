@@ -6,7 +6,7 @@ from fastapi.params import Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from australian_research_institutions import is_australian_research_institution_email
+from services.institutions import is_australian_research_institution_email
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import (
     compose_welcome_email,
@@ -156,7 +156,7 @@ async def check_australian_research_institution(
     as listed at https://site.usegalaxy.org.au/list-of-institutions.html.
     """
     return AustralianResearchInstitutionResponse(
-        is_australian_research_institution=is_australian_research_institution_email(email),
+        is_australian_research_institution=await is_australian_research_institution_email(email),
     )
 
 
