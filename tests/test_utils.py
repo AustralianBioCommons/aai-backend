@@ -2,6 +2,7 @@ import pytest
 from sqlmodel import select
 
 from auth0.client import get_auth0_client
+from australian_research_institutions import is_australian_research_institution_email
 from db.models import EmailNotification
 from main import app
 from routers import utils
@@ -156,6 +157,105 @@ def test_send_welcome_email_returns_404_when_user_not_verified(override_auth0_cl
     assert resp.status_code == 404
     queued = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued) == 0
+
+
+# --- is_australian_research_institution_email unit tests ---
+
+@pytest.mark.parametrize("email", [
+    "user@sydney.edu.au",
+    "user@uni.sydney.edu.au",
+    "user@unimelb.edu.au",
+    "user@student.unimelb.edu.au",
+    "user@anu.edu.au",
+    "user@csiro.au",
+    "user@wehi.edu.au",
+    "user@garvan.org.au",
+    "user@petermac.org",
+])
+def test_is_australian_research_institution_email_known_domains(email):
+    assert is_australian_research_institution_email(email) is True
+
+
+@pytest.mark.parametrize("email", [
+    "user@health.nsw.gov.au",
+    "researcher@some-agency.gov.au",
+    "staff@dept.edu.gov.au",
+])
+def test_is_australian_research_institution_email_gov_au_wildcard(email):
+    assert is_australian_research_institution_email(email) is True
+
+
+@pytest.mark.parametrize("email", [
+    "user@gmail.com",
+    "user@example.com",
+    "user@university.edu",
+    "user@oxford.ac.uk",
+    "user@notauni.org",
+])
+def test_is_australian_research_institution_email_unknown_domains(email):
+    assert is_australian_research_institution_email(email) is False
+
+
+@pytest.mark.parametrize("email", [
+    "USER@SYDNEY.EDU.AU",
+    "User@Unimelb.Edu.Au",
+    "STAFF@CSIRO.AU",
+])
+def test_is_australian_research_institution_email_case_insensitive(email):
+    assert is_australian_research_institution_email(email) is True
+
+
+@pytest.mark.parametrize("email", [
+    "notanemail",
+    "",
+    "@",
+    "nodomain@",
+])
+def test_is_australian_research_institution_email_malformed(email):
+    assert is_australian_research_institution_email(email) is False
+
+
+# --- /utils/register/check-australian-research-institution endpoint tests ---
+
+def test_check_australian_research_institution_known_domain(test_client):
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "researcher@sydney.edu.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": True}
+
+
+def test_check_australian_research_institution_unknown_domain(test_client):
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "user@gmail.com"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": False}
+
+
+def test_check_australian_research_institution_gov_au(test_client):
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "staff@health.nsw.gov.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": True}
+
+
+def test_check_australian_research_institution_case_insensitive(test_client):
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "USER@SYDNEY.EDU.AU"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": True}
+
+
+def test_check_australian_research_institution_missing_email(test_client):
+    resp = test_client.get("/utils/register/check-australian-research-institution")
+    assert resp.status_code == 422
 
 
 def test_send_welcome_email_suppresses_duplicate(override_auth0_client, test_client, test_db_session):
