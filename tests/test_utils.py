@@ -5,10 +5,10 @@ from httpx import Response
 from sqlmodel import select
 
 from auth0.client import get_auth0_client
-from services.institutions import GALAXY_AU_VALIDATE_URL
 from db.models import EmailNotification
 from main import app
 from routers import utils
+from services.institutions import GALAXY_AU_VALIDATE_URL
 from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
 
 

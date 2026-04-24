@@ -6,7 +6,6 @@ from fastapi.params import Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from services.institutions import is_australian_research_institution_email
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import (
     compose_welcome_email,
@@ -19,6 +18,7 @@ from db.types import EmailStatusEnum
 from schemas.biocommons import AppId
 from schemas.responses import FieldError
 from services.email_queue import enqueue_email
+from services.institutions import is_australian_research_institution_email
 
 logger = logging.getLogger("uvicorn.error")
 
