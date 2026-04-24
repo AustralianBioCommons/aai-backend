@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from auth0.client import Auth0Client, get_auth0_client
+from australian_research_institutions import is_australian_research_institution_email
 from biocommons.emails import (
     compose_welcome_email,
     format_first_name,
@@ -137,6 +138,26 @@ async def get_registration_info(
                 return RegistrationInfo(app="biocommons")
             return RegistrationInfo(app=user.app_metadata.registration_from)
     return RegistrationInfo(app="biocommons")
+
+
+class AustralianResearchInstitutionResponse(BaseModel):
+    is_australian_research_institution: bool
+
+
+@router.get(
+    "/register/check-australian-research-institution",
+    response_model=AustralianResearchInstitutionResponse,
+)
+async def check_australian_research_institution(
+    email: Annotated[str, Query()],
+):
+    """
+    Check whether the email domain belongs to an Australian Research Institution
+    as listed at https://site.usegalaxy.org.au/list-of-institutions.html.
+    """
+    return AustralianResearchInstitutionResponse(
+        is_australian_research_institution=is_australian_research_institution_email(email),
+    )
 
 
 class SendWelcomeEmailRequest(BaseModel):
