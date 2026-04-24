@@ -1,8 +1,8 @@
 import pytest
 from sqlmodel import select
 
-from auth0.client import get_auth0_client
 from australian_research_institutions import is_australian_research_institution_email
+from auth0.client import get_auth0_client
 from db.models import EmailNotification
 from main import app
 from routers import utils

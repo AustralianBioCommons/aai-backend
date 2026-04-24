@@ -6,8 +6,8 @@ from fastapi.params import Depends
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
-from auth0.client import Auth0Client, get_auth0_client
 from australian_research_institutions import is_australian_research_institution_email
+from auth0.client import Auth0Client, get_auth0_client
 from biocommons.emails import (
     compose_welcome_email,
     format_first_name,
