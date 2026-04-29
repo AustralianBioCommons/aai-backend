@@ -145,7 +145,7 @@ class AustralianResearchInstitutionResponse(BaseModel):
 
 
 @router.get(
-    "/check-australian-research-institution",
+    "/register/check-australian-research-institution",
     response_model=AustralianResearchInstitutionResponse,
 )
 async def check_australian_research_institution(
