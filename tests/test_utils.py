@@ -168,7 +168,7 @@ def test_send_welcome_email_returns_404_when_user_not_verified(override_auth0_cl
 def test_check_australian_research_institution_valid(test_client):
     respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(200, json={"valid": True}))
     resp = test_client.get(
-        "/utils/register/check-australian-research-institution",
+        "/utils/check-australian-research-institution",
         params={"email": "researcher@sydney.edu.au"},
     )
     assert resp.status_code == 200
@@ -179,7 +179,7 @@ def test_check_australian_research_institution_valid(test_client):
 def test_check_australian_research_institution_invalid(test_client):
     respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(200, json={"valid": False}))
     resp = test_client.get(
-        "/utils/register/check-australian-research-institution",
+        "/utils/check-australian-research-institution",
         params={"email": "user@gmail.com"},
     )
     assert resp.status_code == 200
@@ -190,7 +190,7 @@ def test_check_australian_research_institution_invalid(test_client):
 def test_check_australian_research_institution_upstream_error_returns_false(test_client):
     respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(500))
     resp = test_client.get(
-        "/utils/register/check-australian-research-institution",
+        "/utils/check-australian-research-institution",
         params={"email": "researcher@sydney.edu.au"},
     )
     assert resp.status_code == 200
@@ -201,7 +201,7 @@ def test_check_australian_research_institution_upstream_error_returns_false(test
 def test_check_australian_research_institution_upstream_timeout_returns_false(test_client):
     respx.get(GALAXY_AU_VALIDATE_URL).mock(side_effect=httpx.TimeoutException("timeout"))
     resp = test_client.get(
-        "/utils/register/check-australian-research-institution",
+        "/utils/check-australian-research-institution",
         params={"email": "researcher@sydney.edu.au"},
     )
     assert resp.status_code == 200
@@ -209,7 +209,7 @@ def test_check_australian_research_institution_upstream_timeout_returns_false(te
 
 
 def test_check_australian_research_institution_missing_email(test_client):
-    resp = test_client.get("/utils/register/check-australian-research-institution")
+    resp = test_client.get("/utils/check-australian-research-institution")
     assert resp.status_code == 422
 
 
