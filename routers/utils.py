@@ -18,6 +18,7 @@ from db.types import EmailStatusEnum
 from schemas.biocommons import AppId
 from schemas.responses import FieldError
 from services.email_queue import enqueue_email
+from services.institutions import is_australian_research_institution_email
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -137,6 +138,26 @@ async def get_registration_info(
                 return RegistrationInfo(app="biocommons")
             return RegistrationInfo(app=user.app_metadata.registration_from)
     return RegistrationInfo(app="biocommons")
+
+
+class AustralianResearchInstitutionResponse(BaseModel):
+    is_australian_research_institution: bool
+
+
+@router.get(
+    "/register/check-australian-research-institution",
+    response_model=AustralianResearchInstitutionResponse,
+)
+async def check_australian_research_institution(
+    email: Annotated[str, Query()],
+):
+    """
+    Check whether the email domain belongs to an Australian Research Institution
+    as listed at https://site.usegalaxy.org.au/list-of-institutions.html.
+    """
+    return AustralianResearchInstitutionResponse(
+        is_australian_research_institution=await is_australian_research_institution_email(email),
+    )
 
 
 class SendWelcomeEmailRequest(BaseModel):

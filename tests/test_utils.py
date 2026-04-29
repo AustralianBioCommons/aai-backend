@@ -1,10 +1,14 @@
+import httpx
 import pytest
+import respx
+from httpx import Response
 from sqlmodel import select
 
 from auth0.client import get_auth0_client
 from db.models import EmailNotification
 from main import app
 from routers import utils
+from services.institutions import GALAXY_AU_VALIDATE_URL
 from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
 
 
@@ -156,6 +160,57 @@ def test_send_welcome_email_returns_404_when_user_not_verified(override_auth0_cl
     assert resp.status_code == 404
     queued = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued) == 0
+
+
+# --- /utils/register/check-australian-research-institution endpoint tests ---
+
+@respx.mock
+def test_check_australian_research_institution_valid(test_client):
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(200, json={"valid": True}))
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "researcher@sydney.edu.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": True}
+
+
+@respx.mock
+def test_check_australian_research_institution_invalid(test_client):
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(200, json={"valid": False}))
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "user@gmail.com"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": False}
+
+
+@respx.mock
+def test_check_australian_research_institution_upstream_error_returns_false(test_client):
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(500))
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "researcher@sydney.edu.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": False}
+
+
+@respx.mock
+def test_check_australian_research_institution_upstream_timeout_returns_false(test_client):
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(side_effect=httpx.TimeoutException("timeout"))
+    resp = test_client.get(
+        "/utils/register/check-australian-research-institution",
+        params={"email": "researcher@sydney.edu.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"is_australian_research_institution": False}
+
+
+def test_check_australian_research_institution_missing_email(test_client):
+    resp = test_client.get("/utils/register/check-australian-research-institution")
+    assert resp.status_code == 422
 
 
 def test_send_welcome_email_suppresses_duplicate(override_auth0_client, test_client, test_db_session):
