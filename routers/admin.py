@@ -1247,7 +1247,6 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
 def reject_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RejectServiceRequest,
-                            client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                             db_session: Annotated[Session, Depends(get_db_session)],
                             settings: Annotated[Settings, Depends(get_settings)]):
@@ -1269,19 +1268,9 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         commit=False,
     )
     if group_id == GroupEnum.TSI.value and membership.user and membership.user.email:
-        first_name = "there"
-        try:
-            auth0_user = client.get_user(membership.user.id)
-            first_name = format_first_name(
-                full_name=auth0_user.name,
-                given_name=auth0_user.given_name,
-                fallback="there",
-            )
-        except Exception:
-            pass
         subject, body_html = compose_group_membership_rejected_email(
             group_name=group_record.name,
-            first_name=first_name,
+            username=membership.user.username,
             settings=settings,
         )
         enqueue_email(
