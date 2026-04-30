@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.3.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.2.0...v1.3.0) (2026-04-30)
+
+
+### Features
+
+* add route to validate email if australian institute ([3f0ad99](https://github.com/AustralianBioCommons/aai-backend/commit/3f0ad99d701f65edb0aef0fc4dc1f469b7e42943))
+* add route to validate email if australian institute ([7b47337](https://github.com/AustralianBioCommons/aai-backend/commit/7b47337e092b587a15510f3a619ee538c759eae4))
+* add TSI bundle rejection email ([f834154](https://github.com/AustralianBioCommons/aai-backend/commit/f834154847a178016d438d5f59114bc3e6c45685))
+* add TSI bundle rejection email ([b6b3af5](https://github.com/AustralianBioCommons/aai-backend/commit/b6b3af52ca46b337f362fe4475572312128a3100))
+* send confirmation email to bundle requester ([2cb5152](https://github.com/AustralianBioCommons/aai-backend/commit/2cb515258bb3856b1258adbfad88b149a129504d))
+* Send confirmation email to bundle requester (AAI-785) ([cf4073a](https://github.com/AustralianBioCommons/aai-backend/commit/cf4073a318003cfc915c3251d0af1ab37eb221bd))
+* use galaxy instition/validate instead ([67aedfb](https://github.com/AustralianBioCommons/aai-backend/commit/67aedfb48c177858c4c69686aec9291937df2ec5))
+
+
+### Bug Fixes
+
+* lint ([6cad66f](https://github.com/AustralianBioCommons/aai-backend/commit/6cad66f4151abc81f45971946e77f1092aaa6a4e))
+* lint ([9666126](https://github.com/AustralianBioCommons/aai-backend/commit/9666126b683d8eda2311850e4dacf92b690a2076))
+* lint ([f704656](https://github.com/AustralianBioCommons/aai-backend/commit/f7046566659bf443171184a81c56b013fa9a7382))
+* make the rejection email only for TSI bundles ([0b51128](https://github.com/AustralianBioCommons/aai-backend/commit/0b511283873a69e71a57ab34bdba20cb2836bbfb))
+* polish TSI bundle rejection email content ([4643f5f](https://github.com/AustralianBioCommons/aai-backend/commit/4643f5f65abf98f5b957e4bf732771a94c65dc27))
+* polish TSI bundle rejection email content ([e339fd8](https://github.com/AustralianBioCommons/aai-backend/commit/e339fd8299932b0774a166993ad973b177c28380))
+* route name to not use register ([7304404](https://github.com/AustralianBioCommons/aai-backend/commit/73044040ff4dd13928d67eaf51f698f216eacad5))
+* undo uvlock changes ([494fd78](https://github.com/AustralianBioCommons/aai-backend/commit/494fd789e437f6460cb3fba9373496592ba2caa9))
+
+
+### Documentation
+
+* fix TSI bundle email wording ([ab2c59e](https://github.com/AustralianBioCommons/aai-backend/commit/ab2c59e611bf7f26262672f16879bce8b8bb3d02))
+* fix TSI bundle email wording ([a8480d4](https://github.com/AustralianBioCommons/aai-backend/commit/a8480d45be3ae24214190cfa727e71d8c837922c))
+
 ## [1.2.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.1.3...v1.2.0) (2026-04-07)
 
 
