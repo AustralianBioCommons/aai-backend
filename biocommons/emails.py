@@ -336,7 +336,7 @@ def compose_welcome_email(
 def compose_group_membership_rejected_email(
     *,
     group_name: str,
-    first_name: str,
+    username: str,
     settings: Settings,
 ) -> tuple[str, str]:
     """
@@ -345,28 +345,28 @@ def compose_group_membership_rejected_email(
     """
     portal_url = settings.aai_portal_url or ""
     safe_group_name = html.escape(group_name or "")
-    safe_first_name = html.escape(first_name or "")
-    subject = f"Your {group_name} Service Bundle request"
+    safe_username = html.escape(username or "")
+    subject = "Threatened Species Initiative service bundle request"
 
     _TSI_LINK = f'<a href="https://bioplatforms.com/project/threatened-species/" target="_blank" rel="noopener noreferrer" style="{_A}">Threatened Species Initiative</a>'
     body_content = f"""
-        <p style="{_P}">Dear {safe_first_name},</p>
+        <p style="{_P}">Dear {safe_username},</p>
         <p style="{_P}">Thank you for your interest in the {safe_group_name} Bundle.</p>
-        <p style="{_P}">The TSI Bundle available on the Australian BioCommons Access is only for members of the {_TSI_LINK} consortium.</p>
+        <p style="{_P}">The TSI Bundle available on BioCommons Access is only for members of the {_TSI_LINK} consortium.</p>
         <p style="{_P}">Members are collaborators who have projects supported through our request for partnership rounds. They can access datasets that are under embargo for the first 12 months following their generation.</p>
         <p style="{_P}">The {_TSI_LINK} is generating genomic resources that are made openly accessible to the community with the standard registration to the Bioplatforms Australia data portal (now Australian BioCommons Access). You do not need to apply to the TSI Bundle to obtain access to these open access genomics datasets. This is also the case for datasets of all other initiatives presented on the <a href="https://data.bioplatforms.com/all_projects" target="_blank" rel="noopener noreferrer" style="{_A}">Bioplatforms Data Portal</a>.</p>
-        <p style="{_P}">Similarly the access to various tools, including <a href="https://www.biocommons.org.au/fgenesh-plus-plus" target="_blank" rel="noopener noreferrer" style="{_A}">Fgenesh++</a>, can be obtained through <a href="https://site.usegalaxy.org.au/" target="_blank" rel="noopener noreferrer" style="{_A}">Galaxy Australia</a> without the need of the TSI Bundle:</p>
+        <p style="{_P}">Similarly, various tools - including <a href="https://www.biocommons.org.au/fgenesh-plus-plus" target="_blank" rel="noopener noreferrer" style="{_A}">FGenesh++</a> and AlphaFold, can be directly accessed through <a href="https://site.usegalaxy.org.au/" target="_blank" rel="noopener noreferrer" style="{_A}">Galaxy Australia</a> without the need of the TSI Bundle:</p>
         <ul style="margin: 0 0 12px; padding-left: 24px; text-align: left;">
-          <li style="font-size: 16px; line-height: 24px; color: #171717;"><a href="https://site.usegalaxy.org.au/request/access" target="_blank" rel="noopener noreferrer" style="{_A}">Galaxy Australia tool access request</a></li>
+          <li style="font-size: 16px; line-height: 24px; color: #171717;"><a href="https://site.usegalaxy.org.au/request/access" target="_blank" rel="noopener noreferrer" style="{_A}">Request access to specialist tools</a></li>
         </ul>
         <p style="{_P}">Please do not hesitate to reach out to us for any non registration related issues:</p>
         <ul style="margin: 0 0 12px; padding-left: 24px; text-align: left;">
           <li style="font-size: 16px; line-height: 24px; color: #171717;">Bioplatforms Australia Data Portal — <a href="mailto:help@bioplatforms.com" style="{_A}">help@bioplatforms.com</a></li>
-          <li style="font-size: 16px; line-height: 24px; color: #171717;"><a href="https://site.usegalaxy.org.au/request/" target="_blank" rel="noopener noreferrer" style="{_A}">Galaxy Australia Support</a></li>
+          <li style="font-size: 16px; line-height: 24px; color: #171717;">Galaxy Australia — <a href="https://site.usegalaxy.org.au/request/" target="_blank" rel="noopener noreferrer" style="{_A}">Galaxy Australia - Help and support</a></li>
           <li style="font-size: 16px; line-height: 24px; color: #171717;">TSI specific enquiries — <a href="mailto:smazard@bioplatforms.com" style="{_A}">smazard@bioplatforms.com</a></li>
         </ul>
         <p style="{_P_SIGN_OFF}">Thank you,</p>
-        <p style="{_P}">BioCommons Access team</p>
+        <p style="{_P}">BioCommons Access Team</p>
     """
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
