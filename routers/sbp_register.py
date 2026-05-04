@@ -8,7 +8,7 @@ from starlette.responses import JSONResponse, Response
 
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsUser, BiocommonsUserHistory, Platform, PlatformEnum
+from db.models import BiocommonsUser, BiocommonsUserHistory, PlatformEnum
 from db.setup import get_db_session
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
@@ -19,7 +19,6 @@ from schemas.responses import (
     RegistrationResponse,
 )
 from schemas.sbp import SBPRegistrationRequest
-from services.email_queue import enqueue_email
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -38,49 +37,6 @@ def validate_sbp_email_domain(email: str, settings: Settings) -> bool:
         return domain in allowed_domains_lower
     except EmailNotValidError:
         return False
-
-
-def compose_sbp_registration_email(registration: SBPRegistrationRequest, settings: Settings) -> tuple[str, str]:
-    """Compose the approval email for SBP admins."""
-    subject = "New Structural Biology Platform User Registration"
-
-    body_html = f"""
-        <p>A new user has registered for the Structural Biology Platform.</p>
-        <p><strong>User:</strong> {registration.first_name} {registration.last_name} ({registration.email})</p>
-        <p><strong>Username:</strong> {registration.username}</p>
-        <p><strong>Registration Reason:</strong> {registration.request_reason}</p>
-        <p>Please <a href='{settings.aai_portal_url}'>log into the AAI Admin Portal</a> to review and approve access.</p>
-    """
-
-    return subject, body_html
-
-
-def queue_sbp_admin_notifications(
-    registration: SBPRegistrationRequest,
-    db_session: Session,
-    auth0_client: Auth0Client,
-    settings: Settings,
-) -> None:
-    """Queue approval emails for SBP platform admins."""
-    sbp_platform = Platform.get_by_id(PlatformEnum.SBP, db_session)
-    if sbp_platform is None:
-        logger.warning("SBP platform not found; skipping admin notification email")
-        return
-
-    admin_emails = sbp_platform.get_admins(auth0_client=auth0_client)
-    if not admin_emails:
-        logger.info("No SBP platform admins found; skipping notification email")
-        return
-
-    subject, body_html = compose_sbp_registration_email(registration, settings)
-    for email in admin_emails:
-        enqueue_email(
-            db_session,
-            to_address=email,
-            subject=subject,
-            body_html=body_html,
-            settings=settings,
-        )
 
 
 @router.post(
@@ -137,17 +93,9 @@ async def register_sbp_user(
             session=db_session,
             request_reason=registration.request_reason,
         )
-
-        # Queue approval email for SBP platform admins
-        queue_sbp_admin_notifications(
-            registration=registration,
-            db_session=db_session,
-            auth0_client=auth0_client,
-            settings=settings,
-        )
         db_session.commit()
 
-        return {"message": "User registered successfully. Approval pending.", "user": auth0_user_data.model_dump(mode="json")}
+        return {"message": "User registered successfully.", "user": auth0_user_data.model_dump(mode="json")}
 
     # Return HTTP status errors as RegistrationErrorResponse
     except HTTPStatusError as e:
@@ -197,7 +145,7 @@ def _create_sbp_user_record(
         platform=PlatformEnum.SBP,
         db_session=session,
         auth0_client=auth0_client,
-        auto_approve=False,
+        auto_approve=True,
         request_reason=request_reason,
     )
     session.add(db_user)

@@ -5,17 +5,14 @@ from sqlmodel import select
 from db.models import (
     BiocommonsUser,
     BiocommonsUserHistory,
-    EmailNotification,
     PlatformEnum,
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from db.types import EmailStatusEnum
 from routers.sbp_register import validate_sbp_email_domain
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
     Auth0UserDataFactory,
-    RoleUserDataFactory,
     SBPRegistrationDataFactory,
     random_auth0_id,
 )
@@ -95,19 +92,11 @@ def test_successful_registration(
         email=valid_registration_data["email"],
         username=valid_registration_data["username"]
     )
-    admin_user = RoleUserDataFactory.build(email="sbp.admin@example.com")
-
-    def _get_all_role_users(*, role_id):
-        if role_id == sbp_platform.admin_roles[0].id:
-            return [admin_user]
-        raise AssertionError(f"Unexpected role id {role_id}")
-
-    mock_auth0_client.get_all_role_users.side_effect = _get_all_role_users
 
     response = test_client.post("/sbp/register", json=valid_registration_data)
 
     assert response.status_code == 200
-    assert "Approval pending" in response.json()["message"]
+    assert response.json()["message"] == "User registered successfully."
 
     user = test_db_session.get(BiocommonsUser, user_id)
     assert user is not None
@@ -121,7 +110,7 @@ def test_successful_registration(
         )
     ).first()
     assert membership is not None
-    assert membership.approval_status == "pending"
+    assert membership.approval_status == "approved"
 
     history = test_db_session.exec(
         select(PlatformMembershipHistory).where(
@@ -130,15 +119,14 @@ def test_successful_registration(
         )
     ).first()
     assert history is not None
-    assert history.approval_status == "pending"
+    assert history.approval_status == "approved"
 
     called_data = mock_auth0_client.create_user.call_args[0][0]
     assert called_data.user_metadata.sbp.registration_reason == valid_registration_data["request_reason"]
     assert called_data.app_metadata.registration_from == "sbp"
-    queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 1
-    assert queued_emails[0].to_address == admin_user.email
-    assert queued_emails[0].status == EmailStatusEnum.PENDING
+
+    # Auth0 role should be granted immediately on registration
+    assert mock_auth0_client.add_roles_to_user.called
 
 
 def test_registration_duplicate_user(
