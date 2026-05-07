@@ -20,7 +20,12 @@ from db.models import (
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from main import app
-from routers.admin import GROUP_MAPPING, PLATFORM_MAPPING, PaginationParams, UserQueryParams
+from routers.admin import (
+    GROUP_MAPPING,
+    PLATFORM_MAPPING,
+    PaginationParams,
+    UserQueryParams,
+)
 from schemas.biocommons import Auth0Identity
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
