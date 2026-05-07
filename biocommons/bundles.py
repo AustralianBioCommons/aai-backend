@@ -65,4 +65,11 @@ BUNDLES: dict[BundleType, BiocommonsBundle] = {
         group_auto_approve=False,
         extra_platforms=[],
     ),
+    "sbp-bundle": BiocommonsBundle(
+        id="sbp-bundle",
+        group_id=GroupEnum.SBP,
+        # TODO: auto-approve based on domain?
+        group_auto_approve=False,
+        extra_platforms=[],
+    )
 }

@@ -27,6 +27,7 @@ from auth.user_permissions import (
     user_is_general_admin,
 )
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
+from biocommons.bundles import BundleType
 from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
@@ -71,8 +72,9 @@ PLATFORM_MAPPING = {
     "sbp": {"enum": PlatformEnum.SBP, "name": "Structural Biology Platform"},
 }
 
-GROUP_MAPPING = {
+GROUP_MAPPING: dict[BundleType, dict] = {
     "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative"},
+    "sbp-bundle": {"enum": GroupEnum.SBP, "name": "Structural Biology Platform Bundle"},
 }
 
 
