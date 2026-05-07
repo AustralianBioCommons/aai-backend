@@ -20,7 +20,7 @@ from db.models import (
 )
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from main import app
-from routers.admin import PaginationParams, UserQueryParams
+from routers.admin import GROUP_MAPPING, PLATFORM_MAPPING, PaginationParams, UserQueryParams
 from schemas.biocommons import Auth0Identity
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
@@ -107,6 +107,13 @@ def test_pagination_params_start_index():
     params = PaginationParams(page=2, per_page=10)
     # start index for page 1 is 0, for page 2 is 0 + per_page = 10
     assert params.start_index == 10
+
+
+def test_group_and_platform_mapping_ids_do_not_overlap():
+    assert PLATFORM_MAPPING.keys().isdisjoint(GROUP_MAPPING.keys()), (
+        "Admin platform and group mapping IDs must not overlap: "
+        f"{sorted(PLATFORM_MAPPING.keys() & GROUP_MAPPING.keys())}"
+    )
 
 
 def test_get_users_requires_admin_unauthorized(test_client, test_db_session):
@@ -453,7 +460,7 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
 
     options = resp.json()
     assert isinstance(options, list)
-    assert len(options) == 4
+    assert len(options) == 5
 
     for option in options:
         assert "id" in option
@@ -462,13 +469,14 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
         assert isinstance(option["name"], str)
 
     option_ids = {opt["id"] for opt in options}
-    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi"}
+    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "sbp-bundle"}
     assert option_ids == expected_ids
 
     option_dict = {opt["id"]: opt["name"] for opt in options}
     assert option_dict["galaxy"] == "Galaxy Australia"
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
     assert option_dict["sbp"] == "Structural Biology Platform"
+    assert option_dict["sbp-bundle"] == "Structural Biology Platform Bundle"
     assert option_dict["tsi"] == "Threatened Species Initiative"
 
 
