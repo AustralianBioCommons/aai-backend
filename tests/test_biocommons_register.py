@@ -59,6 +59,19 @@ def bpa_platform(persistent_factories):
 
 
 @pytest.fixture
+def sbp_platform(persistent_factories):
+    """
+    Set up an SBP platform with the associated platform role
+    """
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
+    return PlatformFactory.create_sync(
+        id=PlatformEnum.SBP,
+        role_id=platform_role.id,
+        name="Structural Biology Platform",
+    )
+
+
+@pytest.fixture
 def tsi_group(persistent_factories):
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     return BiocommonsGroupFactory.create_sync(
@@ -150,7 +163,7 @@ def test_biocommons_registration_tsi_bundle():
 
 
 
-def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, persistent_factories):
+def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
     """Test database record creation for tsi bundle"""
     from db.models import PlatformEnum
 
@@ -180,10 +193,11 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
     assert group_membership.group_id == "biocommons/group/tsi"
     assert group_membership.approval_status.value == "pending"
 
-    assert len(user.platform_memberships) == 2
+    assert len(user.platform_memberships) == 3
     platform_ids = {pm.platform_id for pm in user.platform_memberships}
     assert PlatformEnum.BPA_DATA_PORTAL in platform_ids
     assert PlatformEnum.GALAXY in platform_ids
+    assert PlatformEnum.SBP in platform_ids
 
 
 def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_platform, bpa_platform, persistent_factories):
@@ -212,7 +226,7 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
         bundle.create_memberships(user, mock_auth0_client, test_db_session)
 
 
-def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, persistent_factories):
+def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
     """Test that user is assigned to group when group exists"""
     registration = BiocommonsRegistrationRequest(
         first_name="Test",
@@ -268,6 +282,7 @@ def test_successful_biocommons_registration_endpoint(
     tsi_group,
     galaxy_platform,
     bpa_platform,
+    sbp_platform,
     test_db_session,
     mock_recaptcha_verify,
 ):
@@ -307,10 +322,11 @@ def test_successful_biocommons_registration_endpoint(
     assert len(db_user.group_memberships) == 1
     assert db_user.group_memberships[0].group_id == "biocommons/group/tsi"
 
-    assert len(db_user.platform_memberships) == 2
+    assert len(db_user.platform_memberships) == 3
     platform_ids = {pm.platform_id for pm in db_user.platform_memberships}
     assert PlatformEnum.BPA_DATA_PORTAL in platform_ids
     assert PlatformEnum.GALAXY in platform_ids
+    assert PlatformEnum.SBP in platform_ids
 
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued_emails) == 2
@@ -529,7 +545,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
     assert response.json()["detail"] == "Internal server error"
 
 
-def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, mock_auth0_client, mock_recaptcha_verify,):
+def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, sbp_platform, mock_auth0_client, mock_recaptcha_verify,):
     """Test database record creation when no bundle is selected"""
     registration = BiocommonsRegistrationRequest(
         first_name="No",

@@ -5,4 +5,5 @@ from db.types import PlatformEnum
 DEFAULT_PLATFORMS: list[PlatformEnum] = [
     PlatformEnum.BPA_DATA_PORTAL,
     PlatformEnum.GALAXY,
+    PlatformEnum.SBP,
 ]
