@@ -645,6 +645,24 @@ async def test_populate_db_groups_only_adds_missing(test_db_session, mocker, moc
 
 
 @pytest.mark.asyncio
+async def test_populate_db_groups_adds_sbp_with_expected_metadata(
+    test_db_session, mocker, mock_settings, persistent_factories
+):
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+
+    await populate_db_groups()
+
+    sbp_group = test_db_session.get(BiocommonsGroup, "biocommons/group/sbp_bundle")
+    assert sbp_group is not None
+    assert sbp_group.name == "Structural Biology Platform Bundle"
+    assert sbp_group.short_name == "SBP"
+
+
+@pytest.mark.asyncio
 async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings, persistent_factories):
     """
     User-role assignments from Auth0 are mirrored in the database and stale assignments are soft deleted.

@@ -78,10 +78,12 @@ class GroupMembershipData(BaseModel):
 
 class GroupEnum(str, Enum):
     TSI = "biocommons/group/tsi"
+    SBP = "biocommons/group/sbp_bundle"
 
 
 # Provide default group names so we can populate the DB easily
 #   - should use the DB values when looking them up though
 GROUP_NAMES: dict[GroupEnum, tuple[str, str]] = {
     GroupEnum.TSI: ("Threatened Species Initiative", "TSI"),
+    GroupEnum.SBP: ("Structural Biology Platform Bundle", "SBP"),
 }
