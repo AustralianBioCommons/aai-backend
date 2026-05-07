@@ -11,7 +11,7 @@ from db.types import GroupEnum, PlatformEnum
 logger = getLogger(__name__)
 
 # All new bundles should be added here
-BundleType = Literal["tsi", "sbp"]
+BundleType = Literal["tsi", "sbp-bundle"]
 
 
 class BiocommonsBundle(BaseModel):
