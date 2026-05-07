@@ -24,9 +24,9 @@ def test_sbp_group_migration_creates_expected_group(tmp_path, mocker):
     )
     try:
         with Session(engine) as session:
-            group = session.get(BiocommonsGroup, "biocommons/group/sbp-bundle")
+            group = session.get(BiocommonsGroup, "biocommons/group/sbp_bundle")
             assert group is not None
-            assert group.group_id == "biocommons/group/sbp-bundle"
+            assert group.group_id == "biocommons/group/sbp_bundle"
             assert group.name == "Structural Biology Platform Bundle"
             assert group.short_name == "SBP"
             assert group.is_deleted is False

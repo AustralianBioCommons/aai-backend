@@ -78,7 +78,7 @@ class GroupMembershipData(BaseModel):
 
 class GroupEnum(str, Enum):
     TSI = "biocommons/group/tsi"
-    SBP = "biocommons/group/sbp-bundle"
+    SBP = "biocommons/group/sbp_bundle"
 
 
 # Provide default group names so we can populate the DB easily

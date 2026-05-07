@@ -474,14 +474,14 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
         assert isinstance(option["name"], str)
 
     option_ids = {opt["id"] for opt in options}
-    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "sbp-bundle"}
+    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "sbp_bundle"}
     assert option_ids == expected_ids
 
     option_dict = {opt["id"]: opt["name"] for opt in options}
     assert option_dict["galaxy"] == "Galaxy Australia"
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
     assert option_dict["sbp"] == "Structural Biology Platform"
-    assert option_dict["sbp-bundle"] == "Structural Biology Platform Bundle"
+    assert option_dict["sbp_bundle"] == "Structural Biology Platform Bundle"
     assert option_dict["tsi"] == "Threatened Species Initiative"
 
 
