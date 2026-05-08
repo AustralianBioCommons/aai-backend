@@ -371,6 +371,31 @@ def compose_group_membership_rejected_email(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
+def compose_group_membership_rejected_generic_email(
+    *,
+    group_name: str,
+    username: str,
+    settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their group/bundle access request was rejected.
+    Generic version for non-TSI groups.
+    """
+    portal_url = settings.aai_portal_url or ""
+    safe_group_name = html.escape(group_name or "")
+    safe_username = html.escape(username or "")
+    subject = f"{group_name} service bundle request"
+    body_content = f"""
+        <p style="{_P}">Dear {safe_username},</p>
+        <p style="{_P}">Thank you for your interest in the {safe_group_name} Bundle.</p>
+        <p style="{_P}">Unfortunately, your request for access has not been approved at this time.</p>
+        <p style="{_P}">If you have any questions, please <a href="https://biocommonsaccess.freshdesk.com/support/home" target="_blank" rel="noopener noreferrer" style="{_A}">contact support</a>.</p>
+        <p style="{_P_SIGN_OFF}">Thank you,</p>
+        <p style="{_P}">BioCommons Access Team</p>
+    """
+    return subject, _wrap_email_html(subject, subject, body_content, portal_url)
+
+
 def compose_bundle_request_confirmation_email(
     *,
     first_name: str,
