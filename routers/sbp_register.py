@@ -10,8 +10,8 @@ from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES
 from config import Settings, get_settings
 from db.models import BiocommonsUser, BiocommonsUserHistory
-from db.types import PlatformEnum
 from db.setup import get_db_session
+from db.types import PlatformEnum
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
