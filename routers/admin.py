@@ -32,7 +32,6 @@ from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
     compose_group_membership_rejected_email,
-    compose_group_membership_rejected_generic_email,
     compose_username_change_notification,
     format_first_name,
 )
@@ -1270,19 +1269,12 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         session=db_session,
         commit=False,
     )
-    if membership.user and membership.user.email:
-        if group_id == GroupEnum.TSI.value:
-            subject, body_html = compose_group_membership_rejected_email(
-                group_name=group_record.name,
-                username=membership.user.username,
-                settings=settings,
-            )
-        else:
-            subject, body_html = compose_group_membership_rejected_generic_email(
-                group_name=group_record.name,
-                username=membership.user.username,
-                settings=settings,
-            )
+    if membership.user and membership.user.email and group_id == GroupEnum.TSI.value:
+        subject, body_html = compose_group_membership_rejected_email(
+            group_name=group_record.name,
+            username=membership.user.username,
+            settings=settings,
+        )
         enqueue_email(
             session=db_session,
             to_address=membership.user.email,
