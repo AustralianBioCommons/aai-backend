@@ -74,7 +74,7 @@ PLATFORM_MAPPING = {
 
 GROUP_MAPPING: dict[BundleType, dict] = {
     "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative"},
-    "sbp_bundle": {"enum": GroupEnum.SBP, "name": "Structural Biology Platform Bundle"},
+    "sbp_workflow_execution": {"enum": GroupEnum.SBP, "name": "Structural Biology Platform Bundle"},
 }
 
 
@@ -1269,7 +1269,7 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         session=db_session,
         commit=False,
     )
-    if group_id == GroupEnum.TSI.value and membership.user and membership.user.email:
+    if membership.user and membership.user.email and group_id == GroupEnum.TSI.value:
         subject, body_html = compose_group_membership_rejected_email(
             group_name=group_record.name,
             username=membership.user.username,

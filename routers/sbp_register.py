@@ -7,9 +7,11 @@ from sqlmodel import Session
 from starlette.responses import JSONResponse, Response
 
 from auth0.client import Auth0Client, get_auth0_client
+from biocommons.bundles import BUNDLES
 from config import Settings, get_settings
-from db.models import BiocommonsUser, BiocommonsUserHistory, PlatformEnum
+from db.models import BiocommonsUser, BiocommonsUserHistory
 from db.setup import get_db_session
+from db.types import PlatformEnum
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
@@ -141,14 +143,21 @@ def _create_sbp_user_record(
     request_reason: str | None = None,
 ) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=auth0_user_data)
+    session.add(db_user)
+    session.flush()
+    # Auto-approve SBP platform membership so the user can log into the platform immediately
     sbp_membership = db_user.add_platform_membership(
         platform=PlatformEnum.SBP,
         db_session=session,
         auth0_client=auth0_client,
         auto_approve=True,
+    )
+    session.add(sbp_membership)
+    BUNDLES["sbp_workflow_execution"].create_memberships(
+        user=db_user,
+        auth0_client=auth0_client,
+        db_session=session,
+        commit=False,
         request_reason=request_reason,
     )
-    session.add(db_user)
-    session.add(sbp_membership)
-    session.flush()
     return db_user

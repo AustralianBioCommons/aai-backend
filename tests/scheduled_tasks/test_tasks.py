@@ -656,7 +656,7 @@ async def test_populate_db_groups_adds_sbp_with_expected_metadata(
 
     await populate_db_groups()
 
-    sbp_group = test_db_session.get(BiocommonsGroup, "biocommons/group/sbp_bundle")
+    sbp_group = test_db_session.get(BiocommonsGroup, "biocommons/group/sbp_workflow_execution")
     assert sbp_group is not None
     assert sbp_group.name == "Structural Biology Platform Bundle"
     assert sbp_group.short_name == "SBP"
