@@ -70,6 +70,7 @@ logger = logging.getLogger('uvicorn.error')
 PLATFORM_MAPPING = {
     "galaxy": {"enum": PlatformEnum.GALAXY, "name": "Galaxy Australia"},
     "bpa_data_portal": {"enum": PlatformEnum.BPA_DATA_PORTAL, "name": "Bioplatforms Australia Data Portal"},
+    "sbp": {"enum": PlatformEnum.SBP, "name": "Structural Biology Platform"},
 }
 
 GROUP_MAPPING: dict[BundleType, dict] = {

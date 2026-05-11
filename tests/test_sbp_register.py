@@ -6,8 +6,9 @@ from db.models import (
     BiocommonsUser,
     BiocommonsUserHistory,
     GroupMembership,
+    PlatformMembership,
 )
-from db.types import ApprovalStatusEnum, GroupEnum
+from db.types import ApprovalStatusEnum, GroupEnum, PlatformEnum
 from routers.sbp_register import validate_sbp_email_domain
 from schemas.biocommons import BiocommonsRegisterData
 from tests.datagen import (
@@ -19,6 +20,7 @@ from tests.db.datagen import (
     Auth0RoleFactory,
     BiocommonsGroupFactory,
     BiocommonsUserFactory,
+    PlatformFactory,
 )
 
 
@@ -33,6 +35,19 @@ def valid_registration_data(mock_settings):
         request_reason="Need access to SBP resources",
         password="SecurePass123!",
     ).model_dump()
+
+
+@pytest.fixture
+def sbp_platform(persistent_factories):
+    """
+    Set up the SBP platform with the associated platform role
+    """
+    platform_role = Auth0RoleFactory.create_sync(name="biocommons/platform/sbp")
+    return PlatformFactory.create_sync(
+        id=PlatformEnum.SBP,
+        role_id=platform_role.id,
+        name="Structural Biology Platform",
+    )
 
 
 @pytest.fixture
@@ -86,7 +101,7 @@ def test_validate_sbp_email_domain_function():
 
 
 def test_successful_registration(
-    test_client, valid_registration_data, mock_auth0_client, sbp_group, test_db_session
+    test_client, valid_registration_data, mock_auth0_client, sbp_group, sbp_platform, test_db_session
 ):
     user_id = random_auth0_id()
     mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(
@@ -105,21 +120,31 @@ def test_successful_registration(
     assert user.email == valid_registration_data["email"]
     assert user.username == valid_registration_data["username"]
 
-    membership = test_db_session.exec(
+    group_membership = test_db_session.exec(
         select(GroupMembership).where(
             GroupMembership.user_id == user_id,
             GroupMembership.group_id == GroupEnum.SBP.value,
         )
     ).first()
-    assert membership is not None
-    assert membership.approval_status == ApprovalStatusEnum.PENDING
+    assert group_membership is not None
+    assert group_membership.approval_status == ApprovalStatusEnum.PENDING
+
+    # SBP platform membership is auto-approved at registration so the user can log into the platform
+    platform_membership = test_db_session.exec(
+        select(PlatformMembership).where(
+            PlatformMembership.user_id == user_id,
+            PlatformMembership.platform_id == PlatformEnum.SBP,
+        )
+    ).first()
+    assert platform_membership is not None
+    assert platform_membership.approval_status == ApprovalStatusEnum.APPROVED
 
     called_data = mock_auth0_client.create_user.call_args[0][0]
     assert called_data.user_metadata.sbp.registration_reason == valid_registration_data["request_reason"]
     assert called_data.app_metadata.registration_from == "sbp"
 
-    # Auth0 role should NOT be granted until admin approves
-    assert not mock_auth0_client.add_roles_to_user.called
+    # Auth0 platform role is granted immediately; bundle role is not granted until admin approves
+    assert mock_auth0_client.add_roles_to_user.call_count == 1
 
 
 def test_registration_duplicate_user(
