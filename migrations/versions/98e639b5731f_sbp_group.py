@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 import sqlmodel
 
-SBP_GROUP_ID = "biocommons/group/sbp_bundle"
+SBP_GROUP_ID = "biocommons/group/sbp_workflow_execution"
 SBP_NAME = "Structural Biology Platform Bundle"
 SBP_SHORT_NAME = "SBP"
 
