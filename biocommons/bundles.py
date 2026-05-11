@@ -11,7 +11,7 @@ from db.types import GroupEnum, PlatformEnum
 logger = getLogger(__name__)
 
 # All new bundles should be added here
-BundleType = Literal["tsi", "sbp_bundle"]
+BundleType = Literal["tsi", "sbp_workflow_execution"]
 
 
 class BiocommonsBundle(BaseModel):
@@ -65,8 +65,8 @@ BUNDLES: dict[BundleType, BiocommonsBundle] = {
         group_auto_approve=False,
         extra_platforms=[],
     ),
-    "sbp_bundle": BiocommonsBundle(
-        id="sbp_bundle",
+    "sbp_workflow_execution": BiocommonsBundle(
+        id="sbp_workflow_execution",
         group_id=GroupEnum.SBP,
         # TODO: auto-approve based on domain?
         group_auto_approve=False,

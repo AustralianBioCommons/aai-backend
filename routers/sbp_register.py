@@ -153,7 +153,7 @@ def _create_sbp_user_record(
         auto_approve=True,
     )
     session.add(sbp_membership)
-    BUNDLES["sbp_bundle"].create_memberships(
+    BUNDLES["sbp_workflow_execution"].create_memberships(
         user=db_user,
         auth0_client=auth0_client,
         db_session=session,

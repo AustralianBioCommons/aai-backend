@@ -74,7 +74,7 @@ PLATFORM_MAPPING = {
 
 GROUP_MAPPING: dict[BundleType, dict] = {
     "tsi": {"enum": GroupEnum.TSI, "name": "Threatened Species Initiative"},
-    "sbp_bundle": {"enum": GroupEnum.SBP, "name": "Structural Biology Platform Bundle"},
+    "sbp_workflow_execution": {"enum": GroupEnum.SBP, "name": "Structural Biology Platform Bundle"},
 }
 
 
