@@ -361,7 +361,6 @@ def test_biocommons_registration_name_formatting():
         email="john.doe@example.com",
         username="johndoe",
         password="StrongPass1!",
-        bundle="tsi",
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -474,7 +473,6 @@ def test_biocommons_registration_endpoint_multiple_bundles(
             {"bundle_id": "tsi", "reason": "TSI access"},
             {"bundle_id": "sbp_workflow_execution", "reason": "SBP access"},
         ],
-        "request_reason": "I need access to both bundles",
         "recaptcha_token": "mock-token",
     }
 
@@ -748,7 +746,7 @@ def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_pl
         email="no.bundle@example.com",
         username="no_bundle",
         password="StrongPass1!",
-        bundle=None,
+        bundles=None,
         recaptcha_token="mock-token",
     )
 
