@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 import respx
 from httpx import Response
@@ -7,8 +9,8 @@ from starlette.exceptions import HTTPException
 from biocommons.bundles import BUNDLES
 from biocommons.default import DEFAULT_PLATFORMS
 from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
-from db.types import EmailStatusEnum, PlatformEnum
-from routers.biocommons_register import create_user_in_db
+from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
+from routers.biocommons_register import check_sbp_email_domain, create_user_in_db
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from tests.datagen import (
@@ -78,6 +80,17 @@ def tsi_group(persistent_factories):
         group_id="biocommons/group/tsi",
         name="Threatened Species Initiative",
         short_name="TSI",
+        admin_roles=[admin_role],
+    )
+
+
+@pytest.fixture
+def sbp_group(persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/sbp_workflow_execution/admin")
+    return BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.SBP.value,
+        name="Structural Biology Platform Bundle",
+        short_name="SBP",
         admin_roles=[admin_role],
     )
 
@@ -159,6 +172,85 @@ def test_biocommons_registration_tsi_bundle():
     assert dumped["app_metadata"]["registration_from"] == "biocommons"
     assert dumped["app_metadata"].get("groups", []) == []
     assert dumped["app_metadata"].get("services", []) == []
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_skips_check_without_bundles(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="No",
+        last_name="Bundle",
+        email="no.bundle@example.com",
+        username="no_bundle",
+        password="StrongPass1!",
+        bundles=None,
+    )
+
+    assert await check_sbp_email_domain(registration) is True
+    institution_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_skips_check_without_sbp_bundle(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="TSI",
+        last_name="User",
+        email="tsi.user@example.com",
+        username="tsi_user",
+        password="StrongPass1!",
+        bundles=[BundleRequest(bundle_id="tsi", reason="TSI access")],
+    )
+
+    assert await check_sbp_email_domain(registration) is True
+    institution_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_checks_sbp_bundle(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="SBP",
+        last_name="User",
+        email="sbp.user@unimelb.edu.au",
+        username="sbp_user",
+        password="StrongPass1!",
+        bundles=[BundleRequest(bundle_id="sbp_workflow_execution", reason="SBP access")],
+    )
+
+    assert await check_sbp_email_domain(registration) is True
+    institution_check.assert_awaited_once_with("sbp.user@unimelb.edu.au")
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_returns_false_when_sbp_domain_check_fails(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="SBP",
+        last_name="User",
+        email="sbp.user@example.com",
+        username="sbp_user",
+        password="StrongPass1!",
+        bundles=[
+            BundleRequest(bundle_id="tsi", reason="TSI access"),
+            BundleRequest(bundle_id="sbp_workflow_execution", reason="SBP access"),
+        ],
+    )
+
+    assert await check_sbp_email_domain(registration) is False
+    institution_check.assert_awaited_once_with("sbp.user@example.com")
 
 
 
@@ -340,6 +432,109 @@ def test_successful_biocommons_registration_endpoint(
 
     user_email = emails_by_address[str(auth0_data.email)]
     assert user_email.subject == "Your Threatened Species Initiative Service Bundle request has been received"
+
+
+def test_biocommons_registration_endpoint_multiple_bundles(
+    test_client_with_email,
+    mock_auth0_client,
+    tsi_group,
+    sbp_group,
+    galaxy_platform,
+    bpa_platform,
+    sbp_platform,
+    test_db_session,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test BioCommons registration can request multiple bundles at once."""
+    auth0_data = Auth0UserDataFactory.build(
+        email="researcher@unimelb.edu.au",
+        username="multi_bundle_user",
+        name="Multi Bundle",
+    )
+    mock_auth0_client.create_user.return_value = auth0_data
+    admin_stub = RoleUserDataFactory.build(email="tsi.admin@example.com")
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=admin_stub.user_id,
+        email=admin_stub.email,
+    )
+    domain_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+
+    registration_data = {
+        "first_name": "Multi",
+        "last_name": "Bundle",
+        "email": auth0_data.email,
+        "username": auth0_data.username,
+        "password": "StrongPass1!",
+        "bundles": [
+            {"bundle_id": "tsi", "reason": "TSI access"},
+            {"bundle_id": "sbp_workflow_execution", "reason": "SBP access"},
+        ],
+        "request_reason": "I need access to both bundles",
+        "recaptcha_token": "mock-token",
+    }
+
+    response = test_client_with_email.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 200
+    domain_check.assert_awaited_once_with(auth0_data.email)
+
+    db_user = test_db_session.get(BiocommonsUser, auth0_data.user_id)
+    assert db_user is not None
+    group_memberships = {membership.group_id: membership for membership in db_user.group_memberships}
+    assert set(group_memberships) == {GroupEnum.TSI.value, GroupEnum.SBP.value}
+    assert group_memberships[GroupEnum.TSI.value].approval_status == ApprovalStatusEnum.PENDING
+    assert group_memberships[GroupEnum.SBP.value].approval_status == ApprovalStatusEnum.APPROVED
+
+    assert len(db_user.platform_memberships) == 3
+    platform_ids = {pm.platform_id for pm in db_user.platform_memberships}
+    assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 2
+    assert {email.to_address for email in queued_emails} == {admin_stub.email, str(auth0_data.email)}
+
+
+def test_biocommons_registration_endpoint_sbp_rejects_non_institutional_email(
+    test_client,
+    mock_auth0_client,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test SBP workflow registration checks the email domain before creating a user."""
+    domain_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+
+    registration_data = {
+        "first_name": "External",
+        "last_name": "User",
+        "email": "external@example.com",
+        "username": "external_user",
+        "password": "StrongPass1!",
+        "bundles": [{"bundle_id": "sbp_workflow_execution", "reason": "SBP access"}],
+        "recaptcha_token": "mock-token",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "message": "SBP workflow execution requires an Australian institutional email address.",
+        "field_errors": [
+            {
+                "field": "email",
+                "message": "Please use an Australian institutional email address if applying for SBP workflow execution access.",
+            }
+        ],
+    }
+    domain_check.assert_awaited_once_with("external@example.com")
+    assert mock_auth0_client.create_user.call_count == 0
 
 
 @respx.mock
