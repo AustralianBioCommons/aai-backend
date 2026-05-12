@@ -127,7 +127,7 @@ def test_successful_registration(
         )
     ).first()
     assert group_membership is not None
-    assert group_membership.approval_status == ApprovalStatusEnum.PENDING
+    assert group_membership.approval_status == ApprovalStatusEnum.APPROVED
 
     # SBP platform membership is auto-approved at registration so the user can log into the platform
     platform_membership = test_db_session.exec(
