@@ -548,7 +548,7 @@ def test_biocommons_registration_endpoint_failed_recaptcha(
         "email": "test@example.com",
         "username": "test_user",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
     route = respx.post("https://www.google.com/recaptcha/api/siteverify")
@@ -574,7 +574,7 @@ def test_biocommons_registration_endpoint_missing_recaptcha(
         "email": "test@example.com",
         "username": "test_user",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": None,
     }
     route = respx.post("https://www.google.com/recaptcha/api/siteverify")
@@ -610,7 +610,7 @@ def test_biocommons_registration_auth0_conflict_error(
         "email": "existing@example.com",
         "username": "existinguser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -645,7 +645,7 @@ def test_biocommons_registration_username_history_conflict(
         "email": "new@example.com",
         "username": "historyuser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -678,7 +678,7 @@ def test_biocommons_registration_email_conflict_error(
         "email": "existing@example.com",
         "username": "newuser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -710,7 +710,7 @@ def test_biocommons_registration_both_conflict_error(
         "email": "existing@example.com",
         "username": "existinguser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -728,7 +728,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
         "email": "test@example.com",
         "username": "testuser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
