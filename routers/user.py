@@ -336,6 +336,7 @@ def request_group_access(
         membership.approval_status = ApprovalStatusEnum.PENDING
         membership.rejection_reason = None
         membership.request_reason = request_data.request_reason
+        membership.requested_at = datetime.now(timezone.utc)
         membership.updated_by = None
         membership.updated_at = datetime.now(timezone.utc)
         membership.save(session=db_session, commit=False)

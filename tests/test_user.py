@@ -398,6 +398,7 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
     assert membership.request_reason == "Need access for research"
+    assert membership.requested_at is not None
     history = GroupMembershipHistory.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert len(history) == 1
     assert history[0].approval_status == "pending"
@@ -452,6 +453,7 @@ def test_request_group_membership_after_rejection(
     assert membership.approval_status == ApprovalStatusEnum.PENDING
     assert membership.rejection_reason is None
     assert membership.request_reason == "Resubmitting after addressing feedback"
+    assert membership.requested_at is not None
     assert membership.updated_by is None
 
     history = GroupMembershipHistory.get_by_user_id_and_group_id(
