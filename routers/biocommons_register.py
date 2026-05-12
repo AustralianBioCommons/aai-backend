@@ -200,7 +200,7 @@ async def check_sbp_email_domain(registration: BiocommonsRegistrationRequest) ->
     Return false if the email domain is not allowed.
     """
     if registration.bundles is not None:
-        has_sbp_bundle = any(bundle.bundle_id == "sbp" for bundle in registration.bundles)
+        has_sbp_bundle = any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
         if has_sbp_bundle:
             is_institute = await is_australian_research_institution_email(registration.email)
             return is_institute
@@ -237,8 +237,10 @@ async def register_biocommons_user(
         return RegistrationErrorResponse(
             message="SBP workflow execution requires an Australian institutional email address.",
             field_errors=[
-                FieldError(field="email",
-                           message="Please use an Australian institutional email address if applying for SBP workflow execution access.")
+                FieldError(
+                    field="email",
+                    message="Please use an Australian institutional email address if applying for SBP workflow execution access."
+                )
             ]
         )
 
