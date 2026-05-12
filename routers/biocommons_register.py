@@ -22,7 +22,7 @@ from register.tokens import validate_recaptcha
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
-from schemas.biocommons_register import BiocommonsRegistrationRequest
+from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from schemas.responses import (
     FieldError,
     RegistrationErrorResponse,
@@ -41,7 +41,7 @@ router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], ro
 
 
 def create_user_in_db(user_data: Auth0UserData,
-                      bundle: Optional[BiocommonsBundle],
+                      bundles: Optional[list[BundleRequest]],
                       session: Session,
                       auth0_client: Auth0Client,
                       request_reason: Optional[str] = None,
@@ -57,15 +57,17 @@ def create_user_in_db(user_data: Auth0UserData,
             auto_approve=True
         )
 
-    if bundle is not None:
-        logger.info(f"Adding group/platform memberships for bundle: {bundle}")
-        bundle.create_memberships(
-            user=db_user,
-            auth0_client=auth0_client,
-            db_session=session,
-            commit=False,
-            request_reason=request_reason,
-        )
+    if bundles is not None:
+        for bundle_request in bundles:
+            bundle = BUNDLES[bundle_request.bundle_id]
+            logger.info(f"Adding group/platform memberships for bundle: {bundle}")
+            bundle.create_memberships(
+                user=db_user,
+                auth0_client=auth0_client,
+                db_session=session,
+                commit=False,
+                request_reason=request_reason,
+            )
 
     session.flush()
     if commit:
@@ -232,31 +234,34 @@ async def register_biocommons_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        bundle = BUNDLES.get(registration.bundle)
         db_user = create_user_in_db(
             user_data=auth0_user_data,
-            bundle=bundle,
+            bundles=registration.bundles,
             session=db_session,
             auth0_client=auth0_client,
             request_reason=registration.request_reason,
         )
 
-        if bundle is not None:
-            _notify_bundle_group_admins(
-                bundle=bundle,
-                user=db_user,
-                auth0_client=auth0_client,
-                db_session=db_session,
-                settings=settings,
-            )
-            _notify_bundle_requester(
-                bundle=bundle,
-                user=db_user,
-                auth0_user_data=auth0_user_data,
-                db_session=db_session,
-                settings=settings,
-                request_reason=registration.request_reason,
-            )
+        if registration.bundles is not None:
+            for bundle_request in registration.bundles:
+                bundle = BUNDLES[bundle_request.bundle_id]
+                if bundle.group_auto_approve:
+                    continue
+                _notify_bundle_group_admins(
+                    bundle=bundle,
+                    user=db_user,
+                    auth0_client=auth0_client,
+                    db_session=db_session,
+                    settings=settings,
+                )
+                _notify_bundle_requester(
+                    bundle=bundle,
+                    user=db_user,
+                    auth0_user_data=auth0_user_data,
+                    db_session=db_session,
+                    settings=settings,
+                    request_reason=registration.request_reason,
+                )
 
         db_session.commit()
 
