@@ -349,6 +349,7 @@ def request_group_access(
             approval_status=ApprovalStatusEnum.PENDING,
             updated_by=None,
             request_reason=request_data.request_reason,
+            requested_at=datetime.now(timezone.utc),
         )
         membership.save(session=db_session, commit=False)
         logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
