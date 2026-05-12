@@ -10,7 +10,7 @@ from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
 from db.types import EmailStatusEnum, PlatformEnum
 from routers.biocommons_register import create_user_in_db
 from schemas.biocommons import BiocommonsRegisterData
-from schemas.biocommons_register import BiocommonsRegistrationRequest
+from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegistrationRequestFactory,
@@ -90,7 +90,7 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
         email="test@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=[BundleRequest(bundle_id="tsi", reason="Test reason")],
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -115,14 +115,14 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
 
 
 def test_biocommons_registration_data_no_bundle():
-    """Test that registration data is valid when bundle is None"""
+    """Test that registration data is valid when bundles is None"""
     req = BiocommonsRegistrationRequest(
         first_name="Test",
         last_name="User",
         email="test@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle=None,
+        bundles=None,
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -149,7 +149,7 @@ def test_biocommons_registration_tsi_bundle():
         email="tsi@example.com",
         username="tsiuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=[BundleRequest(bundle_id="tsi", reason="Test reason")],
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -167,13 +167,14 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
     """Test database record creation for tsi bundle"""
     from db.models import PlatformEnum
 
+    bundles = [BundleRequest(bundle_id="tsi", reason="Test reason")]
     registration = BiocommonsRegistrationRequest(
         first_name="TSI",
         last_name="User",
         email="tsi.user@example.com",
         username="tsiuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=bundles,
     )
 
     auth0_data = Auth0UserDataFactory.build(
@@ -182,8 +183,7 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
         name="TSI User",
         user_id="auth0|tsiuser123",
     )
-    bundle = BUNDLES[registration.bundle]
-    user = create_user_in_db(user_data=auth0_data, bundle=bundle, session=test_db_session, auth0_client=mock_auth0_client)
+    user = create_user_in_db(user_data=auth0_data, bundles=bundles, session=test_db_session, auth0_client=mock_auth0_client)
 
     assert user.username == "tsiuser"
     assert user.email == "tsi.user@example.com"
@@ -210,13 +210,13 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
         email="new.user@example.com",
         username="newuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=[BundleRequest(bundle_id="tsi", reason="Test reason")],
     )
 
     auth0_data = Auth0UserDataFactory.build(
         email="new.user@example.com", username="newuser", user_id="auth0|newuser123"
     )
-    bundle = BUNDLES[registration.bundle]
+    bundle = BUNDLES["tsi"]
     from db.models import BiocommonsUser
     user = BiocommonsUser.from_auth0_data(auth0_data)
 
@@ -228,20 +228,20 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
 
 def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
     """Test that user is assigned to group when group exists"""
+    bundles = [BundleRequest(bundle_id="tsi", reason="Test reason")]
     registration = BiocommonsRegistrationRequest(
         first_name="Test",
         last_name="User",
         email="test.user@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=bundles
     )
 
     auth0_data = Auth0UserDataFactory.build(
         email="test.user@example.com", username="testuser", user_id="auth0|testuser123"
     )
-    bundle = BUNDLES[registration.bundle]
-    user = create_user_in_db(user_data=auth0_data, bundle=bundle, session=test_db_session, auth0_client=mock_auth0_client)
+    user = create_user_in_db(user_data=auth0_data, bundles=bundles, session=test_db_session, auth0_client=mock_auth0_client)
 
     assert len(user.group_memberships) == 1
     assert user.group_memberships[0].group_id == tsi_group.group_id
@@ -257,7 +257,7 @@ def test_bundle_validation():
             email="test@example.com",
             username="test",
             password="StrongPass1!",
-            bundle="invalid-bundle",
+            bundles=[BundleRequest(bundle_id="invalid-bundle")],
         )
 
 
@@ -302,7 +302,7 @@ def test_successful_biocommons_registration_endpoint(
         "email": auth0_data.email,
         "username": auth0_data.username,
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
