@@ -69,7 +69,7 @@ BUNDLES: dict[BundleType, BiocommonsBundle] = {
         id="sbp_workflow_execution",
         group_id=GroupEnum.SBP,
         # TODO: auto-approve based on domain?
-        group_auto_approve=False,
+        group_auto_approve=True,
         extra_platforms=[],
     )
 }
