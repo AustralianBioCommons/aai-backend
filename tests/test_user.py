@@ -412,6 +412,41 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     assert f"Your {group.name} Service Bundle request has been received" in subjects
 
 
+def test_request_group_membership_checks_email_for_sbp(
+    test_client,
+    normal_user,
+    as_normal_user,
+    test_db_session,
+    persistent_factories,
+    mocker,
+):
+    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+    normal_user.access_token.email = "external@example.com"
+    institution_check = mocker.patch(
+        "routers.user.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+
+    resp = test_client.post(
+        "/me/groups/request",
+        json={
+            "group_id": group.group_id,
+            "request_reason": "Need SBP workflow access",
+        },
+    )
+
+    assert resp.status_code == HTTPStatus.FORBIDDEN
+    assert resp.json()["detail"] == "Only Australian research institutions can request access to SBP group"
+    institution_check.assert_awaited_once_with("external@example.com")
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert membership is None
+
+
 @respx.mock
 def test_request_group_membership_after_rejection(
         test_client_with_email,
