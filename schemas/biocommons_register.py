@@ -6,12 +6,17 @@ from biocommons.bundles import BundleType
 from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
 
 
+class BundleRequest(BaseModel):
+    bundle_id: BundleType
+    reason: Optional[str] = None
+
+
 class BiocommonsRegistrationRequest(BaseModel):
     first_name: str
     last_name: str
     email: EmailStr
     username: BiocommonsUsername
     password: BiocommonsPassword
-    bundle: Optional[BundleType] = None
+    bundles: Optional[list[BundleRequest]] = None
     request_reason: Optional[str] = None
     recaptcha_token: Optional[str] = None
