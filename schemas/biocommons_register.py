@@ -18,5 +18,4 @@ class BiocommonsRegistrationRequest(BaseModel):
     username: BiocommonsUsername
     password: BiocommonsPassword
     bundles: Optional[list[BundleRequest]] = None
-    request_reason: Optional[str] = None
     recaptcha_token: Optional[str] = None

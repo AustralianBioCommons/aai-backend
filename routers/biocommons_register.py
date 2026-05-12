@@ -45,7 +45,6 @@ def create_user_in_db(user_data: Auth0UserData,
                       bundles: Optional[list[BundleRequest]],
                       session: Session,
                       auth0_client: Auth0Client,
-                      request_reason: Optional[str] = None,
                       commit: bool = False) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=user_data)
     session.add(db_user)
@@ -67,7 +66,7 @@ def create_user_in_db(user_data: Auth0UserData,
                 auth0_client=auth0_client,
                 db_session=session,
                 commit=False,
-                request_reason=request_reason,
+                request_reason=bundle_request.reason,
             )
 
     session.flush()
@@ -267,7 +266,6 @@ async def register_biocommons_user(
             bundles=registration.bundles,
             session=db_session,
             auth0_client=auth0_client,
-            request_reason=registration.request_reason,
         )
 
         if registration.bundles is not None:
@@ -288,7 +286,7 @@ async def register_biocommons_user(
                     auth0_user_data=auth0_user_data,
                     db_session=db_session,
                     settings=settings,
-                    request_reason=registration.request_reason,
+                    request_reason=bundle_request.reason,
                 )
 
         db_session.commit()
