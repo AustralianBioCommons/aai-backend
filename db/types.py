@@ -67,10 +67,20 @@ class GroupMembershipData(BaseModel):
     revocation_reason: str | None = None
     rejection_reason: str | None = None
     request_reason: str | None = None
+    requested_at: AwareDatetime | None = None
 
     @field_validator("updated_at", mode="before")
     @classmethod
     def _ensure_tz_updated_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    @field_validator("requested_at", mode="before")
+    @classmethod
+    def _ensure_tz_requested_at(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value

@@ -295,6 +295,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             approval_status=ApprovalStatusEnum.APPROVED if auto_approve else ApprovalStatusEnum.PENDING,
             updated_by_id=None,
             request_reason=request_reason,
+            requested_at=datetime.now(timezone.utc) if not auto_approve else None,
         )
         db_session.add(membership)
         membership.save_history(db_session)
@@ -817,6 +818,11 @@ class GroupMembership(SoftDeleteModel, table=True):
         default=None,
         sa_column=Column(String(255), nullable=True)
     )
+    requested_at: AwareDatetime | None = Field(
+        default=None,
+        nullable=True,
+        sa_type=DateTime(timezone=True)
+    )
 
     @classmethod
     def get_by_user_id(
@@ -1039,6 +1045,7 @@ class GroupMembership(SoftDeleteModel, table=True):
             revocation_reason=self.revocation_reason,
             rejection_reason=self.rejection_reason,
             request_reason=self.request_reason,
+            requested_at=self.requested_at,
         )
 
     @property

@@ -10,7 +10,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from httpx import AsyncClient, HTTPStatusError
 from loguru import logger
-from pydantic import AliasPath, BaseModel, Field
+from pydantic import AliasPath, BaseModel, Field, AwareDatetime
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -45,6 +45,7 @@ from db.models import (
 )
 from db.setup import get_db_session
 from db.types import ApprovalStatusEnum, GroupEnum
+from dependencies.utils import request_time
 from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
@@ -321,6 +322,7 @@ def get_bundle_for_group_id(group_id: str) -> BiocommonsBundle | None:
 
 def _process_single_group_request(
     request_data: GroupRequest,
+    request_time: AwareDatetime,
     user: SessionUser,
     db_user: BiocommonsUser,
     auth0_client: Auth0Client,
@@ -370,8 +372,9 @@ def _process_single_group_request(
             "approval_status": new_approval_status,
             "rejection_reason": None,
             "request_reason": request_reason,
+            "requested_at": request_time,
             "updated_by": None,
-            "updated_at": datetime.now(timezone.utc),
+            "updated_at": request_time,
         })
         membership.save(session=db_session, commit=False)
         logger.info("Re-requested group membership for %s(%s)", group_id, user.access_token.sub)
@@ -384,6 +387,7 @@ def _process_single_group_request(
                 approval_status=ApprovalStatusEnum.APPROVED,
                 updated_by=None,
                 request_reason=None,
+                requested_at=request_time,
             )
             logger.info("Auto-approved group membership for %s(%s)", group_id, user.access_token.sub)
         else:
@@ -392,6 +396,7 @@ def _process_single_group_request(
                 user=db_user,
                 approval_status=ApprovalStatusEnum.PENDING,
                 updated_by=None,
+                requested_at=request_time,
                 request_reason=request_data.request_reason,
             )
             logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
@@ -467,6 +472,7 @@ def _process_single_group_request(
 @router.post("/groups/request")
 def request_group_access(
         request_data: GroupAccessRequestData,
+        request_time: Annotated[AwareDatetime, Depends(request_time)],
         user: Annotated[SessionUser, Depends(get_session_user)],
         db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
         auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -492,6 +498,7 @@ def request_group_access(
     for requested_group in request_data.groups:
         result = _process_single_group_request(
             request_data=requested_group,
+            request_time=request_time,
             user=user,
             db_user=db_user,
             auth0_client=auth0_client,
