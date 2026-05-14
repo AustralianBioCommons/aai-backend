@@ -409,57 +409,8 @@ def _process_single_group_request(
 
     if not bundle_info.group_auto_approve:
         logger.info("Queueing emails to group admins for approval")
-        admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
-        try:
-            requester_email, requester_full_name = get_requester_identity(
-                auth0_client=auth0_client,
-                user_id=user.access_token.sub,
-                fallback_email=membership.user.email,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to fetch Auth0 user data for %s; using fallback values: %s",
-                user.access_token.sub,
-                exc,
-            )
-            requester_email = membership.user.email
-            requester_full_name = requester_email or "Unknown user"
-        for email, admin_first_name in admin_contacts:
-            subject, body_html = compose_group_approval_email(
-                admin_first_name=admin_first_name,
-                bundle_name=membership.group.name,
-                requester_full_name=requester_full_name,
-                requester_email=requester_email or membership.user.email,
-                request_reason=membership.request_reason,
-                requester_user_id=membership.user_id,
-                settings=settings,
-            )
-            enqueue_email(
-                db_session,
-                to_address=email,
-                subject=subject,
-                body_html=body_html,
-                settings=settings,
-            )
-        if requester_email:
-            requester_first_name = format_first_name(
-                full_name=requester_full_name,
-                given_name=None,
-                fallback="there",
-            )
-            subject, body_html = compose_bundle_request_confirmation_email(
-                first_name=requester_first_name,
-                bundle_name=membership.group.name,
-                request_reason=membership.request_reason,
-                settings=settings,
-            )
-            enqueue_email(
-                db_session,
-                to_address=requester_email,
-                subject=subject,
-                body_html=body_html,
-                settings=settings,
-            )
+        send_group_request_emails(user=user, membership=membership, auth0_client=auth0_client,
+                                  db_session=db_session, settings=settings)
 
     if bundle_info.group_auto_approve:
         return GroupAccessRequestResult(
@@ -472,6 +423,67 @@ def _process_single_group_request(
         status="pending",
         message=f"Group membership for {group_id} requested successfully.",
     )
+
+
+def send_group_request_emails(user: SessionUser,
+                              membership: GroupMembership,
+                              auth0_client: Auth0Client,
+                              db_session: Session,
+                              settings: Settings) -> None:
+    """
+    Sends emails to group admins and the requester for a group membership request.
+    """
+    admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
+    try:
+        requester_email, requester_full_name = get_requester_identity(
+            auth0_client=auth0_client,
+            user_id=user.access_token.sub,
+            fallback_email=membership.user.email,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to fetch Auth0 user data for %s; using fallback values: %s",
+            user.access_token.sub,
+            exc,
+        )
+        requester_email = membership.user.email
+        requester_full_name = requester_email or "Unknown user"
+    for email, admin_first_name in admin_contacts:
+        subject, body_html = compose_group_approval_email(
+            admin_first_name=admin_first_name,
+            bundle_name=membership.group.name,
+            requester_full_name=requester_full_name,
+            requester_email=requester_email or membership.user.email,
+            request_reason=membership.request_reason,
+            requester_user_id=membership.user_id,
+            settings=settings,
+        )
+        enqueue_email(
+            db_session,
+            to_address=email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
+    if requester_email:
+        requester_first_name = format_first_name(
+            full_name=requester_full_name,
+            given_name=None,
+            fallback="there",
+        )
+        subject, body_html = compose_bundle_request_confirmation_email(
+            first_name=requester_first_name,
+            bundle_name=membership.group.name,
+            request_reason=membership.request_reason,
+            settings=settings,
+        )
+        enqueue_email(
+            db_session,
+            to_address=requester_email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
 
 
 @router.post("/groups/request")
