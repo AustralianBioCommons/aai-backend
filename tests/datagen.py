@@ -24,7 +24,6 @@ from schemas.biocommons import (
     BiocommonsRegisterData,
 )
 from schemas.biocommons_register import BiocommonsRegistrationRequest
-from schemas.sbp import SBPRegistrationRequest
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
@@ -122,13 +121,6 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
     username = BiocommonsProviders.biocommons_username
     # blocked = False by default
     blocked = False
-
-
-class SBPRegistrationDataFactory(ModelFactory[SBPRegistrationRequest]):
-    """Factory for generating SBP registration test data."""
-
-    password = BiocommonsProviders.biocommons_password
-    username = BiocommonsProviders.biocommons_username
 
 
 class AppMetadataFactory(ModelFactory[BiocommonsAppMetadata]): ...
