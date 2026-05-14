@@ -510,6 +510,7 @@ def test_request_group_membership_revoked_returns_conflict(
     test_client_with_email,
     normal_user,
     as_normal_user,
+    mock_auth0_client,
     test_db_session,
     persistent_factories,
 ):
@@ -664,6 +665,44 @@ def test_request_multiple_groups_fails_all_on_error(
         user_id=normal_user.access_token.sub, group_id=sbp_group.group_id, session=test_db_session
     )
     assert sbp_membership is None
+
+
+@respx.mock
+def test_request_non_bundle_group_membership(
+    test_client_with_email,
+    normal_user,
+    as_normal_user,
+    mock_auth0_client,
+    test_db_session,
+    persistent_factories,
+):
+    """Requesting a valid group that is not a configured bundle fails"""
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/custom/admin")
+    group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/custom",
+        admin_roles=[admin_role],
+    )
+    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+
+    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
+    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = admin_info
+
+    resp = test_client_with_email.post(
+        "/me/groups/request",
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Need custom access"}]},
+    )
+
+    assert resp.status_code == 404
+    print(resp.json())
+    assert resp.json()["detail"] == f'Group bundle with ID {group.group_id} not found'
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert membership is None
 
 
 def test_get_groups(test_client, test_db_session, mocker, persistent_factories):

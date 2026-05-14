@@ -335,6 +335,11 @@ def _process_single_group_request(
     """
     group_id = request_data.group_id
     bundle_info = get_bundle_for_group_id(group_id)
+    if bundle_info is None:
+        raise HTTPException(
+            status_code=http.HTTPStatus.NOT_FOUND,
+            detail=f"Group bundle with ID {group_id} not found",
+        )
 
     existing_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user.access_token.sub,
