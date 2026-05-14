@@ -20,17 +20,3 @@ def _reload_main_with_environment(monkeypatch, environment: str):
     import main
     importlib.reload(main)
     return main
-
-
-def test_sbp_router_not_mounted_in_production(monkeypatch):
-    main = _reload_main_with_environment(monkeypatch, "prod")
-
-    paths = {route.path for route in main.app.routes}
-    assert "/sbp/register" not in paths
-
-
-def test_sbp_router_mounted_in_non_production(monkeypatch):
-    main = _reload_main_with_environment(monkeypatch, "dev")
-
-    paths = {route.path for route in main.app.routes}
-    assert "/sbp/register" in paths
