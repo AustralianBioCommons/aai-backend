@@ -10,7 +10,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from httpx import AsyncClient, HTTPStatusError
 from loguru import logger
-from pydantic import AliasPath, BaseModel, Field, AwareDatetime
+from pydantic import AliasPath, AwareDatetime, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -23,7 +23,7 @@ from auth.user_permissions import get_db_user, get_session_user, user_is_general
 from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
-from biocommons.bundles import BiocommonsBundle, BUNDLES
+from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.emails import (
     compose_bundle_request_confirmation_email,
     compose_email_change_otp_email,

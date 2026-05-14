@@ -260,7 +260,7 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
     from db.models import PlatformEnum
 
     bundles = [BundleRequest(bundle_id="tsi", reason="Test reason")]
-    registration = BiocommonsRegistrationRequest(
+    BiocommonsRegistrationRequest(
         first_name="TSI",
         last_name="User",
         email="tsi.user@example.com",
@@ -296,7 +296,7 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
     """Test that registration fails when the required group doesn't exist"""
     import pytest
 
-    registration = BiocommonsRegistrationRequest(
+    BiocommonsRegistrationRequest(
         first_name="New",
         last_name="User",
         email="new.user@example.com",
@@ -321,7 +321,7 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
 def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
     """Test that user is assigned to group when group exists"""
     bundles = [BundleRequest(bundle_id="tsi", reason="Test reason")]
-    registration = BiocommonsRegistrationRequest(
+    BiocommonsRegistrationRequest(
         first_name="Test",
         last_name="User",
         email="test.user@example.com",

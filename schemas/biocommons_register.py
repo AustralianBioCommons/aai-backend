@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 from biocommons.bundles import BundleType
 from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
