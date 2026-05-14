@@ -22,9 +22,9 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 import db
-import schemas
 from auth0.user_info import UserInfo
 from db.types import ApprovalStatusEnum, GroupMembershipData, PlatformMembershipData
+from schemas import biocommons_register
 
 if TYPE_CHECKING:
     from db import models
@@ -216,7 +216,7 @@ class BiocommonsRegisterData(BaseModel):
     @classmethod
     def from_biocommons_registration(
         cls,
-        registration: "schemas.biocommons_register.BiocommonsRegistrationRequest",
+        registration: "biocommons_register.BiocommonsRegistrationRequest",
     ):
         return BiocommonsRegisterData(
             email=registration.email,
