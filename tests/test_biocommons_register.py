@@ -486,14 +486,14 @@ def test_biocommons_registration_endpoint_multiple_bundles(
     group_memberships = {membership.group_id: membership for membership in db_user.group_memberships}
     assert set(group_memberships) == {GroupEnum.TSI.value, GroupEnum.SBP.value}
     assert group_memberships[GroupEnum.TSI.value].approval_status == ApprovalStatusEnum.PENDING
-    assert group_memberships[GroupEnum.SBP.value].approval_status == ApprovalStatusEnum.APPROVED
+    assert group_memberships[GroupEnum.SBP.value].approval_status == ApprovalStatusEnum.PENDING
 
     assert len(db_user.platform_memberships) == 3
     platform_ids = {pm.platform_id for pm in db_user.platform_memberships}
     assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
 
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 2
+    assert len(queued_emails) == 4
     assert {email.to_address for email in queued_emails} == {admin_stub.email, str(auth0_data.email)}
 
 

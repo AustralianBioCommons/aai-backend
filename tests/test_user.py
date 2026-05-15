@@ -619,11 +619,11 @@ def test_request_multiple_groups(
     assert tsi_membership.approval_status == ApprovalStatusEnum.PENDING
 
     sbp_result = next(r for r in results if r["group_id"] == sbp_group.group_id)
-    assert sbp_result["status"] == "approved"
+    assert sbp_result["status"] == "pending"
     sbp_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=normal_user.access_token.sub, group_id=sbp_group.group_id, session=test_db_session
     )
-    assert sbp_membership.approval_status == ApprovalStatusEnum.APPROVED
+    assert sbp_membership.approval_status == ApprovalStatusEnum.PENDING
 
 
 def test_request_multiple_groups_fails_all_on_error(
