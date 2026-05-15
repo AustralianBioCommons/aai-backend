@@ -508,7 +508,7 @@ def request_group_access(
         if not is_institution:
             raise HTTPException(
                 status_code=http.HTTPStatus.FORBIDDEN,
-                detail="Only Australian research institutions can request access to SBP group",
+                detail="Only Australian research institutions can request access to SBP Workflow Execution bundle",
             )
 
     results = []

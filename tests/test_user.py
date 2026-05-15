@@ -436,7 +436,7 @@ def test_request_group_membership_checks_email_for_sbp(
     )
 
     assert resp.status_code == HTTPStatus.FORBIDDEN
-    assert resp.json()["detail"] == "Only Australian research institutions can request access to SBP group"
+    assert resp.json()["detail"] == "Only Australian research institutions can request access to SBP Workflow Execution bundle"
     institution_check.assert_awaited_once_with("external@example.com")
     membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=normal_user.access_token.sub,
