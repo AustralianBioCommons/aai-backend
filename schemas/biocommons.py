@@ -24,10 +24,10 @@ from pydantic_core import PydanticCustomError
 import db
 from auth0.user_info import UserInfo
 from db.types import ApprovalStatusEnum, GroupMembershipData, PlatformMembershipData
-from schemas import biocommons_register
 
 if TYPE_CHECKING:
     from db import models
+    from schemas import biocommons_register
 
 # From Auth0 password settings
 PASSWORD_MIN_LENGTH = 8
