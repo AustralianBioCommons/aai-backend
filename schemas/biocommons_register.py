@@ -1,9 +1,14 @@
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 from biocommons.bundles import BundleType
 from schemas.biocommons import BiocommonsPassword, BiocommonsUsername
+
+
+class BundleRequest(BaseModel):
+    bundle_id: BundleType
+    reason: Optional[str] = None
 
 
 class BiocommonsRegistrationRequest(BaseModel):
@@ -12,6 +17,7 @@ class BiocommonsRegistrationRequest(BaseModel):
     email: EmailStr
     username: BiocommonsUsername
     password: BiocommonsPassword
-    bundle: Optional[BundleType] = None
-    request_reason: Optional[str] = None
+    bundles: Optional[list[BundleRequest]] = None
     recaptcha_token: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")

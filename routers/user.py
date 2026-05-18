@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import http
@@ -9,7 +10,7 @@ from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from httpx import AsyncClient, HTTPStatusError
 from loguru import logger
-from pydantic import AliasPath, BaseModel, Field
+from pydantic import AliasPath, AwareDatetime, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +23,7 @@ from auth.user_permissions import get_db_user, get_session_user, user_is_general
 from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
+from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.emails import (
     compose_bundle_request_confirmation_email,
     compose_email_change_otp_email,
@@ -42,7 +44,8 @@ from db.models import (
     PlatformMembership,
 )
 from db.setup import get_db_session
-from db.types import ApprovalStatusEnum
+from db.types import ApprovalStatusEnum, GroupEnum
+from dependencies.utils import request_time
 from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
@@ -57,6 +60,7 @@ from schemas.biocommons import (
 from schemas.responses import FieldError, FieldErrorResponse
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
+from services.institutions import is_australian_research_institution_email
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
@@ -287,26 +291,56 @@ async def get_admin_groups(
     return BiocommonsGroup.get_for_admin_roles(role_names=user_roles, session=db_session)
 
 
-class GroupAccessRequestData(BaseModel):
+class GroupRequest(BaseModel):
     group_id: GroupId
     request_reason: str
 
 
-@router.post("/groups/request")
-def request_group_access(
-        request_data: GroupAccessRequestData,
-        user: Annotated[SessionUser, Depends(get_session_user)],
-        db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
-        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
-        db_session: Annotated[Session, Depends(get_db_session)],
-        settings: Annotated[Settings, Depends(get_settings)],
-):
+class GroupAccessRequestData(BaseModel):
+    groups: list[GroupRequest]
+
+
+class GroupAccessRequestResult(BaseModel):
+    group_id: str
+    status: ApprovalStatusEnum
+    message: str
+
+
+class GroupAccessRequestResponse(BaseModel):
+    results: list[GroupAccessRequestResult]
+
+
+def get_bundle_for_group_id(group_id: str) -> BiocommonsBundle | None:
     """
-    Request access to a group. Users can re-request access if their last
-    request was rejected; otherwise the request is rejected if a membership
-    already exists.
+    Get bundle info for a given group ID.
+    """
+    return next(
+        (bundle for bundle in BUNDLES.values() if bundle.group_id.value == group_id),
+        None,
+    )
+
+
+def _process_single_group_request(
+    request_data: GroupRequest,
+    request_time: AwareDatetime,
+    user: SessionUser,
+    db_user: BiocommonsUser,
+    auth0_client: Auth0Client,
+    db_session: Session,
+    settings: Settings,
+) -> GroupAccessRequestResult:
+    """
+    Process a single group access request. Raises HTTPException on any validation
+    failure. Does not commit the session — the caller commits once all groups succeed.
     """
     group_id = request_data.group_id
+    bundle_info = get_bundle_for_group_id(group_id)
+    if bundle_info is None:
+        raise HTTPException(
+            status_code=http.HTTPStatus.NOT_FOUND,
+            detail=f"Group bundle with ID {group_id} not found",
+        )
+
     existing_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user.access_token.sub,
         group_id=group_id,
@@ -333,27 +367,72 @@ def request_group_access(
                 detail=f"User {user.access_token.sub} already has a membership for {group_id}",
             )
         membership = existing_membership
-        membership.approval_status = ApprovalStatusEnum.PENDING
-        membership.rejection_reason = None
-        membership.request_reason = request_data.request_reason
-        membership.requested_at = datetime.now(timezone.utc)
-        membership.updated_by = None
-        membership.updated_at = datetime.now(timezone.utc)
+        new_approval_status = (
+            ApprovalStatusEnum.APPROVED
+            if bundle_info.group_auto_approve else
+            ApprovalStatusEnum.PENDING
+        )
+        request_reason = None if bundle_info.group_auto_approve else request_data.request_reason
+        membership.sqlmodel_update({
+            "approval_status": new_approval_status,
+            "rejection_reason": None,
+            "request_reason": request_reason,
+            "requested_at": request_time,
+            "updated_by": None,
+            "updated_at": request_time,
+        })
         membership.save(session=db_session, commit=False)
         logger.info("Re-requested group membership for %s(%s)", group_id, user.access_token.sub)
     else:
         group = BiocommonsGroup.get_by_id(group_id, db_session)
-        membership = GroupMembership(
-            group=group,
-            user=db_user,
-            approval_status=ApprovalStatusEnum.PENDING,
-            updated_by=None,
-            request_reason=request_data.request_reason,
-            requested_at=datetime.now(timezone.utc),
-        )
+        if bundle_info.group_auto_approve:
+            membership = GroupMembership(
+                group=group,
+                user=db_user,
+                approval_status=ApprovalStatusEnum.APPROVED,
+                updated_by=None,
+                request_reason=None,
+                requested_at=request_time,
+            )
+            logger.info("Auto-approved group membership for %s(%s)", group_id, user.access_token.sub)
+        else:
+            membership = GroupMembership(
+                group=group,
+                user=db_user,
+                approval_status=ApprovalStatusEnum.PENDING,
+                updated_by=None,
+                requested_at=request_time,
+                request_reason=request_data.request_reason,
+            )
+            logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
         membership.save(session=db_session, commit=False)
-        logger.info("Requested group membership for %s(%s)", group_id, user.access_token.sub)
-    logger.info("Queueing emails to group admins for approval")
+
+    if not bundle_info.group_auto_approve:
+        logger.info("Queueing emails to group admins for approval")
+        send_group_request_emails(user=user, membership=membership, auth0_client=auth0_client,
+                                  db_session=db_session, settings=settings)
+
+    if bundle_info.group_auto_approve:
+        return GroupAccessRequestResult(
+            group_id=group_id,
+            status="approved",
+            message=f"Group membership for {group_id} auto-approved.",
+        )
+    return GroupAccessRequestResult(
+        group_id=group_id,
+        status="pending",
+        message=f"Group membership for {group_id} requested successfully.",
+    )
+
+
+def send_group_request_emails(user: SessionUser,
+                              membership: GroupMembership,
+                              auth0_client: Auth0Client,
+                              db_session: Session,
+                              settings: Settings) -> None:
+    """
+    Sends emails to group admins and the requester for a group membership request.
+    """
     admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
     try:
         requester_email, requester_full_name = get_requester_identity(
@@ -405,8 +484,47 @@ def request_group_access(
             body_html=body_html,
             settings=settings,
         )
+
+
+@router.post("/groups/request")
+def request_group_access(
+        request_data: GroupAccessRequestData,
+        request_time: Annotated[AwareDatetime, Depends(request_time)],
+        user: Annotated[SessionUser, Depends(get_session_user)],
+        db_user: Annotated[BiocommonsUser, Depends(get_db_user)],
+        auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+        settings: Annotated[Settings, Depends(get_settings)],
+) -> GroupAccessRequestResponse:
+    """
+    Request access to one or more groups. Users can re-request access if their last
+    request was rejected; otherwise the request is rejected if a membership
+    already exists. All groups are validated before committing — if any group
+    raises an error, the whole request fails.
+    """
+    has_sbp_request = any(item.group_id == GroupEnum.SBP.value for item in request_data.groups)
+    if has_sbp_request:
+        is_institution = asyncio.run(is_australian_research_institution_email(user.access_token.email))
+        if not is_institution:
+            raise HTTPException(
+                status_code=http.HTTPStatus.FORBIDDEN,
+                detail="Only Australian research institutions can request access to SBP Workflow Execution bundle",
+            )
+
+    results = []
+    for requested_group in request_data.groups:
+        result = _process_single_group_request(
+            request_data=requested_group,
+            request_time=request_time,
+            user=user,
+            db_user=db_user,
+            auth0_client=auth0_client,
+            db_session=db_session,
+            settings=settings,
+        )
+        results.append(result)
     db_session.commit()
-    return {"message": f"Group membership for {group_id} requested successfully."}
+    return GroupAccessRequestResponse(results=results)
 
 
 @router.get("/is-general-admin")

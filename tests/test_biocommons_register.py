@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock
+
 import pytest
 import respx
 from httpx import Response
@@ -7,10 +9,10 @@ from starlette.exceptions import HTTPException
 from biocommons.bundles import BUNDLES
 from biocommons.default import DEFAULT_PLATFORMS
 from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
-from db.types import EmailStatusEnum, PlatformEnum
-from routers.biocommons_register import create_user_in_db
+from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
+from routers.biocommons_register import check_sbp_email_domain, create_user_in_db
 from schemas.biocommons import BiocommonsRegisterData
-from schemas.biocommons_register import BiocommonsRegistrationRequest
+from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegistrationRequestFactory,
@@ -82,6 +84,17 @@ def tsi_group(persistent_factories):
     )
 
 
+@pytest.fixture
+def sbp_group(persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/sbp_workflow_execution/admin")
+    return BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.SBP.value,
+        name="Structural Biology Platform Bundle",
+        short_name="SBP",
+        admin_roles=[admin_role],
+    )
+
+
 def test_biocommons_registration_data_excludes_null_user_metadata():
     """Test that user_metadata is excluded when None and basic Auth0 data is correct"""
     req = BiocommonsRegistrationRequest(
@@ -90,7 +103,7 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
         email="test@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=[BundleRequest(bundle_id="tsi", reason="Test reason")],
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -115,14 +128,14 @@ def test_biocommons_registration_data_excludes_null_user_metadata():
 
 
 def test_biocommons_registration_data_no_bundle():
-    """Test that registration data is valid when bundle is None"""
+    """Test that registration data is valid when bundles is None"""
     req = BiocommonsRegistrationRequest(
         first_name="Test",
         last_name="User",
         email="test@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle=None,
+        bundles=None,
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -149,7 +162,7 @@ def test_biocommons_registration_tsi_bundle():
         email="tsi@example.com",
         username="tsiuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=[BundleRequest(bundle_id="tsi", reason="Test reason")],
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -161,19 +174,99 @@ def test_biocommons_registration_tsi_bundle():
     assert dumped["app_metadata"].get("services", []) == []
 
 
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_skips_check_without_bundles(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="No",
+        last_name="Bundle",
+        email="no.bundle@example.com",
+        username="no_bundle",
+        password="StrongPass1!",
+        bundles=None,
+    )
+
+    assert await check_sbp_email_domain(registration) is True
+    institution_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_skips_check_without_sbp_bundle(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="TSI",
+        last_name="User",
+        email="tsi.user@example.com",
+        username="tsi_user",
+        password="StrongPass1!",
+        bundles=[BundleRequest(bundle_id="tsi", reason="TSI access")],
+    )
+
+    assert await check_sbp_email_domain(registration) is True
+    institution_check.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_checks_sbp_bundle(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="SBP",
+        last_name="User",
+        email="sbp.user@unimelb.edu.au",
+        username="sbp_user",
+        password="StrongPass1!",
+        bundles=[BundleRequest(bundle_id="sbp_workflow_execution", reason="SBP access")],
+    )
+
+    assert await check_sbp_email_domain(registration) is True
+    institution_check.assert_awaited_once_with("sbp.user@unimelb.edu.au")
+
+
+@pytest.mark.asyncio
+async def test_check_sbp_email_domain_returns_false_when_sbp_domain_check_fails(mocker):
+    institution_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+    registration = BiocommonsRegistrationRequest(
+        first_name="SBP",
+        last_name="User",
+        email="sbp.user@example.com",
+        username="sbp_user",
+        password="StrongPass1!",
+        bundles=[
+            BundleRequest(bundle_id="tsi", reason="TSI access"),
+            BundleRequest(bundle_id="sbp_workflow_execution", reason="SBP access"),
+        ],
+    )
+
+    assert await check_sbp_email_domain(registration) is False
+    institution_check.assert_awaited_once_with("sbp.user@example.com")
+
+
 
 
 def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
     """Test database record creation for tsi bundle"""
     from db.models import PlatformEnum
 
-    registration = BiocommonsRegistrationRequest(
+    bundles = [BundleRequest(bundle_id="tsi", reason="Test reason")]
+    BiocommonsRegistrationRequest(
         first_name="TSI",
         last_name="User",
         email="tsi.user@example.com",
         username="tsiuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=bundles,
     )
 
     auth0_data = Auth0UserDataFactory.build(
@@ -182,8 +275,7 @@ def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_cl
         name="TSI User",
         user_id="auth0|tsiuser123",
     )
-    bundle = BUNDLES[registration.bundle]
-    user = create_user_in_db(user_data=auth0_data, bundle=bundle, session=test_db_session, auth0_client=mock_auth0_client)
+    user = create_user_in_db(user_data=auth0_data, bundles=bundles, session=test_db_session, auth0_client=mock_auth0_client)
 
     assert user.username == "tsiuser"
     assert user.email == "tsi.user@example.com"
@@ -204,19 +296,19 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
     """Test that registration fails when the required group doesn't exist"""
     import pytest
 
-    registration = BiocommonsRegistrationRequest(
+    BiocommonsRegistrationRequest(
         first_name="New",
         last_name="User",
         email="new.user@example.com",
         username="newuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=[BundleRequest(bundle_id="tsi", reason="Test reason")],
     )
 
     auth0_data = Auth0UserDataFactory.build(
         email="new.user@example.com", username="newuser", user_id="auth0|newuser123"
     )
-    bundle = BUNDLES[registration.bundle]
+    bundle = BUNDLES["tsi"]
     from db.models import BiocommonsUser
     user = BiocommonsUser.from_auth0_data(auth0_data)
 
@@ -228,20 +320,20 @@ def test_biocommons_group_must_exist(test_db_session, mock_auth0_client, galaxy_
 
 def test_biocommons_group_membership_with_existing_group(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
     """Test that user is assigned to group when group exists"""
-    registration = BiocommonsRegistrationRequest(
+    bundles = [BundleRequest(bundle_id="tsi", reason="Test reason")]
+    BiocommonsRegistrationRequest(
         first_name="Test",
         last_name="User",
         email="test.user@example.com",
         username="testuser",
         password="StrongPass1!",
-        bundle="tsi",
+        bundles=bundles
     )
 
     auth0_data = Auth0UserDataFactory.build(
         email="test.user@example.com", username="testuser", user_id="auth0|testuser123"
     )
-    bundle = BUNDLES[registration.bundle]
-    user = create_user_in_db(user_data=auth0_data, bundle=bundle, session=test_db_session, auth0_client=mock_auth0_client)
+    user = create_user_in_db(user_data=auth0_data, bundles=bundles, session=test_db_session, auth0_client=mock_auth0_client)
 
     assert len(user.group_memberships) == 1
     assert user.group_memberships[0].group_id == tsi_group.group_id
@@ -257,7 +349,7 @@ def test_bundle_validation():
             email="test@example.com",
             username="test",
             password="StrongPass1!",
-            bundle="invalid-bundle",
+            bundles=[BundleRequest(bundle_id="invalid-bundle")],
         )
 
 
@@ -269,7 +361,6 @@ def test_biocommons_registration_name_formatting():
         email="john.doe@example.com",
         username="johndoe",
         password="StrongPass1!",
-        bundle="tsi",
     )
 
     user_data = BiocommonsRegisterData.from_biocommons_registration(req)
@@ -302,7 +393,7 @@ def test_successful_biocommons_registration_endpoint(
         "email": auth0_data.email,
         "username": auth0_data.username,
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -342,6 +433,108 @@ def test_successful_biocommons_registration_endpoint(
     assert user_email.subject == "Your Threatened Species Initiative Service Bundle request has been received"
 
 
+def test_biocommons_registration_endpoint_multiple_bundles(
+    test_client_with_email,
+    mock_auth0_client,
+    tsi_group,
+    sbp_group,
+    galaxy_platform,
+    bpa_platform,
+    sbp_platform,
+    test_db_session,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test BioCommons registration can request multiple bundles at once."""
+    auth0_data = Auth0UserDataFactory.build(
+        email="researcher@unimelb.edu.au",
+        username="multi_bundle_user",
+        name="Multi Bundle",
+    )
+    mock_auth0_client.create_user.return_value = auth0_data
+    admin_stub = RoleUserDataFactory.build(email="tsi.admin@example.com")
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=admin_stub.user_id,
+        email=admin_stub.email,
+    )
+    domain_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+
+    registration_data = {
+        "first_name": "Multi",
+        "last_name": "Bundle",
+        "email": auth0_data.email,
+        "username": auth0_data.username,
+        "password": "StrongPass1!",
+        "bundles": [
+            {"bundle_id": "tsi", "reason": "TSI access"},
+            {"bundle_id": "sbp_workflow_execution", "reason": "SBP access"},
+        ],
+        "recaptcha_token": "mock-token",
+    }
+
+    response = test_client_with_email.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 200
+    domain_check.assert_awaited_once_with(auth0_data.email)
+
+    db_user = test_db_session.get(BiocommonsUser, auth0_data.user_id)
+    assert db_user is not None
+    group_memberships = {membership.group_id: membership for membership in db_user.group_memberships}
+    assert set(group_memberships) == {GroupEnum.TSI.value, GroupEnum.SBP.value}
+    assert group_memberships[GroupEnum.TSI.value].approval_status == ApprovalStatusEnum.PENDING
+    assert group_memberships[GroupEnum.SBP.value].approval_status == ApprovalStatusEnum.PENDING
+
+    assert len(db_user.platform_memberships) == 3
+    platform_ids = {pm.platform_id for pm in db_user.platform_memberships}
+    assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 4
+    assert {email.to_address for email in queued_emails} == {admin_stub.email, str(auth0_data.email)}
+
+
+def test_biocommons_registration_endpoint_sbp_rejects_non_institutional_email(
+    test_client,
+    mock_auth0_client,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test SBP workflow registration checks the email domain before creating a user."""
+    domain_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+
+    registration_data = {
+        "first_name": "External",
+        "last_name": "User",
+        "email": "external@example.com",
+        "username": "external_user",
+        "password": "StrongPass1!",
+        "bundles": [{"bundle_id": "sbp_workflow_execution", "reason": "SBP access"}],
+        "recaptcha_token": "mock-token",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "message": "SBP workflow execution requires an Australian institutional email address.",
+        "field_errors": [
+            {
+                "field": "email",
+                "message": "Please use an Australian institutional email address if applying for SBP workflow execution access.",
+            }
+        ],
+    }
+    domain_check.assert_awaited_once_with("external@example.com")
+    assert mock_auth0_client.create_user.call_count == 0
+
+
 @respx.mock
 def test_biocommons_registration_endpoint_failed_recaptcha(
         test_client,
@@ -353,7 +546,7 @@ def test_biocommons_registration_endpoint_failed_recaptcha(
         "email": "test@example.com",
         "username": "test_user",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
     route = respx.post("https://www.google.com/recaptcha/api/siteverify")
@@ -379,7 +572,7 @@ def test_biocommons_registration_endpoint_missing_recaptcha(
         "email": "test@example.com",
         "username": "test_user",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": None,
     }
     route = respx.post("https://www.google.com/recaptcha/api/siteverify")
@@ -415,7 +608,7 @@ def test_biocommons_registration_auth0_conflict_error(
         "email": "existing@example.com",
         "username": "existinguser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -450,7 +643,7 @@ def test_biocommons_registration_username_history_conflict(
         "email": "new@example.com",
         "username": "historyuser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -483,7 +676,7 @@ def test_biocommons_registration_email_conflict_error(
         "email": "existing@example.com",
         "username": "newuser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -515,7 +708,7 @@ def test_biocommons_registration_both_conflict_error(
         "email": "existing@example.com",
         "username": "existinguser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -533,7 +726,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
         "email": "test@example.com",
         "username": "testuser",
         "password": "StrongPass1!",
-        "bundle": "tsi",
+        "bundles": [{"bundle_id": "tsi", "reason": "Test reason"}],
         "recaptcha_token": "mock-token",
     }
 
@@ -553,7 +746,7 @@ def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_pl
         email="no.bundle@example.com",
         username="no_bundle",
         password="StrongPass1!",
-        bundle=None,
+        bundles=None,
         recaptcha_token="mock-token",
     )
 

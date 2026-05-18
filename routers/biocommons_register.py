@@ -22,13 +22,14 @@ from register.tokens import validate_recaptcha
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
-from schemas.biocommons_register import BiocommonsRegistrationRequest
+from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from schemas.responses import (
     FieldError,
     RegistrationErrorResponse,
     RegistrationResponse,
 )
 from services.email_queue import enqueue_email
+from services.institutions import is_australian_research_institution_email
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -41,10 +42,9 @@ router = APIRouter(prefix="/biocommons", tags=["biocommons", "registration"], ro
 
 
 def create_user_in_db(user_data: Auth0UserData,
-                      bundle: Optional[BiocommonsBundle],
+                      bundles: Optional[list[BundleRequest]],
                       session: Session,
                       auth0_client: Auth0Client,
-                      request_reason: Optional[str] = None,
                       commit: bool = False) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=user_data)
     session.add(db_user)
@@ -57,15 +57,17 @@ def create_user_in_db(user_data: Auth0UserData,
             auto_approve=True
         )
 
-    if bundle is not None:
-        logger.info(f"Adding group/platform memberships for bundle: {bundle}")
-        bundle.create_memberships(
-            user=db_user,
-            auth0_client=auth0_client,
-            db_session=session,
-            commit=False,
-            request_reason=request_reason,
-        )
+    if bundles is not None:
+        for bundle_request in bundles:
+            bundle = BUNDLES[bundle_request.bundle_id]
+            logger.info(f"Adding group/platform memberships for bundle: {bundle}")
+            bundle.create_memberships(
+                user=db_user,
+                auth0_client=auth0_client,
+                db_session=session,
+                commit=False,
+                request_reason=bundle_request.reason,
+            )
 
     session.flush()
     if commit:
@@ -190,6 +192,19 @@ def _notify_bundle_requester(
     )
 
 
+async def check_sbp_email_domain(registration: BiocommonsRegistrationRequest) -> bool:
+    """
+    If user requests SBP access, check if the email domain is allowed.
+
+    Return false if the email domain is not allowed.
+    """
+    if registration.bundles is not None:
+        has_sbp_bundle = any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
+        if has_sbp_bundle:
+            is_institute = await is_australian_research_institution_email(registration.email)
+            return is_institute
+    return True
+
 @router.post(
     "/register",
     responses={
@@ -214,6 +229,20 @@ async def register_biocommons_user(
         response.status_code = 400
         return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
 
+    # Pre-registration checks
+    email_ok = await check_sbp_email_domain(registration)
+    if not email_ok:
+        response.status_code = 400
+        return RegistrationErrorResponse(
+            message="SBP workflow execution requires an Australian institutional email address.",
+            field_errors=[
+                FieldError(
+                    field="email",
+                    message="Please use an Australian institutional email address if applying for SBP workflow execution access."
+                )
+            ]
+        )
+
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_biocommons_registration(registration)
     # Check if username has already been used previously
@@ -232,31 +261,33 @@ async def register_biocommons_user(
         auth0_user_data = auth0_client.create_user(user_data)
 
         logger.info("Adding user to DB")
-        bundle = BUNDLES.get(registration.bundle)
         db_user = create_user_in_db(
             user_data=auth0_user_data,
-            bundle=bundle,
+            bundles=registration.bundles,
             session=db_session,
             auth0_client=auth0_client,
-            request_reason=registration.request_reason,
         )
 
-        if bundle is not None:
-            _notify_bundle_group_admins(
-                bundle=bundle,
-                user=db_user,
-                auth0_client=auth0_client,
-                db_session=db_session,
-                settings=settings,
-            )
-            _notify_bundle_requester(
-                bundle=bundle,
-                user=db_user,
-                auth0_user_data=auth0_user_data,
-                db_session=db_session,
-                settings=settings,
-                request_reason=registration.request_reason,
-            )
+        if registration.bundles is not None:
+            for bundle_request in registration.bundles:
+                bundle = BUNDLES[bundle_request.bundle_id]
+                if bundle.group_auto_approve:
+                    continue
+                _notify_bundle_group_admins(
+                    bundle=bundle,
+                    user=db_user,
+                    auth0_client=auth0_client,
+                    db_session=db_session,
+                    settings=settings,
+                )
+                _notify_bundle_requester(
+                    bundle=bundle,
+                    user=db_user,
+                    auth0_user_data=auth0_user_data,
+                    db_session=db_session,
+                    settings=settings,
+                    request_reason=bundle_request.reason,
+                )
 
         db_session.commit()
 

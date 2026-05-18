@@ -22,12 +22,12 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 import db
-import schemas
 from auth0.user_info import UserInfo
 from db.types import ApprovalStatusEnum, GroupMembershipData, PlatformMembershipData
 
 if TYPE_CHECKING:
     from db import models
+    from schemas import biocommons_register
 
 # From Auth0 password settings
 PASSWORD_MIN_LENGTH = 8
@@ -214,59 +214,9 @@ class BiocommonsRegisterData(BaseModel):
         return data
 
     @classmethod
-    def from_bpa_registration(
-        cls, registration: "schemas.bpa.BPARegistrationRequest"
-    ) -> Self:
-        return cls(
-            email=registration.email,
-            password=registration.password,
-            username=registration.username,
-            name=registration.fullname,
-            user_metadata=BiocommonsUserMetadata(
-                bpa=BPAMetadata(registration_reason=registration.reason),
-            ),
-            app_metadata=BiocommonsAppMetadata(
-                registration_from="bpa"
-            ),
-        )
-
-    @classmethod
-    def from_sbp_registration(
-        cls, registration: "schemas.sbp.SBPRegistrationRequest"
-    ) -> Self:
-        return cls(
-            email=registration.email,
-            password=registration.password,
-            username=registration.username,
-            name=f"{registration.first_name} {registration.last_name}",
-            user_metadata=BiocommonsUserMetadata(
-                sbp=SBPMetadata(registration_reason=registration.request_reason),
-            ),
-            app_metadata=BiocommonsAppMetadata(
-                registration_from="sbp"
-            ),
-        )
-
-    @classmethod
-    def from_galaxy_registration(
-        cls,
-        registration: "schemas.galaxy.GalaxyRegistrationData",
-    ):
-        return BiocommonsRegisterData(
-            email=registration.email,
-            username=registration.username,
-            password=registration.password,
-            email_verified=False,
-            connection="Username-Password-Authentication",
-            app_metadata=BiocommonsAppMetadata(
-                registration_from="galaxy"
-            ),
-        )
-
-    @classmethod
     def from_biocommons_registration(
         cls,
-        registration: "schemas.biocommons_register.BiocommonsRegistrationRequest",
+        registration: "biocommons_register.BiocommonsRegistrationRequest",
     ):
         return BiocommonsRegisterData(
             email=registration.email,

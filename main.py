@@ -14,7 +14,6 @@ from routers import (
     admin,
     biocommons_admin,
     biocommons_register,
-    sbp_register,
     user,
     utils,
 )
@@ -83,9 +82,6 @@ app.include_router(admin.router)
 app.include_router(biocommons_admin.router)
 app.include_router(user.router)
 app.include_router(biocommons_register.router)
-# Disable SBP registration in production for now
-if not CURRENT_ENVIRONMENT.startswith("prod"):
-    app.include_router(sbp_register.router)
 app.include_router(utils.router)
 try:
     SERVICE_VERSION = version("aai-backend")

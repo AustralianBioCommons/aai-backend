@@ -387,13 +387,14 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     # Request membership
     resp = test_client.post(
         "/me/groups/request",
-        json={
-            "group_id": group.group_id,
-            "request_reason": "Need access for research",
-        }
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Need access for research"}]},
     )
     assert resp.status_code == 200
-    assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["group_id"] == group.group_id
+    assert results[0]["status"] == "pending"
+    assert results[0]["message"] == f"Group membership for {group.group_id} requested successfully."
     # Check membership request is created along with history entry
     membership = GroupMembership.get_by_user_id_and_group_id(user_id=normal_user.access_token.sub, group_id=group.group_id, session=test_db_session)
     assert membership.approval_status == "pending"
@@ -411,6 +412,38 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
     subjects = {e.subject for e in queued_emails}
     assert f"{group.name} Service Bundle request" in subjects
     assert f"Your {group.name} Service Bundle request has been received" in subjects
+
+
+def test_request_group_membership_checks_email_for_sbp(
+    test_client,
+    normal_user,
+    as_normal_user,
+    test_db_session,
+    persistent_factories,
+    mocker,
+):
+    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+    normal_user.access_token.email = "external@example.com"
+    institution_check = mocker.patch(
+        "routers.user.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+
+    resp = test_client.post(
+        "/me/groups/request",
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Need SBP workflow access"}]},
+    )
+
+    assert resp.status_code == HTTPStatus.FORBIDDEN
+    assert resp.json()["detail"] == "Only Australian research institutions can request access to SBP Workflow Execution bundle"
+    institution_check.assert_awaited_once_with("external@example.com")
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert membership is None
 
 
 @respx.mock
@@ -440,14 +473,15 @@ def test_request_group_membership_after_rejection(
 
     resp = test_client_with_email.post(
         "/me/groups/request",
-        json={
-            "group_id": group.group_id,
-            "request_reason": "Resubmitting after addressing feedback",
-        }
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Resubmitting after addressing feedback"}]},
     )
 
     assert resp.status_code == 200
-    assert resp.json()["message"] == f"Group membership for {group.group_id} requested successfully."
+    results = resp.json()["results"]
+    assert len(results) == 1
+    assert results[0]["group_id"] == group.group_id
+    assert results[0]["status"] == "pending"
+    assert results[0]["message"] == f"Group membership for {group.group_id} requested successfully."
 
     test_db_session.refresh(membership)
     assert membership.approval_status == ApprovalStatusEnum.PENDING
@@ -476,6 +510,7 @@ def test_request_group_membership_revoked_returns_conflict(
     test_client_with_email,
     normal_user,
     as_normal_user,
+    mock_auth0_client,
     test_db_session,
     persistent_factories,
 ):
@@ -491,10 +526,7 @@ def test_request_group_membership_revoked_returns_conflict(
 
     resp = test_client_with_email.post(
         "/me/groups/request",
-        json={
-            "group_id": group_id,
-            "request_reason": "Need access to resources",
-        },
+        json={"groups": [{"group_id": group_id, "request_reason": "Need access to resources"}]},
     )
 
     expected_group_name = group.name
@@ -503,6 +535,174 @@ def test_request_group_membership_revoked_returns_conflict(
         "Your account has been revoked access to "
         f"{expected_group_name}, please contact support to access."
     )
+
+
+def test_sbp_institution_check_blocks_multi_group_request(
+    test_client,
+    normal_user,
+    as_normal_user,
+    test_db_session,
+    persistent_factories,
+    mocker,
+):
+    """Institution check failure on SBP blocks the whole multi-group request, including TSI."""
+    tsi_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
+    BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+    normal_user.access_token.email = "external@example.com"
+    mocker.patch(
+        "routers.user.is_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+
+    resp = test_client.post(
+        "/me/groups/request",
+        json={
+            "groups": [
+                {"group_id": tsi_group.group_id, "request_reason": "Need TSI access"},
+                {"group_id": GroupEnum.SBP.value, "request_reason": "Need SBP access"},
+            ]
+        },
+    )
+
+    assert resp.status_code == HTTPStatus.FORBIDDEN
+    tsi_membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub, group_id=tsi_group.group_id, session=test_db_session
+    )
+    assert tsi_membership is None
+
+
+@respx.mock
+def test_request_multiple_groups(
+    test_client_with_email,
+    normal_user,
+    as_normal_user,
+    mock_auth0_client,
+    test_db_session,
+    persistent_factories,
+    mocker,
+):
+    """Requesting two groups at once returns per-group results for both."""
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
+    tsi_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value, admin_roles=[admin_role])
+    sbp_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+
+    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
+    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = admin_info
+    mocker.patch(
+        "routers.user.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+
+    resp = test_client_with_email.post(
+        "/me/groups/request",
+        json={
+            "groups": [
+                {"group_id": tsi_group.group_id, "request_reason": "Need TSI access"},
+                {"group_id": sbp_group.group_id, "request_reason": "Need SBP access"},
+            ]
+        },
+    )
+
+    assert resp.status_code == 200
+    results = resp.json()["results"]
+    assert len(results) == 2
+
+    tsi_result = next(r for r in results if r["group_id"] == tsi_group.group_id)
+    assert tsi_result["status"] == "pending"
+    tsi_membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub, group_id=tsi_group.group_id, session=test_db_session
+    )
+    assert tsi_membership.approval_status == ApprovalStatusEnum.PENDING
+
+    sbp_result = next(r for r in results if r["group_id"] == sbp_group.group_id)
+    assert sbp_result["status"] == "pending"
+    sbp_membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub, group_id=sbp_group.group_id, session=test_db_session
+    )
+    assert sbp_membership.approval_status == ApprovalStatusEnum.PENDING
+
+
+def test_request_multiple_groups_fails_all_on_error(
+    test_client_with_email,
+    normal_user,
+    as_normal_user,
+    mock_auth0_client,
+    test_db_session,
+    persistent_factories,
+    mocker,
+):
+    """If any group in the request fails validation, the whole request errors and nothing is committed."""
+    mocker.patch(
+        "routers.user.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+    tsi_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
+    sbp_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    user = BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+    GroupMembershipFactory.create_sync(
+        group=tsi_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    resp = test_client_with_email.post(
+        "/me/groups/request",
+        json={
+            "groups": [
+                {"group_id": tsi_group.group_id, "request_reason": "Already have pending"},
+                {"group_id": sbp_group.group_id, "request_reason": "Would be new"},
+            ]
+        },
+    )
+
+    assert resp.status_code == HTTPStatus.CONFLICT
+    sbp_membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub, group_id=sbp_group.group_id, session=test_db_session
+    )
+    assert sbp_membership is None
+
+
+@respx.mock
+def test_request_non_bundle_group_membership(
+    test_client_with_email,
+    normal_user,
+    as_normal_user,
+    mock_auth0_client,
+    test_db_session,
+    persistent_factories,
+):
+    """Requesting a valid group that is not a configured bundle fails"""
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/custom/admin")
+    group = BiocommonsGroupFactory.create_sync(
+        group_id="biocommons/group/custom",
+        admin_roles=[admin_role],
+    )
+    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
+
+    admin_info = Auth0UserDataFactory.build(email="admin@example.com")
+    admin_stub = RoleUserDataFactory.build(user_id=admin_info.user_id, email=admin_info.email)
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = admin_info
+
+    resp = test_client_with_email.post(
+        "/me/groups/request",
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Need custom access"}]},
+    )
+
+    assert resp.status_code == 404
+    print(resp.json())
+    assert resp.json()["detail"] == f'Group bundle with ID {group.group_id} not found'
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert membership is None
 
 
 def test_get_groups(test_client, test_db_session, mocker, persistent_factories):

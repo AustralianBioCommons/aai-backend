@@ -30,23 +30,6 @@ class Settings(BaseSettings):
     no_reply_email_sender: EmailStr
     # SES resource ARN for sending emails
     ses_resource_arn: Optional[str] = None
-    # Allowed email domains for SBP registration
-    sbp_allowed_email_domains: list[str] = [
-        # UNSW
-        "unsw.edu.au", "ad.unsw.edu.au", "student.unsw.edu.au",
-        # BioCommons
-        "biocommons.org.au",
-        # USyd
-        "sydney.edu.au", "uni.sydney.edu.au",
-        # WEHI
-        "wehi.edu.au",
-        # Monash
-        "monash.edu", "student.monash.edu",
-        # Griffith
-        "griffith.edu.au", "griffithuni.edu.au",
-        # UoM
-        "unimelb.edu.au", "student.unimelb.edu.au"
-    ]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
