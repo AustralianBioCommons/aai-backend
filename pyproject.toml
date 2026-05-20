@@ -6,32 +6,32 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.16.2",
-    "fastapi[standard]>=0.115.12",
+    "fastapi[standard]>=0.136.1",
     # Security floor for CVE-2026-26007 (subgroup validation for SECT curves)
-    "cryptography>=46.0.5",
+    "cryptography>=46.0.7",
     "httpx>=0.28.1",
-    "psycopg[binary]>=3.2.9",
+    "psycopg[binary]>=3.3.4",
     "email-validator~=2.3",
-    "pydantic-settings>=2.8.1",
+    "pydantic-settings>=2.14.1",
     "pyjwt[crypto]>=2.10.1",
-    "sqlmodel>=0.0.24",
-    "boto3>=1.42.70",
-    "authlib>=1.6.5",
+    "sqlmodel>=0.0.38",
+    "boto3>=1.43.6",
+    "authlib>=1.6.11",
     "itsdangerous>=2.2.0",
     "prometheus-fastapi-instrumentator>=6.0.0",
     "apscheduler[redis,sqlalchemy]~=3.11",
     "loguru>=0.7.3",
-    "cachetools~=6.2",
-    "typer>=0.16.0",
+    "cachetools~=7.1",
+    "typer>=0.25.1",
     "starlette-admin>=0.15.1",
     # Security floor for CVE-2026-27199 (safe_join Windows device names)
-    "werkzeug>=3.1.6",
+    "werkzeug>=3.1.8",
 ]
 
 [project.optional-dependencies]
 dev = [
     "boto3-stubs>=1.42.70",
-    "pytest>=8.3.5",
+    "pytest>=9.0.3",
     "pytest-mock>=3.14.0",
     "pytest-asyncio~=1.2",
     "pytest-cov>=4.1.0",
