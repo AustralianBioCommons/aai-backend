@@ -45,6 +45,12 @@ dev = [
     "faker>=40.4.0",
 ]
 
+[tool.uv]
+# Exclude packages newer than 7 days - may help
+# prevent security issues, since hijacked packages are generally
+# fixed quickly
+exclude-newer = "7 days"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
