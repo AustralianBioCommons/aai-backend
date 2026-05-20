@@ -90,6 +90,7 @@ def tsi_group(persistent_factories):
     )
 
 
+
 @pytest.fixture
 def bpa_platform(persistent_factories):
     """
@@ -951,6 +952,60 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_p
         assert returned_user["id"] in expected_ids
 
 
+def test_get_pending_users_filter_by_sbp_bundle(
+    test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories
+):
+    """
+    Pending SBP bundle requests should appear on the Pending tab when
+    filter_by=sbp_workflow_execution, even though the SBP group has no
+    admin role links in the DB (no grouprolelink rows).
+    """
+    # SBP group intentionally has no admin_roles — mirrors production state
+    sbp_group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.SBP.value,
+        name="Structural Biology Platform Bundle",
+        admin_roles=[],
+    )
+    # User needs at least one membership the admin can see via their galaxy role
+    sbp_pending_user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        user=sbp_pending_user,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    GroupMembershipFactory.create_sync(
+        group=sbp_group,
+        user=sbp_pending_user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    # A second user with an approved SBP bundle membership — should NOT appear
+    sbp_approved_user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    PlatformMembershipFactory.create_sync(
+        platform_id=PlatformEnum.GALAXY,
+        user=sbp_approved_user,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    GroupMembershipFactory.create_sync(
+        group=sbp_group,
+        user=sbp_approved_user,
+        approval_status=ApprovalStatusEnum.APPROVED.value,
+    )
+    test_db_session.commit()
+
+    resp = test_client.get("/admin/users/pending?filter_by=sbp_workflow_execution")
+    assert resp.status_code == 200
+    returned_ids = {u["id"] for u in resp.json()}
+    assert sbp_pending_user.id in returned_ids
+    assert sbp_approved_user.id not in returned_ids
+
+
+def test_get_pending_users_invalid_filter_by(
+    test_client, as_admin_user
+):
+    resp = test_client.get("/admin/users/pending?filter_by=galaxy")
+    assert resp.status_code == 400
+
+
 def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
     revoked_users = _users_with_platform_membership(
         3,
@@ -1410,6 +1465,7 @@ def test_reject_group_membership_sends_email(
     assert len(queued_emails) == 1
     assert queued_emails[0].to_address == user.email
     assert queued_emails[0].status == EmailStatusEnum.PENDING
+
 
 
 def test_reject_group_membership_forbidden_without_group_role(

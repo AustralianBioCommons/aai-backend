@@ -623,11 +623,21 @@ async def sync_auth0_roles():
             db_session.close()
 
 
+# Platforms whose admin role also grants admin access to an associated bundle group.
+# Key: PlatformEnum value, Value: full group_id of the associated bundle.
+PLATFORM_BUNDLE_GROUP_MAP: dict[PlatformEnum, str] = {
+    PlatformEnum.SBP: GroupEnum.SBP.value,
+}
+
+
 def link_admin_roles(session: Session, db_roles_by_name: dict[str, Auth0Role]) -> None:
     """
     Link admin roles to platforms/groups based on naming conventions:
       - Platform admin roles: biocommons/role/{platform_id}/admin
       - Group admin roles:    biocommons/role/{group_short_id}/admin where group_id is biocommons/group/{group_short_id}
+
+    For platforms listed in PLATFORM_BUNDLE_GROUP_MAP the platform admin role is
+    also linked to the associated bundle group so a single Auth0 role covers both.
     """
     platform_admin_pattern = re.compile(
         r"^biocommons/role/(?P<platform_id>[a-z0-9_]+)/admin$", re.IGNORECASE
@@ -650,6 +660,12 @@ def link_admin_roles(session: Session, db_roles_by_name: dict[str, Auth0Role]) -
                 if role not in platform.admin_roles:
                     platform.admin_roles.append(role)
                     session.add(platform)
+                bundle_group_id = PLATFORM_BUNDLE_GROUP_MAP.get(platform_enum)
+                if bundle_group_id:
+                    group = BiocommonsGroup.get_by_id(bundle_group_id, session)
+                    if group and role not in group.admin_roles:
+                        group.admin_roles.append(role)
+                        session.add(group)
                 continue
 
         group_match = group_admin_pattern.match(role_name)

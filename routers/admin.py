@@ -590,14 +590,28 @@ class UserQueryParams(BaseModel):
                 PlatformMembership.is_deleted.is_(False),
             )
         )
-        group_status_exists = exists(
-            select(1).where(
-                GroupMembership.user_id == BiocommonsUser.id,
-                GroupMembership.group_id.in_(self._allowed_groups_subquery),
-                GroupMembership.approval_status == self.approval_status,
-                GroupMembership.is_deleted.is_(False),
+        # When the query is already scoped to a specific group via filter_by,
+        # check that group's status directly rather than going through the
+        # admin-role subquery (which requires grouprolelink entries to exist).
+        if self.filter_by is not None and self.filter_by in GROUP_MAPPING:
+            scoped_group_id = GROUP_MAPPING[self.filter_by]["enum"].value
+            group_status_exists = exists(
+                select(1).where(
+                    GroupMembership.user_id == BiocommonsUser.id,
+                    GroupMembership.group_id == scoped_group_id,
+                    GroupMembership.approval_status == self.approval_status,
+                    GroupMembership.is_deleted.is_(False),
+                )
             )
-        )
+        else:
+            group_status_exists = exists(
+                select(1).where(
+                    GroupMembership.user_id == BiocommonsUser.id,
+                    GroupMembership.group_id.in_(self._allowed_groups_subquery),
+                    GroupMembership.approval_status == self.approval_status,
+                    GroupMembership.is_deleted.is_(False),
+                )
+            )
         return or_(platform_status_exists, group_status_exists)
 
     def get_count(
@@ -809,13 +823,17 @@ def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
             response_model=list[BiocommonsUserResponse])
 def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
                       admin_user: Annotated[SessionUser, Depends(get_session_user)],
-                      pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+                      pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+                      filter_by: str | None = Query(None, description="Restrict pending results to a specific bundle group, e.g. 'sbp_workflow_execution'")):
+    if filter_by is not None and filter_by not in GROUP_MAPPING:
+        raise HTTPException(status_code=400, detail=f"Invalid filter_by '{filter_by}'. Must be one of: {list(GROUP_MAPPING.keys())}")
     user_query = get_filtered_user_query(
         admin_user=admin_user,
         user_query=UserQueryParams(
             approval_status=ApprovalStatusEnum.PENDING,
             platform_approval_status=None,
             group_approval_status=None,
+            filter_by=filter_by,
         ),
         pagination=pagination,
     )
