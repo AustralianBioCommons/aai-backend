@@ -809,13 +809,17 @@ def get_approved_users(db_session: Annotated[Session, Depends(get_db_session)],
             response_model=list[BiocommonsUserResponse])
 def get_pending_users(db_session: Annotated[Session, Depends(get_db_session)],
                       admin_user: Annotated[SessionUser, Depends(get_session_user)],
-                      pagination: Annotated[PaginationParams, Depends(get_pagination_params)]):
+                      pagination: Annotated[PaginationParams, Depends(get_pagination_params)],
+                      filter_by: str | None = Query(None, description="Restrict pending results to a specific bundle group, e.g. 'sbp_workflow_execution'")):
+    if filter_by is not None and filter_by not in GROUP_MAPPING:
+        raise HTTPException(status_code=400, detail=f"Invalid filter_by '{filter_by}'. Must be one of: {list(GROUP_MAPPING.keys())}")
     user_query = get_filtered_user_query(
         admin_user=admin_user,
         user_query=UserQueryParams(
             approval_status=ApprovalStatusEnum.PENDING,
             platform_approval_status=None,
             group_approval_status=None,
+            filter_by=filter_by,
         ),
         pagination=pagination,
     )

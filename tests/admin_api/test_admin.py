@@ -90,6 +90,7 @@ def tsi_group(persistent_factories):
     )
 
 
+
 @pytest.fixture
 def bpa_platform(persistent_factories):
     """
@@ -951,6 +952,14 @@ def test_get_pending_users(test_client, test_db_session, as_admin_user, galaxy_p
         assert returned_user["id"] in expected_ids
 
 
+
+def test_get_pending_users_invalid_filter_by(
+    test_client, as_admin_user
+):
+    resp = test_client.get("/admin/users/pending?filter_by=galaxy")
+    assert resp.status_code == 400
+
+
 def test_get_revoked_users(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
     revoked_users = _users_with_platform_membership(
         3,
@@ -1410,6 +1419,7 @@ def test_reject_group_membership_sends_email(
     assert len(queued_emails) == 1
     assert queued_emails[0].to_address == user.email
     assert queued_emails[0].status == EmailStatusEnum.PENDING
+
 
 
 def test_reject_group_membership_forbidden_without_group_role(
