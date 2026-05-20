@@ -21,14 +21,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag }}
 
       - name: Sync uv lockfile for release tag
         run: |
           set -euo pipefail
-          python -m pip install uv==0.4.20
+          python -m pip install uv==0.11.15
           uv lock
 
       - name: Validate required secrets
@@ -51,10 +51,10 @@ jobs:
             exit 1
           fi
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Authenticate to AWS
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ECR_PUSH }}
           aws-region: ${{ env.AWS_REGION }}
@@ -62,7 +62,7 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build & Push (release)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
