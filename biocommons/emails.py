@@ -6,12 +6,15 @@ from pydantic import EmailStr
 from auth0.client import Auth0Client
 from config import Settings, get_settings
 from db.models import BiocommonsGroup
+from dependencies.templates import TEMPLATES
 
 logger = logging.getLogger("uvicorn.error")
 
 _LOGO_URL = "https://images.squarespace-cdn.com/content/v1/5d3a4213cf4f5b00014ea1db/1689141619044-F67XDPQLP4PG6KY862VA/Australian-Biocommons-Logo-Horizontal-RGB.png"
 _ICON_MAIL = "https://cdn.auth0.com/website/emails/product/icon-mail.png"
 _P = "margin: 0 0 12px; font-size: 16px; line-height: 24px; color: #171717; text-align: left;"
+_LI = "font-size: 16px; line-height: 24px; color: #171717;"
+_UL = "margin: 0 0 12px; padding-left: 24px; text-align: left;"
 _P_SIGN_OFF = "margin: 24px 0 12px; font-size: 16px; line-height: 24px; color: #171717; text-align: left;"
 _A = "color: #171717; text-decoration: underline;"
 
@@ -71,6 +74,39 @@ def _wrap_email_html(
     </table>
   </body>
 </html>"""
+
+
+def render_default_email_html(
+    title: str,
+    preheader: str,
+    body_html: str,
+    portal_url: str,
+    icon_url: str = _ICON_MAIL,
+    logo_url: str = _LOGO_URL,
+) -> str:
+    email_template = TEMPLATES.get_template(name="emails/default_email.html")
+    return email_template.render(
+        title=title,
+        preheader=preheader,
+        body_html=body_html,
+        portal_url=portal_url,
+        icon_url=icon_url,
+        logo_url=logo_url,
+    )
+
+
+def render_html_template(template_name: str, **kwargs) -> str:
+    """Render an HTML template with default styles and provided kwargs."""
+    template = TEMPLATES.get_template(name=template_name)
+    style_defaults = {
+        "p_style": _P,
+        "a_style": _A,
+        "p_signoff": _P_SIGN_OFF,
+        "li_style": _LI,
+        "ul_style": _UL,
+    }
+    template_kwargs = {**style_defaults, **kwargs}
+    return template.render(**template_kwargs)
 
 
 def get_default_sender_email(settings: Settings | None = None) -> str:
@@ -165,7 +201,7 @@ def get_group_admin_contacts(
     return list(contacts.items())
 
 
-def compose_group_approval_email(
+def compose_group_approval_email_old(
     *,
     admin_first_name: str,
     bundle_name: str,
@@ -194,7 +230,36 @@ def compose_group_approval_email(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
-def compose_group_membership_approved_email(
+def compose_group_approval_email(
+        *,
+        admin_first_name: str,
+        bundle_name: str,
+        requester_full_name: str,
+        requester_email: str,
+        request_reason: str | None,
+        settings: Settings,
+) -> tuple[str, str]:
+    subject = f"{bundle_name} Service Bundle request"
+    reason = request_reason.strip() if request_reason else "Not provided"
+    portal_url = settings.aai_portal_url or ""
+    body_html = render_html_template(
+        "emails/group_approval.html",
+        admin_first_name=admin_first_name,
+        bundle_name=bundle_name,
+        requester_full_name=requester_full_name,
+        requester_email=requester_email,
+        reason=reason,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
+
+
+def compose_group_membership_approved_email_old(
     group_name: str,
     group_short_name: str,
     first_name: str,
@@ -230,7 +295,39 @@ def compose_group_membership_approved_email(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
-def compose_email_change_notification(
+def compose_group_membership_approved_email(
+        group_name: str,
+        group_short_name: str,
+        first_name: str,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their group/bundle access was approved.
+    """
+    portal_url = settings.aai_portal_url or ""
+    short_name = group_short_name or group_name
+    short_suffix = (
+        f" ({short_name})" if short_name and short_name != group_name else ""
+    )
+    subject = f"{group_name} Service Bundle access approved"
+    body_html = render_html_template(
+        "emails/group_approved.html",
+        group_name=group_name,
+        short_suffix=short_suffix,
+        short_name=short_name,
+        first_name=first_name,
+        portal_url=portal_url,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
+
+
+def compose_email_change_notification_old(
     old_email: str,
     new_email: str,
     settings: Settings,
@@ -254,7 +351,32 @@ def compose_email_change_notification(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
-def compose_username_change_notification(
+def compose_email_change_notification(
+        old_email: str,
+        new_email: str,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their email address was updated.
+    """
+    portal_url = settings.aai_portal_url or ""
+    subject = "Your Biocommons Access email address was updated"
+    body_html = render_html_template(
+        "emails/email_changed.html",
+        old_email=old_email,
+        new_email=new_email,
+        portal_url=portal_url,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
+
+
+def compose_username_change_notification_old(
     old_username: str,
     new_username: str,
     settings: Settings,
@@ -278,7 +400,31 @@ def compose_username_change_notification(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
-def compose_email_change_otp_email(
+def compose_username_change_notification(
+        old_username: str,
+        new_username: str,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their username was updated.
+    """
+    portal_url = settings.aai_portal_url or ""
+    subject = "Your Biocommons Access username was updated"
+    body_html = render_html_template(
+        "emails/username_changed.html",
+        old_username=old_username,
+        new_username=new_username,
+        portal_url=portal_url,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
+
+def compose_email_change_otp_email_old(
     code: str,
     target_email: str,
     expiration_minutes: int,
@@ -301,7 +447,31 @@ def compose_email_change_otp_email(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
-def compose_welcome_email(
+def compose_email_change_otp_email(
+        code: str,
+        target_email: str,
+        expiration_minutes: int,
+        portal_url: str = "",
+) -> tuple[str, str]:
+    """
+    Email OTP for confirming an email address change.
+    """
+    subject = "Confirm your new BioCommons Access email address"
+    body_html = render_html_template(
+        "emails/email_change_otp.html",
+        code=code,
+        target_email=target_email,
+        expiration_minutes=expiration_minutes,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
+
+def compose_welcome_email_old(
     first_name: str,
     portal_url: str,
 ) -> tuple[str, str]:
@@ -332,8 +502,26 @@ def compose_welcome_email(
     """
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
+def compose_welcome_email(
+        first_name: str,
+        portal_url: str,
+) -> tuple[str, str]:
+    """
+    Welcome email sent to new users after email verification
+    and to users who have been successfully migrated.
+    """
+    subject = "Welcome to BioCommons Access"
+    body_html = render_html_template("emails/welcome_email.html", first_name=first_name, portal_url=portal_url)
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
 
-def compose_group_membership_rejected_email(
+
+def compose_group_membership_rejected_email_old(
     *,
     group_name: str,
     username: str,
@@ -371,7 +559,33 @@ def compose_group_membership_rejected_email(
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
 
 
-def compose_bundle_request_confirmation_email(
+def compose_group_membership_rejected_email(
+        *,
+        group_name: str,
+        username: str,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their group/bundle access request was rejected.
+    For the TSI bundle, includes detailed information about open-access alternatives.
+    """
+    portal_url = settings.aai_portal_url or ""
+    subject = "Threatened Species Initiative service bundle request"
+    body_html = render_html_template(
+        "emails/group_membership_rejected.html",
+        group_name=group_name,
+        username=username,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
+
+
+def compose_bundle_request_confirmation_email_old(
     *,
     first_name: str,
     bundle_name: str,
@@ -397,3 +611,32 @@ def compose_bundle_request_confirmation_email(
         <p style="{_P}">BioCommons Access team</p>
     """
     return subject, _wrap_email_html(subject, subject, body_content, portal_url)
+
+
+def compose_bundle_request_confirmation_email(
+        *,
+        first_name: str,
+        bundle_name: str,
+        request_reason: str | None,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Confirmation email sent to a user after they request access to a bundle/group.
+    Informs them their request was received and explains next steps.
+    """
+    portal_url = settings.aai_portal_url or ""
+    reason = request_reason.strip() if request_reason else "Not provided"
+    subject = f"Your {bundle_name} Service Bundle request has been received"
+    body_html = render_html_template(
+        "emails/bundle_request_confirmation.html",
+        first_name=first_name,
+        bundle_name=bundle_name,
+        reason=reason,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
