@@ -130,7 +130,6 @@ def _notify_bundle_group_admins(
             requester_full_name=requester_full_name,
             requester_email=requester_email,
             request_reason=membership.request_reason,
-            requester_user_id=membership.user_id,
             settings=settings,
         )
         enqueue_email(
