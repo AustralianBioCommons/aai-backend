@@ -1117,7 +1117,8 @@ def delete_user(user_id: Annotated[str, UserIdParam],
     )
     return {"message": f"User {user_id} deleted successfully."}
 
-class AdminInvalidEmailDeleteData:
+
+class AdminInvalidEmailDeleteData(BaseModel):
     """
     Data model for the payload of the /users/{user_id}/delete_invalid_email endpoint.
     """
