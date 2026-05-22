@@ -6,6 +6,7 @@ from auth0.client import Auth0Client
 from config import Settings, get_settings
 from db.models import BiocommonsGroup
 from dependencies.templates import TEMPLATES
+from schemas.biocommons import Auth0UserData
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -59,6 +60,14 @@ def get_default_sender_email(settings: Settings | None = None) -> str:
     logger.info(f"Got default sender email: {email}")
     logger.info(f"Email settings: {settings.no_reply_email_sender=}")
     return str(email)
+
+
+def get_user_first_name(user: Auth0UserData, fallback: str):
+    return format_first_name(
+        full_name=user.name,
+        given_name=user.given_name,
+        fallback=fallback,
+    )
 
 
 def format_first_name(
