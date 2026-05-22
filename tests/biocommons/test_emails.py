@@ -7,6 +7,7 @@ from biocommons.emails import (
     compose_group_approval_email,
     compose_group_membership_approved_email,
     compose_group_membership_rejected_email,
+    compose_incorrect_email_notification_email,
     compose_username_change_notification,
     compose_welcome_email,
     format_first_name,
@@ -333,3 +334,24 @@ def test_compose_bundle_request_confirmation_email_defaults_missing_reason(mock_
     )
 
     assert "<strong>Reason provided:</strong> Not provided" in html
+
+
+def test_compose_incorrect_email_notification_email_trims_portal_url_trailing_slash(mock_settings):
+    mock_settings.aai_portal_url = "https://portal.example.org/"
+
+    subject, html = compose_incorrect_email_notification_email(
+        first_name="Grace",
+        incorrect_email="grace.typo@example.org",
+        settings=mock_settings,
+    )
+
+    assert subject == "Did you register for a BioCommons Access account?"
+    assert_email_contains(
+        html,
+        "Hi Grace",
+        "address grace.typo@example.org",
+        'href="https://portal.example.org/register"',
+        "https://portal.example.org/register",
+        "BioCommons Access registration",
+    )
+    assert "https://portal.example.org//register" not in html

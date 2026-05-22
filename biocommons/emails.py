@@ -354,3 +354,27 @@ def compose_bundle_request_confirmation_email(
         portal_url=portal_url,
     )
     return subject, email_html
+
+
+def compose_incorrect_email_notification_email(
+        *,
+        first_name: str,
+        incorrect_email: str,
+        settings: Settings,
+):
+    subject = "Did you register for a BioCommons Access account?"
+    portal_url = settings.aai_portal_url
+    register_url = portal_url.rstrip("/") + "/register"
+    body_html = render_html_template(
+        "emails/incorrect_email.html",
+        first_name=first_name,
+        incorrect_email=incorrect_email,
+        register_url=register_url,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=portal_url,
+    )
+    return subject, email_html
