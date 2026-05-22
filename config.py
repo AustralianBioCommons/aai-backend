@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     #   to be available before the app starts
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
-    aai_portal_url: Optional[str] = None
+    aai_portal_url: str = ""
     # Sender override for emails that should come from a no-reply address
     no_reply_email_sender: EmailStr
     # SES resource ARN for sending emails
@@ -52,11 +52,11 @@ class Settings(BaseSettings):
             return None
         return value.rstrip("/")
 
-    @field_validator("aai_portal_url", mode="after")
+    @field_validator("aai_portal_url", mode="before")
     @classmethod
-    def strip_aai_portal_trailing_slash(cls, value: str | None) -> str | None:
+    def strip_aai_portal_trailing_slash(cls, value: str | None) -> str:
         if value is None:
-            return None
+            return ""
         return value.rstrip("/")
 
     @model_validator(mode="after")
