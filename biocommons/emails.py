@@ -166,7 +166,6 @@ def compose_group_approval_email(
 ) -> tuple[str, str]:
     subject = f"{bundle_name} Service Bundle request"
     reason = request_reason.strip() if request_reason else "Not provided"
-    portal_url = settings.aai_portal_url
     body_html = render_html_template(
         "emails/group_approval.html",
         admin_first_name=admin_first_name,
@@ -179,7 +178,7 @@ def compose_group_approval_email(
         title=subject,
         preheader=subject,
         body_html=body_html,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     return subject, email_html
 
@@ -193,7 +192,6 @@ def compose_group_membership_approved_email(
     """
     Notify a user that their group/bundle access was approved.
     """
-    portal_url = settings.aai_portal_url
     short_name = group_short_name or group_name
     short_suffix = (
         f" ({short_name})" if short_name and short_name != group_name else ""
@@ -205,13 +203,13 @@ def compose_group_membership_approved_email(
         short_suffix=short_suffix,
         short_name=short_name,
         first_name=first_name,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     email_html = render_default_email_html(
         title=subject,
         preheader=subject,
         body_html=body_html,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     return subject, email_html
 
@@ -224,19 +222,18 @@ def compose_email_change_notification(
     """
     Notify a user that their email address was updated.
     """
-    portal_url = settings.aai_portal_url
     subject = "Your Biocommons Access email address was updated"
     body_html = render_html_template(
         "emails/email_changed.html",
         old_email=old_email,
         new_email=new_email,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     email_html = render_default_email_html(
         title=subject,
         preheader=subject,
         body_html=body_html,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     return subject, email_html
 
@@ -250,19 +247,18 @@ def compose_username_change_notification(
     """
     Notify a user that their username was updated.
     """
-    portal_url = settings.aai_portal_url
     subject = "Your Biocommons Access username was updated"
     body_html = render_html_template(
         "emails/username_changed.html",
         old_username=old_username,
         new_username=new_username,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     email_html = render_default_email_html(
         title=subject,
         preheader=subject,
         body_html=body_html,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     return subject, email_html
 
@@ -322,7 +318,6 @@ def compose_group_membership_rejected_email(
     Notify a user that their group/bundle access request was rejected.
     For the TSI bundle, includes detailed information about open-access alternatives.
     """
-    portal_url = settings.aai_portal_url
     subject = "Threatened Species Initiative service bundle request"
     body_html = render_html_template(
         "emails/group_membership_rejected.html",
@@ -333,7 +328,7 @@ def compose_group_membership_rejected_email(
         title=subject,
         preheader=subject,
         body_html=body_html,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     return subject, email_html
 
@@ -349,7 +344,6 @@ def compose_bundle_request_confirmation_email(
     Confirmation email sent to a user after they request access to a bundle/group.
     Informs them their request was received and explains next steps.
     """
-    portal_url = settings.aai_portal_url
     reason = request_reason.strip() if request_reason else "Not provided"
     subject = f"Your {bundle_name} Service Bundle request has been received"
     body_html = render_html_template(
@@ -362,7 +356,7 @@ def compose_bundle_request_confirmation_email(
         title=subject,
         preheader=subject,
         body_html=body_html,
-        portal_url=portal_url,
+        portal_url=settings.aai_portal_url,
     )
     return subject, email_html
 
