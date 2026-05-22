@@ -670,6 +670,42 @@ def test_delete_user_invalid_email_soft_deletes_user_and_queues_email(
     assert "incorrect@example.org" in queued_emails[0].body_html
 
 
+def test_delete_user_invalid_email_defaults_missing_reason(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    mock_auth0_client.update_user.return_value = True
+    mock_auth0_client.delete_user_refresh_tokens.return_value = True
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email="incorrect@example.org",
+        given_name="Grace",
+    )
+
+    resp = test_client.post(
+        f"/admin/users/{user.id}/delete_invalid_email",
+        json={"correct_email": "correct@example.org"},
+    )
+
+    assert resp.status_code == 200
+    test_db_session.expire_all()
+    deleted_user = BiocommonsUser.get_deleted_by_id(test_db_session, user.id)
+    assert deleted_user.deletion_reason == "Invalid email address"
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == "correct@example.org"
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
+
+
 @respx.mock
 def test_delete_user_continue_when_refresh_token_delete_fails(test_client, test_db_session, as_admin_user, test_auth0_client, galaxy_platform, persistent_factories):
     """
