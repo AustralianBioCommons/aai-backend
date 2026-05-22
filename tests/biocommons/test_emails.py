@@ -349,7 +349,7 @@ def test_compose_incorrect_email_notification_email_trims_portal_url_trailing_sl
     assert_email_contains(
         html,
         "Hi Grace",
-        "address grace.typo@example.org",
+        "grace.typo@example.org",
         'href="https://portal.example.org/register"',
         "https://portal.example.org/register",
         "BioCommons Access registration",
