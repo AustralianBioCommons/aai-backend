@@ -4,6 +4,16 @@ from pydantic import ValidationError
 from config import Settings
 
 
+@pytest.fixture(autouse=True)
+def clear_settings_env(monkeypatch):
+    """
+    Ensure config env variables are cleared before each test.
+    """
+    for field_name in Settings.model_fields:
+        env_name = field_name.upper()
+        monkeypatch.delenv(env_name, raising=False)
+
+
 def _base_settings_kwargs():
     return {
         "auth0_domain": "mock-domain",
