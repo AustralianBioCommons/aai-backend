@@ -720,6 +720,7 @@ def test_delete_user_invalid_email_does_not_delete_when_email_queue_fails(
     user = _create_user_with_platform_membership(
         db_session=test_db_session,
         platform_id=galaxy_platform.id,
+        deletion_reason=None
     )
     mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
         user_id=user.id,
