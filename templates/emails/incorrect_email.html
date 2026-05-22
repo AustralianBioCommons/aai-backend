@@ -2,7 +2,7 @@
 
 <p style="{{ p_style }}">
     We noticed a recent attempt to register for a BioCommons Access account by you using the email
-    address {{ incorrect_email }}
+    address <strong>{{ incorrect_email }}</strong>
 </p>
 
 <p style="{{ p_style }}">
@@ -19,15 +19,19 @@
     If you haven’t already done so, please re-register here using a valid email address.
 </p>
 
-<a href="{{ register_url }}" style="{{ a_style }}" target="_blank" rel="noopener noreferrer">BioCommons Access registration</a>
+<p style="{{ p_center_style }}">
+    <a href="{{ register_url }}" style="{{ a_style }}" target="_blank" rel="noopener noreferrer">BioCommons Access registration</a>
+</p>
 
 <p style="{{ p_style }}">
     If the button doesn't work, you can copy and paste the URL into your browser.
 </p>
 
-<code>
-    {{ register_url }}
-</code>
+<p style="{{ p_center_style }}">
+    <code>
+        {{ register_url }}
+    </code>
+</p>
 
 <p style="{{ p_style }}">
     If you have already successfully created an account using a valid email address, please feel free to disregard this message.

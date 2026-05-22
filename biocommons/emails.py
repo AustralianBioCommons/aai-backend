@@ -14,6 +14,7 @@ logger = logging.getLogger("uvicorn.error")
 _LOGO_URL = "https://images.squarespace-cdn.com/content/v1/5d3a4213cf4f5b00014ea1db/1689141619044-F67XDPQLP4PG6KY862VA/Australian-Biocommons-Logo-Horizontal-RGB.png"
 _ICON_MAIL = "https://cdn.auth0.com/website/emails/product/icon-mail.png"
 _P = "margin: 0 0 12px; font-size: 16px; line-height: 24px; color: #171717; text-align: left;"
+_P_CENTER = "margin: 0 0 12px; font-size: 16px; line-height: 24px; color: #171717; text-align: center;"
 _LI = "font-size: 16px; line-height: 24px; color: #171717;"
 _UL = "margin: 0 0 12px; padding-left: 24px; text-align: left;"
 _P_SIGN_OFF = "margin: 24px 0 12px; font-size: 16px; line-height: 24px; color: #171717; text-align: left;"
@@ -44,6 +45,7 @@ def render_html_template(template_name: str, **kwargs) -> str:
     template = TEMPLATES.get_template(name=template_name)
     style_defaults = {
         "p_style": _P,
+        "p_center_style": _P_CENTER,
         "a_style": _A,
         "p_signoff": _P_SIGN_OFF,
         "li_style": _LI,
