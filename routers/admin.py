@@ -1136,16 +1136,8 @@ def delete_user_invalid_email(
         db_session: Annotated[Session, Depends(get_db_session)],
         settings: Annotated[Settings, Depends(get_settings)],):
     db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
-    logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
-    db_user.soft_delete(
-        deleted_by=current_admin,
-        reason=delete_data.reason or "Invalid email address",
-        session=db_session,
-        auth0_client=client,
-    )
-    logger.info(f"User {user_id} marked as deleted in database")
-    if delete_data.correct_email:
-        logger.info("Sending email to notify user of incorrect email")
+    try:
+        logger.info("Queueing email to notify user of incorrect email")
         auth0_user = client.get_user(user_id)
         first_name = get_user_first_name(auth0_user, fallback="there")
         subject, html = compose_incorrect_email_notification_email(
@@ -1160,7 +1152,22 @@ def delete_user_invalid_email(
             body_html=html,
             settings=settings,
         )
-        db_session.commit()
+    except Exception as exc:
+        db_session.rollback()
+        logger.exception(f"Failed to queue incorrect email notification for user {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to queue incorrect email notification.",
+        ) from exc
+
+    logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
+    db_user.soft_delete(
+        deleted_by=current_admin,
+        reason=delete_data.reason or "Invalid email address",
+        session=db_session,
+        auth0_client=client,
+    )
+    logger.info(f"User {user_id} marked as deleted in database")
     return {"message": f"User {user_id} deleted successfully."}
 
 @router.post(
