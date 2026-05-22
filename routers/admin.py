@@ -8,7 +8,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
 from httpx import HTTPStatusError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    ValidationError,
+    field_validator,
+)
 from sqlalchemy import exists, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -32,8 +39,9 @@ from biocommons.emails import (
     compose_email_change_notification,
     compose_group_membership_approved_email,
     compose_group_membership_rejected_email,
+    compose_incorrect_email_notification_email,
     compose_username_change_notification,
-    format_first_name,
+    get_user_first_name,
 )
 from config import Settings, get_settings
 from db.models import (
@@ -1114,6 +1122,58 @@ def delete_user(user_id: Annotated[str, UserIdParam],
     return {"message": f"User {user_id} deleted successfully."}
 
 
+class AdminInvalidEmailDeleteData(BaseModel):
+    """
+    Data model for the payload of the /users/{user_id}/delete_invalid_email endpoint.
+    """
+    reason: str | None = None
+    correct_email: EmailStr
+
+
+@router.post("/users/{user_id}/delete_invalid_email",
+             dependencies=[Depends(require_platform_admin_permission_for_user)])
+def delete_user_invalid_email(
+        user_id: Annotated[str, UserIdParam],
+        delete_data: AdminInvalidEmailDeleteData,
+        client: Annotated[Auth0Client, Depends(get_auth0_client)],
+        current_admin: Annotated[BiocommonsUser, Depends(get_db_user)],
+        db_session: Annotated[Session, Depends(get_db_session)],
+        settings: Annotated[Settings, Depends(get_settings)],):
+    db_user = BiocommonsUser.get_by_id_or_404(user_id, db_session)
+    try:
+        logger.info("Queueing email to notify user of incorrect email")
+        auth0_user = client.get_user(user_id)
+        first_name = get_user_first_name(auth0_user, fallback="there")
+        subject, html = compose_incorrect_email_notification_email(
+            first_name=first_name,
+            incorrect_email=auth0_user.email,
+            settings=settings,
+        )
+        enqueue_email(
+            session=db_session,
+            to_address=delete_data.correct_email,
+            subject=subject,
+            body_html=html,
+            settings=settings,
+        )
+    except Exception as exc:
+        db_session.rollback()
+        logger.exception(f"Failed to queue incorrect email notification for user {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to queue incorrect email notification.",
+        ) from exc
+
+    logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
+    db_user.soft_delete(
+        deleted_by=current_admin,
+        reason=delete_data.reason or "Invalid email address",
+        session=db_session,
+        auth0_client=client,
+    )
+    logger.info(f"User {user_id} marked as deleted in database")
+    return {"message": f"User {user_id} deleted successfully."}
+
 @router.post(
     "/users/{user_id}/verification-email/resend",
     dependencies=[Depends(require_admin_permission_for_user)],)
@@ -1223,11 +1283,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         first_name = "there"
         try:
             auth0_user = client.get_user(membership.user.id)
-            first_name = format_first_name(
-                full_name=auth0_user.name,
-                given_name=auth0_user.given_name,
-                fallback="there",
-            )
+            first_name = get_user_first_name(auth0_user, fallback="there")
         except Exception:
             pass
         subject, body_html = compose_group_membership_approved_email(

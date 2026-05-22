@@ -455,7 +455,6 @@ def send_group_request_emails(user: SessionUser,
             requester_full_name=requester_full_name,
             requester_email=requester_email or membership.user.email,
             request_reason=membership.request_reason,
-            requester_user_id=membership.user_id,
             settings=settings,
         )
         enqueue_email(

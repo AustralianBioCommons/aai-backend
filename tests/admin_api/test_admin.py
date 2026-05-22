@@ -614,6 +614,147 @@ def test_delete_user_calls_auth0_api(test_client, test_db_session, as_admin_user
     mock_auth0_client.delete_user_refresh_tokens.assert_called_once_with(user_id=user_id)
 
 
+def test_delete_user_invalid_email_soft_deletes_user_and_queues_email(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+    frozen_time,
+):
+    mock_auth0_client.update_user.return_value = True
+    mock_auth0_client.delete_user_refresh_tokens.return_value = True
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    user_id = user.id
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=user_id,
+        email="incorrect@example.org",
+        given_name="Grace",
+    )
+
+    resp = test_client.post(
+        f"/admin/users/{user_id}/delete_invalid_email",
+        json={
+            "reason": "User registered with the wrong email address",
+            "correct_email": "correct@example.org",
+        },
+    )
+
+    assert resp.status_code == 200
+    test_db_session.expire_all()
+    user_query = select(func.count()).select_from(BiocommonsUser).where(BiocommonsUser.id == user_id)
+    assert test_db_session.exec(user_query).one() == 0
+    assert test_db_session.exec(user_query.execution_options(include_deleted=True)).one() == 1
+
+    deleted_user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+    assert deleted_user.is_deleted
+    assert deleted_user.deleted_at == frozen_time
+    assert deleted_user.deleted_by == as_admin_user
+    assert deleted_user.deletion_reason == "User registered with the wrong email address"
+    mock_auth0_client.update_user.assert_called_once_with(
+        user_id=user_id,
+        update_data=UpdateUserData(blocked=True),
+    )
+    mock_auth0_client.delete_user_refresh_tokens.assert_called_once_with(user_id=user_id)
+    mock_auth0_client.get_user.assert_called_once_with(user_id)
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == "correct@example.org"
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
+    assert queued_emails[0].subject == "Did you register for a BioCommons Access account?"
+    assert "Hi Grace" in queued_emails[0].body_html
+    assert "incorrect@example.org" in queued_emails[0].body_html
+
+
+def test_delete_user_invalid_email_defaults_missing_reason(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+):
+    mock_auth0_client.update_user.return_value = True
+    mock_auth0_client.delete_user_refresh_tokens.return_value = True
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+    )
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email="incorrect@example.org",
+        given_name="Grace",
+    )
+
+    resp = test_client.post(
+        f"/admin/users/{user.id}/delete_invalid_email",
+        json={"correct_email": "correct@example.org"},
+    )
+
+    assert resp.status_code == 200
+    test_db_session.expire_all()
+    deleted_user = BiocommonsUser.get_deleted_by_id(test_db_session, user.id)
+    assert deleted_user.deletion_reason == "Invalid email address"
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == "correct@example.org"
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
+
+
+def test_delete_user_invalid_email_does_not_delete_when_email_queue_fails(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    mock_auth0_client,
+    galaxy_platform,
+    persistent_factories,
+    mocker,
+):
+    mock_auth0_client.update_user.return_value = True
+    mock_auth0_client.delete_user_refresh_tokens.return_value = True
+    user = _create_user_with_platform_membership(
+        db_session=test_db_session,
+        platform_id=galaxy_platform.id,
+        deletion_reason=None
+    )
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email="incorrect@example.org",
+        given_name="Grace",
+    )
+    mocker.patch(
+        "routers.admin.enqueue_email",
+        side_effect=RuntimeError("queue unavailable"),
+    )
+
+    resp = test_client.post(
+        f"/admin/users/{user.id}/delete_invalid_email",
+        json={
+            "reason": "User registered with the wrong email address",
+            "correct_email": "correct@example.org",
+        },
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Failed to queue incorrect email notification."
+    test_db_session.expire_all()
+    refreshed_user = BiocommonsUser.get_by_id(user.id, test_db_session)
+    assert refreshed_user is not None
+    assert refreshed_user.is_deleted is False
+    assert refreshed_user.deletion_reason is None
+    mock_auth0_client.update_user.assert_not_called()
+    mock_auth0_client.delete_user_refresh_tokens.assert_not_called()
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 0
+
+
 @respx.mock
 def test_delete_user_continue_when_refresh_token_delete_fails(test_client, test_db_session, as_admin_user, test_auth0_client, galaxy_platform, persistent_factories):
     """
