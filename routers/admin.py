@@ -1160,6 +1160,8 @@ def delete_user_invalid_email(
             body_html=html,
             settings=settings,
         )
+        db_session.commit()
+    return {"message": f"User {user_id} deleted successfully."}
 
 @router.post(
     "/users/{user_id}/verification-email/resend",
