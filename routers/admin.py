@@ -41,7 +41,6 @@ from biocommons.emails import (
     compose_group_membership_rejected_email,
     compose_incorrect_email_notification_email,
     compose_username_change_notification,
-    format_first_name,
     get_user_first_name,
 )
 from config import Settings, get_settings
@@ -1270,11 +1269,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
         first_name = "there"
         try:
             auth0_user = client.get_user(membership.user.id)
-            first_name = format_first_name(
-                full_name=auth0_user.name,
-                given_name=auth0_user.given_name,
-                fallback="there",
-            )
+            first_name = get_user_first_name(auth0_user, fallback="there")
         except Exception:
             pass
         subject, body_html = compose_group_membership_approved_email(
