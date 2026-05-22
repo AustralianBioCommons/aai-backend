@@ -1122,7 +1122,7 @@ class AdminInvalidEmailDeleteData(BaseModel):
     """
     Data model for the payload of the /users/{user_id}/delete_invalid_email endpoint.
     """
-    reason: str
+    reason: str | None = None
     correct_email: EmailStr
 
 
@@ -1139,7 +1139,7 @@ def delete_user_invalid_email(
     logger.info(f"Triggering user deletion for {user_id} by {current_admin.id}")
     db_user.soft_delete(
         deleted_by=current_admin,
-        reason=delete_data.reason,
+        reason=delete_data.reason or "Invalid email address",
         session=db_session,
         auth0_client=client,
     )
