@@ -423,8 +423,11 @@ def test_request_group_membership_checks_email_for_sbp(
     mocker,
 ):
     group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
-    BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
-    normal_user.access_token.email = "external@example.com"
+    BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        id=normal_user.access_token.sub,
+        email="external@example.com"
+    )
     institution_check = mocker.patch(
         "routers.user.is_australian_research_institution_email",
         new=AsyncMock(return_value=False),
@@ -445,6 +448,35 @@ def test_request_group_membership_checks_email_for_sbp(
     )
     assert membership is None
 
+
+@pytest.mark.asyncio
+async def test_request_group_membership_allows_biocommons(
+        test_client,
+        normal_user,
+        as_normal_user,
+        test_db_session,
+        persistent_factories,
+        mocker,
+):
+    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        id=normal_user.access_token.sub,
+        email="user@biocommons.org.au"
+    )
+
+    resp = test_client.post(
+        "/me/groups/request",
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Need SBP workflow access"}]},
+    )
+
+    assert resp.status_code == 200
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert membership.approval_status == ApprovalStatusEnum.PENDING
 
 @respx.mock
 def test_request_group_membership_after_rejection(
