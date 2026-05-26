@@ -503,7 +503,8 @@ def request_group_access(
     """
     has_sbp_request = any(item.group_id == GroupEnum.SBP.value for item in request_data.groups)
     if has_sbp_request:
-        is_institution = asyncio.run(is_australian_research_institution_email(user.access_token.email))
+        is_institution = asyncio.run(is_australian_research_institution_email(db_user.email))
+
         if not is_institution:
             raise HTTPException(
                 status_code=http.HTTPStatus.FORBIDDEN,
