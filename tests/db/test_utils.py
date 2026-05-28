@@ -41,6 +41,36 @@ def test_refresh_unverified_users_throttling(test_db_session):
             auth0_client.get_user.assert_not_called()
 
 
+def test_refresh_unverified_users_task_gets_auth0_client_when_none(test_db_session):
+    """Verifies the task obtains and keeps an Auth0 client open when none is passed."""
+    settings = MagicMock()
+    auth0_client = MagicMock()
+
+    def auth0_client_dependency(**kwargs):
+        assert kwargs == {"settings": settings, "management_token": "management-token"}
+        try:
+            yield auth0_client
+        finally:
+            auth0_client.close()
+
+    def assert_client_open_during_refresh(session, client):
+        assert session is test_db_session
+        assert client is auth0_client
+        auth0_client.close.assert_not_called()
+
+    with (
+        patch("db.utils.get_settings", return_value=settings),
+        patch("db.utils.get_management_token", return_value="management-token") as mock_get_management_token,
+        patch("db.utils.get_auth0_client", side_effect=auth0_client_dependency),
+        patch("db.utils.refresh_unverified_users", side_effect=assert_client_open_during_refresh) as mock_refresh,
+    ):
+        refresh_unverified_users_task(auth0_client=None, session=test_db_session)
+
+    mock_get_management_token.assert_called_once_with(settings)
+    mock_refresh.assert_called_once_with(test_db_session, auth0_client)
+    auth0_client.close.assert_called_once()
+
+
 def test_refresh_unverified_users_updates_status(test_db_session: Session):
     """Verifies that a user's status is updated when Auth0 reports they are now verified."""
     # Create an unverified user
