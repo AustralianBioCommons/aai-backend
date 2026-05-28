@@ -46,16 +46,23 @@ def refresh_unverified_users_task(auth0_client: Auth0Client | None = None, sessi
     LAST_UNVERIFIED_REFRESH_TIME = datetime.now(UTC)
 
     owns_session = session is None
+    auth0_client_dependency = None
     if session is None:
         session = Session(get_engine())
     if auth0_client is None:
         settings = get_settings()
         token = get_management_token(settings)
-        auth0_client = get_auth0_client(settings=settings, management_token=token)
+        auth0_client_dependency = get_auth0_client(settings=settings, management_token=token)
+        auth0_client = next(auth0_client_dependency)
+        if auth0_client is None:
+            raise ValueError("Failed to obtain Auth0 client for user refresh task")
 
     try:
         refresh_unverified_users(session, auth0_client)
     finally:
         if owns_session:
             session.close()
-        auth0_client.close()
+        if auth0_client_dependency is not None:
+            auth0_client_dependency.close()
+        else:
+            auth0_client.close()
