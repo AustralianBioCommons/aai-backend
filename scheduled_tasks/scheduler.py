@@ -39,11 +39,14 @@ def create_scheduler():
     # For dev (with sqlite DB), just use MemoryJobStore - sqlite has issues with locking
     if db_url.startswith("sqlite://"):
         jobstores = {
-            "default": MemoryJobStore()
+            "default": MemoryJobStore(),
+            "email": MemoryJobStore(),
         }
     else:
         jobstores = {
-            "default": SQLAlchemyJobStore(url=db_url)
+            "default": SQLAlchemyJobStore(url=db_url),
+            # One-shot email delivery jobs use memory to avoid SQLAlchemy race on remove_job
+            "email": MemoryJobStore(),
         }
     executors = {
         "default": {"type": "asyncio"},

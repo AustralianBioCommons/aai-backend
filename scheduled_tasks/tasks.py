@@ -252,6 +252,7 @@ async def process_email_queue(
                 args=[notification.id],
                 id=job_id,
                 executor=EMAIL_QUEUE_EXECUTOR,
+                jobstore="email",
                 max_instances=1,
                 replace_existing=True,
             )
