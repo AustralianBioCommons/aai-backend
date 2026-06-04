@@ -300,6 +300,7 @@ def test_compose_group_membership_rejected_email(mock_settings):
         html,
         "Dear Grace,",
         "Thank you for your interest in the Threatened Species Bundle.",
+        "You have not been granted access.",
         "Threatened Species Initiative",
         "Request access to specialist tools",
         "help@bioplatforms.com",
