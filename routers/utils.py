@@ -1,7 +1,6 @@
 import logging
 from typing import Annotated, Literal
 
-from email_validator import validate_email
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.params import Depends
 from pydantic import BaseModel, EmailStr
@@ -156,11 +155,6 @@ async def check_australian_research_institution(
     Check whether the email domain belongs to an Australian Research Institution
     as listed at https://site.usegalaxy.org.au/list-of-institutions.html.
     """
-    # Allow domains not in Galaxy's list
-    EXTRA_DOMAINS = ["biocommons.org.au"]
-    parsed = validate_email(email, check_deliverability=False)
-    if parsed.domain in EXTRA_DOMAINS:
-        return AustralianResearchInstitutionResponse(is_australian_research_institution=True)
     return AustralianResearchInstitutionResponse(
         is_australian_research_institution=await is_australian_research_institution_email(email),
     )
