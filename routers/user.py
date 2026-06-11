@@ -840,7 +840,6 @@ async def continue_email_update(
     await _revoke_sbp_if_non_institutional(
         user_id=user.access_token.sub,
         new_email=resp.email,
-        db_user=db_user,
         auth0_client=auth0_client,
         db_session=db_session,
     )
@@ -851,7 +850,6 @@ async def _revoke_sbp_if_non_institutional(
     *,
     user_id: str,
     new_email: str,
-    db_user: BiocommonsUser,
     auth0_client: Auth0Client,
     db_session: Session,
 ) -> None:
@@ -893,7 +891,8 @@ async def _revoke_sbp_if_non_institutional(
     sbp_membership.revoke(
         auth0_client=auth0_client,
         reason="Email changed to a non-Australian institutional address.",
-        updated_by=db_user,
+        # Automatic, system-triggered revocation — not a deliberate user action.
+        updated_by=None,
         session=db_session,
         commit=True,
     )

@@ -1141,6 +1141,8 @@ def test_email_continue_revokes_sbp_for_non_institutional_email(
     assert sbp_membership.revocation_reason == (
         "Email changed to a non-Australian institutional address."
     )
+    # Recorded as an automatic change, not a self-revocation by the user
+    assert sbp_membership.updated_by is None
     # Backing Auth0 role removed
     mock_auth0_client.get_role_by_name.assert_called_once_with(GroupEnum.SBP.value)
     mock_auth0_client.remove_roles_from_user.assert_called_once_with(
