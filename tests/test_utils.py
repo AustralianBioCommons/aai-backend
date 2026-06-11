@@ -187,13 +187,12 @@ def test_check_australian_research_institution_invalid(test_client):
 
 
 @respx.mock
-def test_check_australian_research_institution_biocommons_override(test_client):
+def test_check_australian_research_institution_biocommons(test_client):
     """
-    Test that emails from biocommons.org.au are considered Australian research institutions
-    (either through override or upstream validation)
+    biocommons.org.au is included in Galaxy's institution list, so it is
+    validated upstream without any local override.
     """
-    # Assume Galaxy returns False - rely on override for now
-    respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(200, json={"valid": False}))
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(return_value=Response(200, json={"valid": True}))
     resp = test_client.get(
         "/utils/register/check-australian-research-institution",
         params={"email": "user@biocommons.org.au"},

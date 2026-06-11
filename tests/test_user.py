@@ -1,7 +1,7 @@
 import hashlib
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import respx
@@ -1062,6 +1062,139 @@ def test_email_continue_updates_user(test_client, test_db_session, mocker, persi
         )
     ).one_or_none()
     assert remaining_active is None
+
+
+def _setup_email_change_with_sbp(
+    test_db_session,
+    mocker,
+    mock_auth0_client,
+    *,
+    new_email: str = "new@example.com",
+):
+    """
+    Shared setup for the SBP-revocation-on-email-change tests: a user holding an
+    approved SBP bundle, a pending OTP for a new email, and Auth0 mocks. Returns
+    (user, sbp_membership, code).
+    """
+    user = BiocommonsUserFactory.create_sync(email="old@institution.edu.au", email_verified=True)
+    sbp_group = BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.SBP.value,
+        name="Structural Biology Platform Bundle",
+        short_name="SBP",
+    )
+    sbp_membership = GroupMembershipFactory.create_sync(
+        user=user,
+        group=sbp_group,
+        group_id=sbp_group.group_id,
+        approval_status=ApprovalStatusEnum.APPROVED,
+    )
+    test_db_session.flush()
+    _act_as_user(mocker, user)
+
+    code = "123456"
+    hashed = hashlib.sha256(code.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    otp_entry = EmailChangeOtp(
+        user_id=user.id,
+        target_email=new_email,
+        otp_hash=hashed,
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        window_start=now,
+    )
+    test_db_session.add(otp_entry)
+    test_db_session.commit()
+
+    updated_user = Auth0UserDataFactory.build(
+        sub=user.id,
+        email=new_email,
+        email_verified=True,
+        app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+    )
+    mock_auth0_client.update_user.return_value = updated_user
+    mock_auth0_client.get_role_by_name.return_value = MagicMock(id="role_sbp")
+    return user, sbp_membership, code
+
+
+def test_email_continue_revokes_sbp_for_non_institutional_email(
+    test_client, test_db_session, mocker, persistent_factories, mock_auth0_client
+):
+    user, sbp_membership, code = _setup_email_change_with_sbp(
+        test_db_session, mocker, mock_auth0_client
+    )
+    institution_check = mocker.patch(
+        "routers.user.check_australian_research_institution_email",
+        new=AsyncMock(return_value=False),
+    )
+
+    response = test_client.post(
+        "/me/profile/email/continue",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"otp": code},
+    )
+
+    assert response.status_code == 200
+    institution_check.assert_awaited_once_with("new@example.com")
+
+    test_db_session.refresh(sbp_membership)
+    assert sbp_membership.approval_status == ApprovalStatusEnum.REVOKED
+    assert sbp_membership.revocation_reason == (
+        "Email changed to a non-Australian institutional address."
+    )
+    # Recorded as an automatic change, not a self-revocation by the user
+    assert sbp_membership.updated_by is None
+    # Backing Auth0 role removed
+    mock_auth0_client.get_role_by_name.assert_called_once_with(GroupEnum.SBP.value)
+    mock_auth0_client.remove_roles_from_user.assert_called_once_with(
+        user_id=user.id, role_id="role_sbp"
+    )
+
+
+def test_email_continue_keeps_sbp_for_institutional_email(
+    test_client, test_db_session, mocker, persistent_factories, mock_auth0_client
+):
+    _, sbp_membership, code = _setup_email_change_with_sbp(
+        test_db_session, mocker, mock_auth0_client
+    )
+    mocker.patch(
+        "routers.user.check_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+
+    response = test_client.post(
+        "/me/profile/email/continue",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"otp": code},
+    )
+
+    assert response.status_code == 200
+    test_db_session.refresh(sbp_membership)
+    assert sbp_membership.approval_status == ApprovalStatusEnum.APPROVED
+    mock_auth0_client.remove_roles_from_user.assert_not_called()
+
+
+def test_email_continue_keeps_sbp_when_institution_check_indeterminate(
+    test_client, test_db_session, mocker, persistent_factories, mock_auth0_client
+):
+    """An upstream outage (None) must not strip a user's existing SBP access."""
+    _, sbp_membership, code = _setup_email_change_with_sbp(
+        test_db_session, mocker, mock_auth0_client
+    )
+    mocker.patch(
+        "routers.user.check_australian_research_institution_email",
+        new=AsyncMock(return_value=None),
+    )
+
+    response = test_client.post(
+        "/me/profile/email/continue",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"otp": code},
+    )
+
+    assert response.status_code == 200
+    test_db_session.refresh(sbp_membership)
+    assert sbp_membership.approval_status == ApprovalStatusEnum.APPROVED
+    mock_auth0_client.remove_roles_from_user.assert_not_called()
 
 
 def _make_auth0_identity(connection: str, user_id: str) -> Auth0Identity:

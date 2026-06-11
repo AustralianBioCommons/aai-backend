@@ -60,7 +60,10 @@ from schemas.biocommons import (
 from schemas.responses import FieldError, FieldErrorResponse
 from schemas.user import SessionUser
 from services.email_queue import enqueue_email
-from services.institutions import is_australian_research_institution_email
+from services.institutions import (
+    check_australian_research_institution_email,
+    is_australian_research_institution_email,
+)
 
 router = APIRouter(
     prefix="/me", tags=["user"], responses={401: {"description": "Unauthorized"}}
@@ -833,7 +836,66 @@ async def continue_email_update(
         updated_by=db_user,
         session=db_session, commit=True
     )
+
+    await _revoke_sbp_if_non_institutional(
+        user_id=user.access_token.sub,
+        new_email=resp.email,
+        auth0_client=auth0_client,
+        db_session=db_session,
+    )
     return resp
+
+
+async def _revoke_sbp_if_non_institutional(
+    *,
+    user_id: str,
+    new_email: str,
+    auth0_client: Auth0Client,
+    db_session: Session,
+) -> None:
+    """
+    Access to the SBP Workflow Execution bundle requires affiliation with an
+    Australian research institution. When a user changes their email, revoke an
+    existing approved SBP bundle (and its backing Auth0 role) if the new address
+    is no longer institutional.
+
+    Only revokes on a *definitive* non-institutional answer from the upstream
+    validator: an indeterminate result (e.g. upstream outage) is logged and left
+    untouched rather than wrongly stripping a user's access.
+    """
+    sbp_membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=user_id,
+        group_id=GroupEnum.SBP.value,
+        session=db_session,
+    )
+    if (
+        sbp_membership is None
+        or sbp_membership.approval_status != ApprovalStatusEnum.APPROVED
+    ):
+        return
+
+    is_institution = await check_australian_research_institution_email(new_email)
+    if is_institution is None:
+        logger.warning(
+            f"Could not validate institution status for {user_id} after email "
+            f"change; leaving SBP bundle untouched."
+        )
+        return
+    if is_institution:
+        return
+
+    logger.info(
+        f"Revoking SBP bundle for user {user_id}: email changed to a "
+        f"non-institutional address."
+    )
+    sbp_membership.revoke(
+        auth0_client=auth0_client,
+        reason="Email changed to a non-Australian institutional address.",
+        # Automatic, system-triggered revocation — not a deliberate user action.
+        updated_by=None,
+        session=db_session,
+        commit=True,
+    )
 
 
 @router.post(
