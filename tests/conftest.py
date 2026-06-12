@@ -274,6 +274,7 @@ def admin_user():
 def admin_db_user(admin_user, test_db_session, persistent_factories):
     admin_user = BiocommonsUserFactory.create_sync(
         id=admin_user.access_token.sub,
+        email_verified=True,
         group_memberships=[],
         platform_memberships=[],
     )
