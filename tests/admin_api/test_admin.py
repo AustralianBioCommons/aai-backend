@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 import pytest
@@ -171,13 +172,17 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
     assert all(u.id not in user_ids for u in invalid_users)
 
 
-def test_get_users_excludes_current_admin_user(
+def test_get_users_includes_current_admin_user_first(
     test_client,
     as_admin_user,
     galaxy_platform,
     test_db_session,
     persistent_factories,
 ):
+    """
+    The current admin's own user entry should be included in the user list,
+    sorted to the top.
+    """
     admin_db_user = as_admin_user
     membership = PlatformMembershipFactory.create_sync(
         user_id=admin_db_user.id,
@@ -188,6 +193,38 @@ def test_get_users_excludes_current_admin_user(
     test_db_session.add(admin_db_user)
     test_db_session.commit()
 
+    # Create users out of date order to check the list is sorted by created_at
+    # after the admin user
+    other_users = [
+        _create_user_with_platform_membership(
+            db_session=test_db_session,
+            platform_id=galaxy_platform.id,
+            approval_status=ApprovalStatusEnum.APPROVED,
+            created_at=datetime(2024, 1, day, tzinfo=timezone.utc),
+        )
+        for day in (3, 1, 2)
+    ]
+
+    resp = test_client.get("/admin/users")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 4
+    assert data[0]["id"] == admin_db_user.id
+    expected_order_after_admin = [other_users[1].id, other_users[2].id, other_users[0].id]
+    assert [u["id"] for u in data[1:]] == expected_order_after_admin
+
+
+def test_get_users_admin_without_matching_memberships_not_included(
+    test_client,
+    as_admin_user,
+    galaxy_platform,
+    test_db_session,
+    persistent_factories,
+):
+    """
+    The current admin only appears in the list if they match the query like any
+    other user (the admin fixture has no platform/group memberships here).
+    """
     other_user = _create_user_with_platform_membership(
         db_session=test_db_session,
         platform_id=galaxy_platform.id,
@@ -943,7 +980,7 @@ def test_get_user_page_info(
     }
 
 
-def test_get_user_page_info_excludes_current_admin_user(
+def test_get_user_page_info_includes_current_admin_user(
     test_client,
     as_admin_user,
     galaxy_platform,
@@ -951,6 +988,10 @@ def test_get_user_page_info_excludes_current_admin_user(
     test_db_session,
     persistent_factories,
 ):
+    """
+    Page info counts should include the current admin's own user entry when it
+    matches the query, consistent with the user list.
+    """
     admin_db_user = as_admin_user
     admin_membership = PlatformMembershipFactory.create_sync(
         user_id=admin_db_user.id,
@@ -978,10 +1019,11 @@ def test_get_user_page_info_excludes_current_admin_user(
     test_db_session.add(admin_db_user)
     test_db_session.commit()
 
+    # 2 approved + 3 pending + the admin user (approved on Galaxy)
     resp = test_client.get("/admin/users/pages")
     assert resp.status_code == 200
     assert resp.json() == {
-        "total": 5,
+        "total": 6,
         "pages": 1,
         "per_page": 100,
     }
@@ -989,7 +1031,7 @@ def test_get_user_page_info_excludes_current_admin_user(
     resp = test_client.get("/admin/users/pages?per_page=2")
     assert resp.status_code == 200
     assert resp.json() == {
-        "total": 5,
+        "total": 6,
         "pages": 3,
         "per_page": 2,
     }
@@ -999,7 +1041,7 @@ def test_get_user_page_info_excludes_current_admin_user(
     )
     assert resp.status_code == 200
     assert resp.json() == {
-        "total": 2,
+        "total": 3,
         "pages": 1,
         "per_page": 100,
     }
