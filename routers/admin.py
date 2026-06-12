@@ -446,7 +446,7 @@ class UserQueryParams(BaseModel):
     def _platform_scope_handled_by_permissions(self) -> bool:
         return self._is_platform_scoped_query() and not self._is_group_scoped_query()
 
-    def get_user_ordering(current_user_id: str | None = None):
+    def get_user_ordering(self, current_user_id: str | None = None):
         """
         Deterministic ordering for user lists (keeps pagination stable):
         the current admin's own entry first, then by creation date.
