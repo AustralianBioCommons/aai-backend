@@ -172,7 +172,7 @@ def test_get_users(test_client, as_admin_user, galaxy_platform,
     assert all(u.id not in user_ids for u in invalid_users)
 
 
-def test_get_users_includes_current_admin_user_first(
+def test_get_users_includes_current_admin_user_sorted_by_created_at(
     test_client,
     as_admin_user,
     galaxy_platform,
@@ -181,9 +181,10 @@ def test_get_users_includes_current_admin_user_first(
 ):
     """
     The current admin's own user entry should be included in the user list,
-    sorted to the top.
+    sorted by created_at like any other user (no longer pinned to the top).
     """
     admin_db_user = as_admin_user
+    admin_db_user.created_at = datetime(2024, 1, 4, tzinfo=timezone.utc)
     membership = PlatformMembershipFactory.create_sync(
         user_id=admin_db_user.id,
         platform_id=galaxy_platform.id,
@@ -194,7 +195,6 @@ def test_get_users_includes_current_admin_user_first(
     test_db_session.commit()
 
     # Create users out of date order to check the list is sorted by created_at
-    # after the admin user
     other_users = [
         _create_user_with_platform_membership(
             db_session=test_db_session,
@@ -209,9 +209,9 @@ def test_get_users_includes_current_admin_user_first(
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 4
-    assert data[0]["id"] == admin_db_user.id
-    expected_order_after_admin = [other_users[1].id, other_users[2].id, other_users[0].id]
-    assert [u["id"] for u in data[1:]] == expected_order_after_admin
+    # Admin (day 4) sorts last; the rest follow created_at order
+    expected_order = [other_users[1].id, other_users[2].id, other_users[0].id, admin_db_user.id]
+    assert [u["id"] for u in data] == expected_order
 
 
 def test_get_users_admin_without_matching_memberships_not_included(
