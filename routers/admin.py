@@ -16,7 +16,7 @@ from pydantic import (
     ValidationError,
     field_validator,
 )
-from sqlalchemy import case, exists, func, or_
+from sqlalchemy import exists, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
@@ -446,21 +446,9 @@ class UserQueryParams(BaseModel):
     def _platform_scope_handled_by_permissions(self) -> bool:
         return self._is_platform_scoped_query() and not self._is_group_scoped_query()
 
-    def get_user_ordering(self, current_user_id: str | None = None):
-        """
-        Deterministic ordering for user lists (keeps pagination stable):
-        the current admin's own entry first, then by creation date.
-        """
-        ordering = []
-        if current_user_id is not None:
-            ordering.append(case((BiocommonsUser.id == current_user_id, 0), else_=1))
-        ordering.extend([BiocommonsUser.created_at, BiocommonsUser.id])
-        return ordering
-
     def _get_combined_query(
         self,
         admin_roles: list[str],
-        current_user_id: str | None = None,
     ):
         """
         Combine admin permissions and queries from the params to get the overall
@@ -472,22 +460,19 @@ class UserQueryParams(BaseModel):
             .where(
                 self.get_admin_permissions_query(admin_roles),
                 *self.get_query_conditions(admin_roles))
-            .order_by(*self.get_user_ordering(current_user_id))
+            .order_by(BiocommonsUser.created_at, BiocommonsUser.id)
         )
 
     def get_complete_query(
         self,
         admin_roles: list[str],
         pagination: PaginationParams = None,
-        current_user_id: str | None = None,
     ) -> SelectOfScalar[BiocommonsUser]:
         """
         Return a full user query, with permissions from admin roles and pagination applied.
-        The current admin's own user entry (when it matches the query) is sorted to the
-        top of the results when current_user_id is provided.
         """
         return (
-            self._get_combined_query(admin_roles, current_user_id=current_user_id)
+            self._get_combined_query(admin_roles)
             .offset(pagination.start_index)
             .limit(pagination.per_page)
         )
@@ -690,13 +675,11 @@ def get_filtered_user_query(
     """
     Get an SQLAlchemy query for users based on the provided filter parameters,
     filtered to only return users the admin has permission to view/manage.
-    The admin's own user entry is included and sorted to the top of the list.
     """
     admin_roles = admin_user.access_token.biocommons_roles
     return user_query.get_complete_query(
         admin_roles,
         pagination,
-        current_user_id=admin_user.access_token.sub,
     )
 
 
