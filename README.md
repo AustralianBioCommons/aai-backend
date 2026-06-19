@@ -205,3 +205,39 @@ When the database models are changed, the database schema diagram in [`db_diagra
 ## Documents to be updated
 Please update the following documents if there are changes to the database schema:
 - [AAI User Database Technical Design Document](https://docs.google.com/document/d/1xECcTqXH9ykXBCEESBSg43SOMncXT6Zayi5FwqvCT4Y/edit?tab=t.0#heading=h.sj9060dgy5fu)
+
+## AAF integration — `dev-aaf` deployment
+
+The `aaf-dev` branch runs against the **`biocloud-dev-aaf`** Auth0 tenant
+(`dev-aaf` environment), isolated from `dev-bc`. Deploys are **manual** for now.
+
+Run locally against the tenant:
+
+```bash
+uv venv && uv sync --extra dev
+# .env pointed at the new tenant:
+#   AUTH0_DOMAIN=biocloud-dev-aaf.au.auth0.com
+#   AUTH0_ISSUER=https://biocloud-dev-aaf.au.auth0.com/
+#   AUTH0_AUDIENCE=https://dev-aaf.api.aai.test.biocommons.org.au
+#   AUTH0_MANAGEMENT_ID / AUTH0_MANAGEMENT_SECRET=<M2M in biocloud-dev-aaf>
+#   AUTH0_DB_CONNECTION=Username-Password-Authentication
+uv run uvicorn main:app --reload --port 8000
+```
+
+Deploy to the hosted dev-aaf backend (build image → trigger deploy Lambda):
+
+```bash
+aws sso login --profile aai
+export AWS_PROFILE=aai AWS_REGION=ap-southeast-2 ACCOUNT=498096047392
+ECR=$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/aai-backend
+aws ecr get-login-password --region $AWS_REGION \
+  | docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
+docker build --platform linux/amd64 -t $ECR:dev-aaf .
+docker push $ECR:dev-aaf
+aws lambda invoke --function-name AaiBackendDevAafDeploymentFunction \
+  --payload "$(jq -n '{tag:"dev-aaf"}')" --cli-binary-format raw-in-base64-out /dev/stdout
+```
+
+The dev-aaf ECS service + deploy Lambda are created by the CDK `env=dev-aaf`
+stacks in `aai-infrastructure`. Confirm the Lambda name via `aws lambda
+list-functions` if it differs.
