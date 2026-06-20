@@ -224,20 +224,23 @@ uv venv && uv sync --extra dev
 uv run uvicorn main:app --reload --port 8000
 ```
 
-Deploy to the hosted dev-aaf backend (build image → trigger deploy Lambda):
+Hosted dev-aaf backend (deployed via CDK from `aai-infrastructure`):
 
-```bash
-aws sso login --profile aai
-export AWS_PROFILE=aai AWS_REGION=ap-southeast-2 ACCOUNT=498096047392
-ECR=$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com/aai-backend
-aws ecr get-login-password --region $AWS_REGION \
-  | docker login --username AWS --password-stdin $ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com
-docker build --platform linux/amd64 -t $ECR:dev-aaf .
-docker push $ECR:dev-aaf
-aws lambda invoke --function-name AaiBackendDevAafDeploymentFunction \
-  --payload "$(jq -n '{tag:"dev-aaf"}')" --cli-binary-format raw-in-base64-out /dev/stdout
-```
+The dev-aaf ECS service currently runs the **stock `aai-backend:dev` image** with
+`ENVIRONMENT=dev`. The published `:dev` image doesn't accept `dev-aaf` as an
+environment, so the CDK passes `ENVIRONMENT=dev`; auth still targets the dev-aaf
+tenant via the `dev-aaf/backend/secrets` values. The service is created by
+`cdk deploy -c env=dev-aaf AaiBackendDevAaf` in `aai-infrastructure` — no image
+build needed to stand it up.
 
-The dev-aaf ECS service + deploy Lambda are created by the CDK `env=dev-aaf`
-stacks in `aai-infrastructure`. Confirm the Lambda name via `aws lambda
-list-functions` if it differs.
+To ship **backend AAF code changes**, you need a `dev-aaf`-aware image in the
+**shared ECR (account `331315009666`)**. A manual `docker push` is **not** possible
+— that repo's push role is GitHub-OIDC-only (no human/SSO principal can assume it).
+So build it through CI on the `aaf-dev` branch (this branch's `config.py` already
+adds `dev-aaf` to the accepted environments). Once the `:dev-aaf` image exists, set
+`backend.image_tag: 'dev-aaf'` and drop `backend.app_environment` in
+`config/environments/dev-aaf.yaml`, then redeploy `AaiBackendDevAaf`.
+
+> Side effect of `ENVIRONMENT=dev`: admin email links default to `dev.portal…`.
+> Set `AAI_PORTAL_URL=https://dev-aaf.portal.aai.test.biocommons.org.au` in the
+> backend secret if that matters.
