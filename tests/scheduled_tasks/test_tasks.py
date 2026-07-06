@@ -326,11 +326,12 @@ def test_link_admin_roles_links_platform_and_group(test_db_session):
     assert group_role in group.admin_roles
 
 
-def test_link_admin_roles_platform_role_also_links_bundle_group(test_db_session):
-    """biocommons/role/sbp/admin should be linked to both the SBP platform and
-    the SBP bundle group via PLATFORM_BUNDLE_GROUP_MAP."""
+def test_link_admin_roles_splits_sbp_service_and_bundle(test_db_session):
+    """SBP has two separate admin roles: the service admin role
+    (biocommons/role/sbp/admin) links only to the SBP platform, and the bundle
+    admin role (biocommons/role/sbp_workflow_execution/admin) links only to the
+    SBP bundle group."""
     from db.types import GroupEnum
-    from scheduled_tasks.tasks import PLATFORM_BUNDLE_GROUP_MAP
 
     platform = PlatformFactory.build(id=PlatformEnum.SBP)
     group = BiocommonsGroupFactory.build(group_id=GroupEnum.SBP.value)
@@ -338,19 +339,32 @@ def test_link_admin_roles_platform_role_also_links_bundle_group(test_db_session)
     test_db_session.add(group)
     test_db_session.commit()
 
-    sbp_admin_role = Auth0RoleFactory.build(name="biocommons/role/sbp/admin")
-    test_db_session.add(sbp_admin_role)
+    service_admin_role = Auth0RoleFactory.build(name="biocommons/role/sbp/admin")
+    bundle_admin_role = Auth0RoleFactory.build(
+        name="biocommons/role/sbp_workflow_execution/admin"
+    )
+    test_db_session.add(service_admin_role)
+    test_db_session.add(bundle_admin_role)
     test_db_session.flush()
 
-    link_admin_roles(test_db_session, {sbp_admin_role.name: sbp_admin_role})
+    link_admin_roles(
+        test_db_session,
+        {
+            service_admin_role.name: service_admin_role,
+            bundle_admin_role.name: bundle_admin_role,
+        },
+    )
     test_db_session.commit()
 
     platform = Platform.get_by_id(PlatformEnum.SBP, test_db_session)
     group = BiocommonsGroup.get_by_id(GroupEnum.SBP.value, test_db_session)
 
-    assert sbp_admin_role in platform.admin_roles
-    assert sbp_admin_role in group.admin_roles
-    assert PlatformEnum.SBP in PLATFORM_BUNDLE_GROUP_MAP
+    # Service admin role gates the platform only
+    assert service_admin_role in platform.admin_roles
+    assert service_admin_role not in group.admin_roles
+    # Bundle admin role gates the bundle group only
+    assert bundle_admin_role in group.admin_roles
+    assert bundle_admin_role not in platform.admin_roles
 
 
 def test_link_admin_roles_case_insensitive(test_db_session):
