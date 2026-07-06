@@ -1,18 +1,5 @@
 """unlink_sbp_service_admin_from_bundle
 
-Remove the stale admin-role link between the SBP service admin role
-(``biocommons/role/sbp/admin``) and the SBP bundle group
-(``biocommons/group/sbp_workflow_execution``).
-
-That link was created by the earlier combined "SBP admin" behavior
-(``PLATFORM_BUNDLE_GROUP_MAP``), where a single role granted admin over both the
-SBP platform and the SBP bundle group. Now that the roles are split, the service
-admin role must gate the platform only; the bundle is gated by the separate
-``biocommons/role/sbp_workflow_execution/admin`` role. ``link_admin_roles`` is
-append-only (it never removes links), so this pre-existing row has to be deleted
-by a data migration -- otherwise ``/me/groups/admin-roles`` keeps returning the
-bundle for service admins and the portal classifies them as biocommons admins.
-
 Revision ID: 37a648289324
 Revises: 4000ecb2796d
 Create Date: 2026-07-06 14:10:56.063620
