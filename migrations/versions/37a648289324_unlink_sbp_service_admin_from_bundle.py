@@ -1,4 +1,4 @@
-"""unlink_sbp_service_admin_from_bundle_group
+"""unlink_sbp_service_admin_from_bundle
 
 Remove the stale admin-role link between the SBP service admin role
 (``biocommons/role/sbp/admin``) and the SBP bundle group
@@ -13,9 +13,9 @@ append-only (it never removes links), so this pre-existing row has to be deleted
 by a data migration -- otherwise ``/me/groups/admin-roles`` keeps returning the
 bundle for service admins and the portal classifies them as biocommons admins.
 
-Revision ID: b7d4e2f19a3c
+Revision ID: 37a648289324
 Revises: 4000ecb2796d
-Create Date: 2026-07-06 00:00:00.000000
+Create Date: 2026-07-06 14:10:56.063620
 
 """
 from typing import Sequence, Union
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'b7d4e2f19a3c'
+revision: str = '37a648289324'
 down_revision: Union[str, None] = '4000ecb2796d'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
