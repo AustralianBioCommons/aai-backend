@@ -773,3 +773,35 @@ def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_pl
         assert platform in platform_ids
     for pm in user.platform_memberships:
         assert pm.approval_status.value == "approved"
+
+
+def test_edna_explorer_not_in_default_platforms():
+    """eDNA Explorer must be manual-approval only, so it must never be auto-granted at registration."""
+    assert PlatformEnum.EDNA_EXPLORER not in DEFAULT_PLATFORMS
+
+
+def test_registration_does_not_grant_edna_explorer(test_db_session, test_client, galaxy_platform, bpa_platform, sbp_platform, mock_auth0_client, mock_recaptcha_verify,):
+    """A newly-registered user must not receive an eDNA Explorer membership (manual approval only)."""
+    registration = BiocommonsRegistrationRequest(
+        first_name="No",
+        last_name="Edna",
+        email="no.edna@example.com",
+        username="no_edna",
+        password="StrongPass1!",
+        bundles=None,
+        recaptcha_token="mock-token",
+    )
+    auth0_data = Auth0UserDataFactory.build(
+        email="no.edna@example.com",
+        username="no_edna",
+        name="Test User",
+    )
+    mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(
+        user_id=auth0_data.user_id, email=auth0_data.email, username=auth0_data.username
+    )
+
+    test_client.post("/biocommons/register", json=registration.model_dump(mode="json"))
+
+    user = test_db_session.get(BiocommonsUser, auth0_data.user_id)
+    platform_ids = {pm.platform_id for pm in user.platform_memberships}
+    assert PlatformEnum.EDNA_EXPLORER not in platform_ids

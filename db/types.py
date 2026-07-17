@@ -29,6 +29,7 @@ class PlatformEnum(str, Enum):
     GALAXY = "galaxy"
     BPA_DATA_PORTAL = "bpa_data_portal"
     SBP = "sbp"
+    EDNA_EXPLORER = "edna_explorer"
 
 
 class PlatformMembershipData(BaseModel):
