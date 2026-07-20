@@ -416,12 +416,14 @@ def test_request_group_membership(test_client_with_email, normal_user, as_normal
 
 def test_request_group_membership_checks_email_for_sbp(
     test_client,
+    mock_settings,
     normal_user,
     as_normal_user,
     test_db_session,
     persistent_factories,
     mocker,
 ):
+    mock_settings.sbp_enabled = True
     group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
     BiocommonsUserFactory.create_sync(
         group_memberships=[],
@@ -449,15 +451,54 @@ def test_request_group_membership_checks_email_for_sbp(
     assert membership is None
 
 
+def test_request_group_membership_blocks_sbp_when_disabled(
+    test_client,
+    mock_settings,
+    normal_user,
+    as_normal_user,
+    test_db_session,
+    persistent_factories,
+    mocker,
+):
+    mock_settings.sbp_enabled = False
+    group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
+    BiocommonsUserFactory.create_sync(
+        group_memberships=[],
+        id=normal_user.access_token.sub,
+        email="user@biocommons.org.au",
+    )
+    institution_check = mocker.patch(
+        "routers.user.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+
+    resp = test_client.post(
+        "/me/groups/request",
+        json={"groups": [{"group_id": group.group_id, "request_reason": "Need SBP workflow access"}]},
+    )
+
+    assert resp.status_code == HTTPStatus.FORBIDDEN
+    assert resp.json()["detail"] == "SBP Workflow Execution bundle is currently unavailable."
+    institution_check.assert_not_awaited()
+    membership = GroupMembership.get_by_user_id_and_group_id(
+        user_id=normal_user.access_token.sub,
+        group_id=group.group_id,
+        session=test_db_session,
+    )
+    assert membership is None
+
+
 @pytest.mark.asyncio
 async def test_request_group_membership_allows_biocommons(
         test_client,
+        mock_settings,
         normal_user,
         as_normal_user,
         test_db_session,
         persistent_factories,
         mocker,
 ):
+    mock_settings.sbp_enabled = True
     group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
     BiocommonsUserFactory.create_sync(
         group_memberships=[],
@@ -571,6 +612,7 @@ def test_request_group_membership_revoked_returns_conflict(
 
 def test_sbp_institution_check_blocks_multi_group_request(
     test_client,
+    mock_settings,
     normal_user,
     as_normal_user,
     test_db_session,
@@ -578,6 +620,7 @@ def test_sbp_institution_check_blocks_multi_group_request(
     mocker,
 ):
     """Institution check failure on SBP blocks the whole multi-group request, including TSI."""
+    mock_settings.sbp_enabled = True
     tsi_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value)
     BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
     BiocommonsUserFactory.create_sync(group_memberships=[], id=normal_user.access_token.sub)
@@ -607,6 +650,7 @@ def test_sbp_institution_check_blocks_multi_group_request(
 @respx.mock
 def test_request_multiple_groups(
     test_client_with_email,
+    mock_settings,
     normal_user,
     as_normal_user,
     mock_auth0_client,
@@ -615,6 +659,7 @@ def test_request_multiple_groups(
     mocker,
 ):
     """Requesting two groups at once returns per-group results for both."""
+    mock_settings.sbp_enabled = True
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/tsi/admin")
     tsi_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.TSI.value, admin_roles=[admin_role])
     sbp_group = BiocommonsGroupFactory.create_sync(group_id=GroupEnum.SBP.value)
@@ -660,6 +705,7 @@ def test_request_multiple_groups(
 
 def test_request_multiple_groups_fails_all_on_error(
     test_client_with_email,
+    mock_settings,
     normal_user,
     as_normal_user,
     mock_auth0_client,
@@ -668,6 +714,7 @@ def test_request_multiple_groups_fails_all_on_error(
     mocker,
 ):
     """If any group in the request fails validation, the whole request errors and nothing is committed."""
+    mock_settings.sbp_enabled = True
     mocker.patch(
         "routers.user.is_australian_research_institution_email",
         new=AsyncMock(return_value=True),
