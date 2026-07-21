@@ -760,6 +760,8 @@ async def sync_group_user_roles():
     with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
         roles = [role for role in auth0_client.get_all_roles()
                  if re.match(GROUP_ROLE_PATTERN, role.name)]
+        if not settings.sbp_enabled:
+            roles = [role for role in roles if role.name != GroupEnum.SBP.value]
         for role in roles:
             db_session = next(get_db_session())
             try:
@@ -874,6 +876,11 @@ async def sync_platform_user_roles():
         exported_users_by_id = {user.user_id: user for user in exported_users}
         roles = [role for role in auth0_client.get_all_roles()
                  if re.match(PLATFORM_ROLE_PATTERN, role.name)]
+        if not settings.sbp_enabled:
+            roles = [
+                role for role in roles
+                if get_platform_id_from_role_name(role.name) != PlatformEnum.SBP.value
+            ]
         for role in roles:
             db_session = next(get_db_session())
             try:

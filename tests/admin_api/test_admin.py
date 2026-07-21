@@ -497,13 +497,13 @@ def test_get_users_search_with_filter(test_client, as_admin_user, galaxy_platfor
     assert len(results) == 0
 
 
-def test_get_filter_options(test_client, as_admin_user, test_db_session, persistent_factories):
+def test_get_filter_options_excludes_sbp_when_disabled(test_client, as_admin_user, test_db_session, persistent_factories):
     resp = test_client.get("/admin/filters")
     assert resp.status_code == 200
 
     options = resp.json()
     assert isinstance(options, list)
-    assert len(options) == 5
+    assert len(options) == 3
 
     for option in options:
         assert "id" in option
@@ -512,15 +512,37 @@ def test_get_filter_options(test_client, as_admin_user, test_db_session, persist
         assert isinstance(option["name"], str)
 
     option_ids = {opt["id"] for opt in options}
-    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "sbp_workflow_execution"}
+    expected_ids = {"galaxy", "bpa_data_portal", "tsi"}
     assert option_ids == expected_ids
 
     option_dict = {opt["id"]: opt["name"] for opt in options}
     assert option_dict["galaxy"] == "Galaxy Australia"
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
+    assert option_dict["tsi"] == "Threatened Species Initiative"
+
+
+def test_get_filter_options_includes_sbp_when_enabled(
+    test_client,
+    mock_settings,
+    as_admin_user,
+    test_db_session,
+    persistent_factories,
+):
+    mock_settings.sbp_enabled = True
+
+    resp = test_client.get("/admin/filters")
+    assert resp.status_code == 200
+
+    options = resp.json()
+    assert len(options) == 5
+
+    option_ids = {opt["id"] for opt in options}
+    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "sbp_workflow_execution"}
+    assert option_ids == expected_ids
+
+    option_dict = {opt["id"]: opt["name"] for opt in options}
     assert option_dict["sbp"] == "Structural Biology Platform"
     assert option_dict["sbp_workflow_execution"] == "Structural Biology Platform Bundle"
-    assert option_dict["tsi"] == "Threatened Species Initiative"
 
 
 def test_get_user(test_client, test_db_session, as_admin_user, galaxy_platform, persistent_factories):
