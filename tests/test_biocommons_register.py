@@ -7,7 +7,7 @@ from sqlmodel import select
 from starlette.exceptions import HTTPException
 
 from biocommons.bundles import BUNDLES
-from biocommons.default import DEFAULT_PLATFORMS
+from biocommons.default import get_default_platforms
 from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from routers.biocommons_register import check_sbp_email_domain, create_user_in_db
@@ -369,6 +369,7 @@ def test_biocommons_registration_name_formatting():
 
 def test_successful_biocommons_registration_endpoint(
     test_client_with_email,
+    mock_settings,
     mock_auth0_client,
     tsi_group,
     galaxy_platform,
@@ -378,6 +379,7 @@ def test_successful_biocommons_registration_endpoint(
     mock_recaptcha_verify,
 ):
     """Test successful biocommons registration via HTTP endpoint"""
+    mock_settings.sbp_enabled = True
     auth0_data = Auth0UserDataFactory.build()
     mock_auth0_client.create_user.return_value = auth0_data
     admin_stub = RoleUserDataFactory.build(email="tsi.admin@example.com")
@@ -435,6 +437,7 @@ def test_successful_biocommons_registration_endpoint(
 
 def test_biocommons_registration_endpoint_multiple_bundles(
     test_client_with_email,
+    mock_settings,
     mock_auth0_client,
     tsi_group,
     sbp_group,
@@ -446,6 +449,7 @@ def test_biocommons_registration_endpoint_multiple_bundles(
     mocker,
 ):
     """Test BioCommons registration can request multiple bundles at once."""
+    mock_settings.sbp_enabled = True
     auth0_data = Auth0UserDataFactory.build(
         email="researcher@unimelb.edu.au",
         username="multi_bundle_user",
@@ -499,11 +503,13 @@ def test_biocommons_registration_endpoint_multiple_bundles(
 
 def test_biocommons_registration_endpoint_sbp_rejects_non_institutional_email(
     test_client,
+    mock_settings,
     mock_auth0_client,
     mock_recaptcha_verify,
     mocker,
 ):
     """Test SBP workflow registration checks the email domain before creating a user."""
+    mock_settings.sbp_enabled = True
     domain_check = mocker.patch(
         "routers.biocommons_register.is_australian_research_institution_email",
         new=AsyncMock(return_value=False),
@@ -532,6 +538,41 @@ def test_biocommons_registration_endpoint_sbp_rejects_non_institutional_email(
         ],
     }
     domain_check.assert_awaited_once_with("external@example.com")
+    assert mock_auth0_client.create_user.call_count == 0
+
+
+def test_biocommons_registration_endpoint_sbp_disabled_rejects_before_creating_user(
+    test_client,
+    mock_settings,
+    mock_auth0_client,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test SBP workflow registration is blocked by the feature flag."""
+    mock_settings.sbp_enabled = False
+    domain_check = mocker.patch(
+        "routers.biocommons_register.is_australian_research_institution_email",
+        new=AsyncMock(return_value=True),
+    )
+
+    registration_data = {
+        "first_name": "SBP",
+        "last_name": "Disabled",
+        "email": "researcher@unimelb.edu.au",
+        "username": "sbp_disabled_user",
+        "password": "StrongPass1!",
+        "bundles": [{"bundle_id": "sbp_workflow_execution", "reason": "SBP access"}],
+        "recaptcha_token": "mock-token",
+    }
+
+    response = test_client.post("/biocommons/register", json=registration_data)
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "message": "SBP workflow execution is currently unavailable.",
+        "field_errors": [],
+    }
+    domain_check.assert_not_awaited()
     assert mock_auth0_client.create_user.call_count == 0
 
 
@@ -738,7 +779,7 @@ def test_biocommons_registration_missing_group_error(test_client, mock_auth0_cli
     assert response.json()["detail"] == "Internal server error"
 
 
-def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, sbp_platform, mock_auth0_client, mock_recaptcha_verify,):
+def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_platform, bpa_platform, mock_auth0_client, mock_recaptcha_verify,):
     """Test database record creation when no bundle is selected"""
     registration = BiocommonsRegistrationRequest(
         first_name="No",
@@ -767,17 +808,20 @@ def test_registration_endpoint_no_bundle(test_db_session, test_client, galaxy_pl
     assert user.email == registration.email
     assert user.id == auth0_data.user_id
 
-    assert len(user.platform_memberships) == len(DEFAULT_PLATFORMS)
+    default_platforms = get_default_platforms(sbp_enabled=False)
+    assert len(user.platform_memberships) == len(default_platforms)
     platform_ids = {pm.platform_id for pm in user.platform_memberships}
-    for platform in DEFAULT_PLATFORMS:
+    for platform in default_platforms:
         assert platform in platform_ids
+    assert PlatformEnum.SBP not in platform_ids
     for pm in user.platform_memberships:
         assert pm.approval_status.value == "approved"
 
 
 def test_edna_explorer_not_in_default_platforms():
     """eDNA Explorer must be manual-approval only, so it must never be auto-granted at registration."""
-    assert PlatformEnum.EDNA_EXPLORER not in DEFAULT_PLATFORMS
+    assert PlatformEnum.EDNA_EXPLORER not in get_default_platforms(sbp_enabled=True)
+    assert PlatformEnum.EDNA_EXPLORER not in get_default_platforms(sbp_enabled=False)
 
 
 def test_registration_does_not_grant_edna_explorer(test_db_session, test_client, galaxy_platform, bpa_platform, sbp_platform, mock_auth0_client, mock_recaptcha_verify,):
@@ -805,3 +849,45 @@ def test_registration_does_not_grant_edna_explorer(test_db_session, test_client,
     user = test_db_session.get(BiocommonsUser, auth0_data.user_id)
     platform_ids = {pm.platform_id for pm in user.platform_memberships}
     assert PlatformEnum.EDNA_EXPLORER not in platform_ids
+
+
+def test_registration_endpoint_no_bundle_sbp_disabled(
+    test_db_session,
+    test_client,
+    mock_settings,
+    galaxy_platform,
+    bpa_platform,
+    mock_auth0_client,
+    mock_recaptcha_verify,
+):
+    """Test default registration does not create SBP platform membership when disabled."""
+    mock_settings.sbp_enabled = False
+    registration = BiocommonsRegistrationRequest(
+        first_name="No",
+        last_name="SBP",
+        email="no.sbp@example.com",
+        username="no_sbp",
+        password="StrongPass1!",
+        bundles=None,
+        recaptcha_token="mock-token",
+    )
+
+    auth0_data = Auth0UserDataFactory.build(
+        email="no.sbp@example.com",
+        username="no_sbp",
+        name="No SBP",
+    )
+    mock_auth0_client.create_user.return_value = Auth0UserDataFactory.build(
+        user_id=auth0_data.user_id,
+        email=auth0_data.email,
+        username=auth0_data.username,
+    )
+
+    response = test_client.post("/biocommons/register", json=registration.model_dump(mode="json"))
+
+    assert response.status_code == 200
+    user = test_db_session.get(BiocommonsUser, auth0_data.user_id)
+    assert user is not None
+    platform_ids = {membership.platform_id for membership in user.platform_memberships}
+    assert platform_ids == set(get_default_platforms(sbp_enabled=False))
+    assert PlatformEnum.SBP not in platform_ids

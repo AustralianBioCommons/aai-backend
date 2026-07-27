@@ -1,5 +1,60 @@
 # Changelog
 
+## [1.4.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.3.0...v1.4.0) (2026-07-21)
+
+
+### Features
+
+* add bundle for SBP access (AAI-706) ([#260](https://github.com/AustralianBioCommons/aai-backend/issues/260)) ([cfb8a5c](https://github.com/AustralianBioCommons/aai-backend/commit/cfb8a5c18a7a89b51bfa5c4a2045e6523e628f4a))
+* add endpoint and email for deleting accounts with incorrect email (AAI-829) ([#271](https://github.com/AustralianBioCommons/aai-backend/issues/271)) ([320a0a7](https://github.com/AustralianBioCommons/aai-backend/commit/320a0a7a3b7ef8f18354754be9c195687cb55ff1))
+* add requested_at field to group membership request ([cc5380e](https://github.com/AustralianBioCommons/aai-backend/commit/cc5380e56229bad30cab5aa0254e246d7f0879e4))
+* add requested_at field to GroupMembership and related models ([235a8ec](https://github.com/AustralianBioCommons/aai-backend/commit/235a8ecbdcd9e4aa2498dcdfdfe68efecdf8cce5))
+* add SBP bundle and enable auto register to SBP platform membership ([7d1127e](https://github.com/AustralianBioCommons/aai-backend/commit/7d1127ee764bf50772bd35f1e6ffaf022f783fb5))
+* enable automatic sbp platform for users ([b891dde](https://github.com/AustralianBioCommons/aai-backend/commit/b891ddef35e188af9f493963d1258e643da65ca8))
+* Get timestamp of bundle request reasoning (AAI-806) ([79f29d5](https://github.com/AustralianBioCommons/aai-backend/commit/79f29d566774e9356dc2158c1d90e40dd92dc97a))
+* include admin in the top of the user list ([5ea5b03](https://github.com/AustralianBioCommons/aai-backend/commit/5ea5b039fc711dc8e0ae46425cdf4fe9a8c5a187))
+* include admin user at the top of the user list (AAI-834) ([4ad746e](https://github.com/AustralianBioCommons/aai-backend/commit/4ad746ec38ea1eff486de84f76b4154661c39fbd))
+* make admin user not on top of the user list ([9d92e63](https://github.com/AustralianBioCommons/aai-backend/commit/9d92e6323d9adec0de55a2e90714db3d7cecb441))
+* make admin user not on top of the user list ([0a604e9](https://github.com/AustralianBioCommons/aai-backend/commit/0a604e93b58c9e875c9f3ac1d962627ff801e1c0))
+* remind SBP bundle users when they change their emails ([877d83a](https://github.com/AustralianBioCommons/aai-backend/commit/877d83a6d76404c819fe2519b7f461a914fa26d4))
+* remind SBP bundle users when they change their emails ([f1b145c](https://github.com/AustralianBioCommons/aai-backend/commit/f1b145ca627314798887558d60df1389be6d31c6))
+* SBP bundle approval and validation (AAI-816) ([#265](https://github.com/AustralianBioCommons/aai-backend/issues/265)) ([f7da774](https://github.com/AustralianBioCommons/aai-backend/commit/f7da77457a137548875710938a23da55fdf947fb))
+* split sbp admin ([e50d943](https://github.com/AustralianBioCommons/aai-backend/commit/e50d943eb87eebd18849c62e61c5ebeefed30e00))
+* split sbp admin ([5bcc650](https://github.com/AustralianBioCommons/aai-backend/commit/5bcc650f4663508bd21e700a3fa4f0910384d401))
+* switch SBP to bundle management ([dc5cb85](https://github.com/AustralianBioCommons/aai-backend/commit/dc5cb8547f4e11656c725b8a6077b4d079fb260a))
+* upgrade sbp admin as biocommons admin ([fe815af](https://github.com/AustralianBioCommons/aai-backend/commit/fe815afed16533b477e035aea8f9eadaf95d4a30))
+* upgrade sbp admin as biocommons admin ([9d24713](https://github.com/AustralianBioCommons/aai-backend/commit/9d2471378333bf07ce17d5e2d49a31418680f307))
+
+
+### Bug Fixes
+
+* _revoke_sbp_if_non_institutional now passes updated_by=None ([e34500a](https://github.com/AustralianBioCommons/aai-backend/commit/e34500a718d2df3c6f1f69268c3eb5902cdacfed))
+* add back sbp in platform mapping ([0c3bc73](https://github.com/AustralianBioCommons/aai-backend/commit/0c3bc73188b220dc9e501066ef0ade908ad4e00a))
+* add more clear rejection in TSI rejection email ([7a5946c](https://github.com/AustralianBioCommons/aai-backend/commit/7a5946c69938a785c0f69db872f3ed15a8d4b5c3))
+* add more clear rejection message in TSI rejection email ([3afad5c](https://github.com/AustralianBioCommons/aai-backend/commit/3afad5c6b66197fe7f5269f917da0d4feb253f91))
+* add self ([4b2d68d](https://github.com/AustralianBioCommons/aai-backend/commit/4b2d68d334ca59509adecdb26820c86592397bd0))
+* clean up incorrect group name/ID in DB ([#266](https://github.com/AustralianBioCommons/aai-backend/issues/266)) ([adcdb2d](https://github.com/AustralianBioCommons/aai-backend/commit/adcdb2d80ccba73432a7a18529405edfa75f19c7))
+* disable SBP for prod (AAI-830) ([#286](https://github.com/AustralianBioCommons/aai-backend/issues/286)) ([df32731](https://github.com/AustralianBioCommons/aai-backend/commit/df32731da10950cd2e336210ff49352feb85167f))
+* do not lint dependabot commits ([c4c49c1](https://github.com/AustralianBioCommons/aai-backend/commit/c4c49c1886c8c38fc68b770157ec7d5ccfafdc0e))
+* do not lint dependabot commits ([5c1e258](https://github.com/AustralianBioCommons/aai-backend/commit/5c1e258bd6a9cad89414218c81fedda66ca2b9f2))
+* do not lint dependabot commits ([e10b0d8](https://github.com/AustralianBioCommons/aai-backend/commit/e10b0d83e78d1803928908651628cb9ce7d22805))
+* enable new users both from sbp and biocommons to be automatically added to SBP ([d4c00f2](https://github.com/AustralianBioCommons/aai-backend/commit/d4c00f249289423572fe6e0f74423f31a562e417))
+* generate github app token for release-please ([#262](https://github.com/AustralianBioCommons/aai-backend/issues/262)) ([7085112](https://github.com/AustralianBioCommons/aai-backend/commit/708511237f499a7d27c56c331c97bbf13d24a07e))
+* incorrect check of institutional email when requesting SBP bundle ([#272](https://github.com/AustralianBioCommons/aai-backend/issues/272)) ([f95b07e](https://github.com/AustralianBioCommons/aai-backend/commit/f95b07e41c2e98ab3f96f8b3f46cb383450a97f4))
+* lint ([9d29671](https://github.com/AustralianBioCommons/aai-backend/commit/9d29671306e2155858dc7eec5527104f756adaa2))
+* new users both from sbp and biocommmons to be automatically added to sbp ([a2e8137](https://github.com/AustralianBioCommons/aai-backend/commit/a2e813766275ca9220ff6a3e67c73b8cbe7d7cdf))
+* remove bypass and link sbp roles properly ([73920ad](https://github.com/AustralianBioCommons/aai-backend/commit/73920ad12d51c8703d333644b36ea24872429f89))
+* remove migration as not needed ([f0868bc](https://github.com/AustralianBioCommons/aai-backend/commit/f0868bcb0ef723ef6e6fa51990f78ab5bedb9e10))
+* remove rejection emails ([1d74418](https://github.com/AustralianBioCommons/aai-backend/commit/1d74418a87287f143147dafa734f0a3318a2d0e6))
+* remove whitelisted biocommons.org.au from australian institional list ([663fcb8](https://github.com/AustralianBioCommons/aai-backend/commit/663fcb89f05c9d1e5ca88cc9170805df2ba2584e))
+* render button for registration link ([2e5c72a](https://github.com/AustralianBioCommons/aai-backend/commit/2e5c72a805e615dcacddf59efcb25c19df3b61d2))
+* render button for registration link ([9a1c543](https://github.com/AustralianBioCommons/aai-backend/commit/9a1c543859ffb23f0baaa78260c7c9071020a38a))
+* sbp bundle renaming to sbp_workflow_execution ([2159930](https://github.com/AustralianBioCommons/aai-backend/commit/215993099e0a34bd3f29f2139c8cd0fb321b8918))
+* staging email not delivered ([edceec9](https://github.com/AustralianBioCommons/aai-backend/commit/edceec9788d22040f5e1c1d28f83cc25e09ce3d7))
+* staging email not delivered ([02c3dc3](https://github.com/AustralianBioCommons/aai-backend/commit/02c3dc3f7b093bafe18ed1f21279ecf6ff0d2ec4))
+* unverified users failing to refresh ([#273](https://github.com/AustralianBioCommons/aai-backend/issues/273)) ([84ac25a](https://github.com/AustralianBioCommons/aai-backend/commit/84ac25a210d19c1bcb5ce43fb5336f31929e81f9))
+* update migration to use new sbp bundle name ([53df4b5](https://github.com/AustralianBioCommons/aai-backend/commit/53df4b53e59bf4d48d8e169f9e604582d6624e63))
+
 ## [1.3.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.2.0...v1.3.0) (2026-04-30)
 
 

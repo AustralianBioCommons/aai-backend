@@ -55,6 +55,17 @@ def test_no_reply_email_sender_manual():
     assert settings.no_reply_email_sender == custom_email
 
 
+def test_sbp_enabled_defaults_false():
+    settings = Settings(_env_file=None, **_base_settings_kwargs())
+    assert settings.sbp_enabled is False
+
+
+def test_sbp_enabled_reads_env(monkeypatch):
+    monkeypatch.setenv("SBP_ENABLED", "true")
+    settings = Settings(_env_file=None, **_base_settings_kwargs())
+    assert settings.sbp_enabled is True
+
+
 def test_no_reply_email_sender_required():
     """
     Test that omitting the no-reply email sender raises a validation error.

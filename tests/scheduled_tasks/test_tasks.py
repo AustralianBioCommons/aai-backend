@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
@@ -20,7 +20,7 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
-from db.types import ApprovalStatusEnum, EmailStatusEnum, PlatformEnum
+from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from scheduled_tasks.email_retry import (
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,
@@ -663,6 +663,33 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
 
 
 @pytest.mark.asyncio
+async def test_sync_auth0_group_roles_skips_sbp_when_disabled(mocker, test_db_session, mock_settings):
+    mock_settings.sbp_enabled = False
+    tsi_role = SimpleNamespace(id="role-tsi", name=GroupEnum.TSI.value, description="TSI")
+    sbp_role = SimpleNamespace(id="role-sbp", name=GroupEnum.SBP.value, description="SBP")
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [tsi_role, sbp_role]
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    sync_role = mocker.patch(
+        "scheduled_tasks.tasks.sync_group_memberships_for_role",
+        new=AsyncMock(),
+    )
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+
+    await sync_group_user_roles()
+
+    sync_role.assert_awaited_once()
+    assert sync_role.await_args.args[0] is tsi_role
+
+
+@pytest.mark.asyncio
 async def test_populate_db_groups_only_adds_missing(test_db_session, mocker, mock_settings, persistent_factories):
     """
     Ensure existing groups are skipped and missing ones are inserted then committed.
@@ -819,6 +846,42 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
     assert removed_membership.is_deleted is True
     assert created_user is not None
     assert len(history_entries) > len(history_before)
+
+
+@pytest.mark.asyncio
+async def test_sync_auth0_platform_roles_skips_sbp_when_disabled(mocker, test_db_session, mock_settings):
+    mock_settings.sbp_enabled = False
+    galaxy_role = SimpleNamespace(
+        id="role-galaxy",
+        name="biocommons/platform/galaxy",
+        description="Galaxy",
+    )
+    sbp_role = SimpleNamespace(
+        id="role-sbp",
+        name="biocommons/platform/sbp",
+        description="SBP",
+    )
+
+    mock_auth0_client = MagicMock()
+    mock_auth0_client.get_all_roles.return_value = [galaxy_role, sbp_role]
+    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
+    sync_role = mocker.patch(
+        "scheduled_tasks.tasks.sync_platform_memberships_for_role",
+        new=AsyncMock(),
+    )
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=[])
+
+    await sync_platform_user_roles()
+
+    sync_role.assert_awaited_once()
+    assert sync_role.await_args.args[0] is galaxy_role
 
 
 @pytest.mark.asyncio

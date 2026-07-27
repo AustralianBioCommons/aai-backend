@@ -506,6 +506,12 @@ def request_group_access(
     """
     has_sbp_request = any(item.group_id == GroupEnum.SBP.value for item in request_data.groups)
     if has_sbp_request:
+        if not settings.sbp_enabled:
+            raise HTTPException(
+                status_code=http.HTTPStatus.FORBIDDEN,
+                detail="SBP Workflow Execution bundle is currently unavailable.",
+            )
+
         is_institution = asyncio.run(is_australian_research_institution_email(db_user.email))
 
         if not is_institution:

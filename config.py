@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     auth0_algorithms: list[str] = ["RS256"]
     admin_roles: list[str] = []
     enable_admin_dashboard: bool = False
+    sbp_enabled: bool = False
     # Note we process this separately in app startup as it needs
     #   to be available before the app starts
     cors_allowed_origins: str

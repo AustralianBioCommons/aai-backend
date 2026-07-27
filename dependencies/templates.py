@@ -1,10 +1,12 @@
 from fastapi.templating import Jinja2Templates
-from jinja2 import StrictUndefined
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 
 TEMPLATES = Jinja2Templates(
-    directory="templates",
-    autoescape=True,
-    undefined=StrictUndefined,
+    env=Environment(
+        loader=FileSystemLoader("templates"),
+        autoescape=select_autoescape(),
+        undefined=StrictUndefined,
+    ),
 )
 
 

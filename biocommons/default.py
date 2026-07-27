@@ -7,3 +7,9 @@ DEFAULT_PLATFORMS: list[PlatformEnum] = [
     PlatformEnum.GALAXY,
     PlatformEnum.SBP,
 ]
+
+
+def get_default_platforms(*, sbp_enabled: bool = True) -> list[PlatformEnum]:
+    if sbp_enabled:
+        return list(DEFAULT_PLATFORMS)
+    return [platform for platform in DEFAULT_PLATFORMS if platform != PlatformEnum.SBP]
