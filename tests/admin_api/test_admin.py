@@ -503,7 +503,7 @@ def test_get_filter_options_excludes_sbp_when_disabled(test_client, as_admin_use
 
     options = resp.json()
     assert isinstance(options, list)
-    assert len(options) == 3
+    assert len(options) == 4
 
     for option in options:
         assert "id" in option
@@ -512,12 +512,13 @@ def test_get_filter_options_excludes_sbp_when_disabled(test_client, as_admin_use
         assert isinstance(option["name"], str)
 
     option_ids = {opt["id"] for opt in options}
-    expected_ids = {"galaxy", "bpa_data_portal", "tsi"}
+    expected_ids = {"galaxy", "bpa_data_portal", "edna_explorer", "tsi"}
     assert option_ids == expected_ids
 
     option_dict = {opt["id"]: opt["name"] for opt in options}
     assert option_dict["galaxy"] == "Galaxy Australia"
     assert option_dict["bpa_data_portal"] == "Bioplatforms Australia Data Portal"
+    assert option_dict["edna_explorer"] == "eDNA Explorer"
     assert option_dict["tsi"] == "Threatened Species Initiative"
 
 
@@ -534,14 +535,15 @@ def test_get_filter_options_includes_sbp_when_enabled(
     assert resp.status_code == 200
 
     options = resp.json()
-    assert len(options) == 5
+    assert len(options) == 6
 
     option_ids = {opt["id"] for opt in options}
-    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "tsi", "sbp_workflow_execution"}
+    expected_ids = {"galaxy", "bpa_data_portal", "sbp", "edna_explorer", "tsi", "sbp_workflow_execution"}
     assert option_ids == expected_ids
 
     option_dict = {opt["id"]: opt["name"] for opt in options}
     assert option_dict["sbp"] == "Structural Biology Platform"
+    assert option_dict["edna_explorer"] == "eDNA Explorer"
     assert option_dict["sbp_workflow_execution"] == "Structural Biology Platform Bundle"
 
 
