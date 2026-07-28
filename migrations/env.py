@@ -9,6 +9,8 @@ from db import models
 from db.core import BaseModel
 from db.setup import get_db_config
 
+import alembic_postgresql_enum  # noqa: F401  (enables enum diffing in autogenerate)
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
