@@ -6,9 +6,6 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.18.5",
-    # Enables Alembic autogenerate to detect enum value changes (op.sync_enum_values);
-    # required at migration-run time, so it lives in runtime deps, not just dev.
-    "alembic-postgresql-enum>=1.0",
     "fastapi[standard]>=0.139.0",
     # Security floor for CVE-2026-26007 (subgroup validation for SECT curves)
     "cryptography>=49.0",
