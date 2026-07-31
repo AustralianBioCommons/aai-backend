@@ -18,6 +18,24 @@ class UserInfo(BaseModel):
     family_name: str | None = None
     show_welcome_message: bool | None = Field(None, alias="https://biocommons.org.au/show_migration_welcome")
 
+    # AAF core attributes — namespaced claims added by the Auth0 post-login Action
+    # (only present for AAF logins where AAF released the attribute). Multi-valued
+    # eduPerson attributes may arrive as a list.
+    aaf_scoped_affiliation: str | list[str] | None = Field(
+        None, alias="https://biocommons.org.au/aaf/eduperson_scoped_affiliation")
+    aaf_affiliation: str | list[str] | None = Field(
+        None, alias="https://biocommons.org.au/aaf/eduperson_affiliation")
+    aaf_assurance: str | list[str] | None = Field(
+        None, alias="https://biocommons.org.au/aaf/eduperson_assurance")
+    aaf_entitlement: str | list[str] | None = Field(
+        None, alias="https://biocommons.org.au/aaf/eduperson_entitlement")
+    aaf_principal_name: str | None = Field(
+        None, alias="https://biocommons.org.au/aaf/eduperson_principal_name")
+    aaf_home_organization: str | None = Field(
+        None, alias="https://biocommons.org.au/aaf/schac_home_organization")
+    aaf_home_organization_type: str | list[str] | None = Field(
+        None, alias="https://biocommons.org.au/aaf/schac_home_organization_type")
+
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
