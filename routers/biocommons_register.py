@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
-from biocommons.default import DEFAULT_PLATFORMS
+from biocommons.default import get_default_platforms
 from biocommons.emails import (
     compose_bundle_request_confirmation_email,
     compose_group_approval_email,
@@ -45,11 +45,12 @@ def create_user_in_db(user_data: Auth0UserData,
                       bundles: Optional[list[BundleRequest]],
                       session: Session,
                       auth0_client: Auth0Client,
-                      commit: bool = False) -> BiocommonsUser:
+                      commit: bool = False,
+                      sbp_enabled: bool = True) -> BiocommonsUser:
     db_user = BiocommonsUser.from_auth0_data(data=user_data)
     session.add(db_user)
     session.flush()
-    for platform in DEFAULT_PLATFORMS:
+    for platform in get_default_platforms(sbp_enabled=sbp_enabled):
         db_user.add_platform_membership(
             platform=platform,
             db_session=session,
@@ -204,6 +205,12 @@ async def check_sbp_email_domain(registration: BiocommonsRegistrationRequest) ->
             return is_institute
     return True
 
+
+def _requests_sbp_bundle(registration: BiocommonsRegistrationRequest) -> bool:
+    if registration.bundles is None:
+        return False
+    return any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
+
 @router.post(
     "/register",
     responses={
@@ -227,6 +234,10 @@ async def register_biocommons_user(
     if not recaptcha_check:
         response.status_code = 400
         return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
+
+    if _requests_sbp_bundle(registration) and not settings.sbp_enabled:
+        response.status_code = 400
+        return RegistrationErrorResponse(message="SBP workflow execution is currently unavailable.")
 
     # Pre-registration checks
     email_ok = await check_sbp_email_domain(registration)
@@ -265,6 +276,7 @@ async def register_biocommons_user(
             bundles=registration.bundles,
             session=db_session,
             auth0_client=auth0_client,
+            sbp_enabled=settings.sbp_enabled,
         )
 
         if registration.bundles is not None:

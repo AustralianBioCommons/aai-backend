@@ -78,6 +78,7 @@ PLATFORM_MAPPING = {
     "galaxy": {"enum": PlatformEnum.GALAXY, "name": "Galaxy Australia"},
     "bpa_data_portal": {"enum": PlatformEnum.BPA_DATA_PORTAL, "name": "Bioplatforms Australia Data Portal"},
     "sbp": {"enum": PlatformEnum.SBP, "name": "Structural Biology Platform"},
+    "edna_explorer": {"enum": PlatformEnum.EDNA_EXPLORER, "name": "eDNA Explorer"},
 }
 
 GROUP_MAPPING: dict[BundleType, dict] = {
@@ -290,7 +291,7 @@ def _revoke_group_membership(
 
 
 @router.get("/filters")
-def get_filter_options():
+def get_filter_options(settings: Annotated[Settings, Depends(get_settings)]):
     """
     Get available filter options for users endpoint.
 
@@ -300,12 +301,16 @@ def get_filter_options():
     options = []
 
     for platform_id, platform_data in PLATFORM_MAPPING.items():
+        if platform_id == "sbp" and not settings.sbp_enabled:
+            continue
         options.append({
             "id": platform_id,
             "name": platform_data["name"]
         })
 
     for group_id, group_data in GROUP_MAPPING.items():
+        if group_id == "sbp_workflow_execution" and not settings.sbp_enabled:
+            continue
         options.append({
             "id": group_id,
             "name": group_data["name"]

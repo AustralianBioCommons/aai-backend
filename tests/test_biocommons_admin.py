@@ -120,6 +120,28 @@ def test_create_platform(test_client, as_admin_user, test_db_session, persistent
     assert [role.name for role in platform_from_db.admin_roles] == [admin_role.name]
 
 
+def test_create_platform_edna_explorer(test_client, as_admin_user, test_db_session, persistent_factories):
+    """eDNA Explorer is created like any other platform; access stays manual-approval only (not in DEFAULT_PLATFORMS)."""
+    Auth0RoleFactory.create_sync(name="biocommons/platform/edna_explorer")
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/edna_explorer/admin")
+    resp = test_client.post(
+        "/biocommons-admin/platforms/create",
+        json={
+            "id": PlatformEnum.EDNA_EXPLORER.value,
+            "name": "eDNA Explorer",
+            "admin_roles": [admin_role.name],
+        },
+    )
+    assert resp.status_code == HTTPStatus.OK
+    body = resp.json()
+    assert body["id"] == PlatformEnum.EDNA_EXPLORER.value
+    assert body["name"] == "eDNA Explorer"
+    platform_from_db = test_db_session.get(Platform, PlatformEnum.EDNA_EXPLORER)
+    assert platform_from_db is not None
+    test_db_session.refresh(platform_from_db)
+    assert [role.name for role in platform_from_db.admin_roles] == [admin_role.name]
+
+
 def test_create_platform_duplicate_id(test_client, as_admin_user, test_db_session, persistent_factories):
     Auth0RoleFactory.create_sync(name="biocommons/platform/galaxy")
     admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/galaxy/admin")
