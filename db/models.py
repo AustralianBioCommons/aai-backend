@@ -175,7 +175,8 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         Create a new BiocommonsUser object from Auth0 user data (no API call).
         """
-        return cls(id=data.user_id, email=data.email, username=data.username, email_verified=data.email_verified)
+        return cls(id=data.user_id, email=data.email, username=data.username, email_verified=data.email_verified,
+                   account_type=data.app_metadata.account_type)
 
     @classmethod
     def get_or_create(
