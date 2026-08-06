@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, List, Literal, Optional, Self
 
 from email_validator import EmailNotValidError, validate_email
@@ -158,6 +159,11 @@ class BPAMetadata(BaseModel):
 
 class SBPMetadata(BaseModel):
     registration_reason: str
+
+
+class BiocommonsUserAccountType(StrEnum):
+    AUTH0 = "auth0"
+    AAF = "aaf"
 
 
 class BiocommonsUserMetadata(BaseModel):

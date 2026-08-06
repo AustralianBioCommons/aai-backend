@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
+from enum import StrEnum
 from logging import getLogger
-from typing import Optional, Self
+from typing import Optional, Self, Type
 
 from httpx import HTTPStatusError
 from pydantic import AwareDatetime
@@ -21,10 +22,15 @@ from db.types import (
     PlatformMembershipData,
 )
 from schemas.auth0 import get_platform_id_from_role_name
+from schemas.biocommons import BiocommonsUserAccountType
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 logger = getLogger(__name__)
+
+
+def get_enum_values(enum: Type[StrEnum]) -> list[str]:
+    return [e.value for e in enum]
 
 
 class BiocommonsUser(SoftDeleteModel, table=True):
@@ -34,6 +40,14 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     )
     # Auth0 ID
     id: str = Field(primary_key=True)
+    account_type: BiocommonsUserAccountType = Field(
+        sa_type=DbEnum(
+            BiocommonsUserAccountType,
+            name="biocommons_user_account_type",
+            values_callable=get_enum_values,
+            validate_strings=True
+        )
+    )
     # Note: sqlmodel can't validate emails easily.
     #   Use a separate data model to validate this
     email: str = Field(unique=True)
