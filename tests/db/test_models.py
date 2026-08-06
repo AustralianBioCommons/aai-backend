@@ -23,6 +23,7 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
+from schemas.biocommons import BiocommonsUserAccountType
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
@@ -66,6 +67,16 @@ def test_create_biocommons_user(test_db_session):
     assert user.email == email
     assert user.username == "user_name"
     assert not user.email_verified
+
+
+def test_biocommons_user_account_type_db_enum_uses_enum_values():
+    """
+    Test that account_type uses the string values from the account type
+    enum, not the enum names
+    """
+    db_enum = BiocommonsUser.__table__.c.account_type.type
+
+    assert db_enum.enums == [account_type.value for account_type in BiocommonsUserAccountType]
 
 
 def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
