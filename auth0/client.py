@@ -13,7 +13,7 @@ from auth.management import get_management_token
 from config import Settings, get_settings
 from schemas.biocommons import (
     Auth0UserData,
-    BiocommonsAppMetadata,
+    BiocommonsAppMetadataUpdate,
     BiocommonsPassword,
     BiocommonsRegisterData,
 )
@@ -114,7 +114,7 @@ class UpdateUserData(BaseModel):
     """
     _connection_required_fields = ["email", "email_verified", "password", "username"]
     # NOTE: app_metadata will be merged instead of replaced when updating
-    app_metadata: Optional[BiocommonsAppMetadata] = None
+    app_metadata: Optional[BiocommonsAppMetadataUpdate] = None
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None

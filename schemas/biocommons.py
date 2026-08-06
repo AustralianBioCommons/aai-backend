@@ -19,6 +19,7 @@ from pydantic import (
     EmailStr,
     Field,
     HttpUrl,
+    field_validator,
 )
 from pydantic_core import PydanticCustomError
 
@@ -190,6 +191,32 @@ class BiocommonsAppMetadata(BaseModel):
     registration_from: Optional[AppId] = None
     old_emails: Optional[list[OldEmailRecord]] = None
     user_needs_migration: Optional[bool] = None
+    account_type: BiocommonsUserAccountType
+
+    model_config = {
+        "extra": "ignore"
+    }
+
+
+class Auth0ReadAppMetadata(BiocommonsAppMetadata):
+    """
+    Schema for data we get from Auth0 - older data might not
+    contain account_type so make this less strict than the core schema
+    """
+    account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
+
+
+class BiocommonsAppMetadataUpdate(BaseModel):
+    """
+    Partial app_metadata patch sent to Auth0.
+
+    Auth0 merges app_metadata fields when updating, so updates should not
+    need to repeat fields that are not changing.
+    """
+    registration_from: Optional[AppId] = None
+    old_emails: Optional[list[OldEmailRecord]] = None
+    user_needs_migration: Optional[bool] = None
+    account_type: Optional[BiocommonsUserAccountType] = None
 
     model_config = {
         "extra": "ignore"
@@ -235,6 +262,9 @@ class BiocommonsRegisterData(BaseModel):
             connection="Username-Password-Authentication",
             app_metadata=BiocommonsAppMetadata(
                 registration_from="biocommons",
+                # NOTE: users we register should always have account_type: Auth0,
+                # since we don't register AAF users this way
+                account_type=BiocommonsUserAccountType.AUTH0,
             ),
         )
 
@@ -274,13 +304,17 @@ class Auth0UserData(BaseModel):
     updated_at: datetime
     user_id: str
     blocked: Optional[bool] = None
-    # Auth0 will not include user/app metadata in the response when
-    #   empty, so make it optional
+    # Auth0 will not include user_metadata in the response when empty.
     user_metadata: Optional[BiocommonsUserMetadata] = None
-    app_metadata: Optional[BiocommonsAppMetadata] = None
+    app_metadata: Auth0ReadAppMetadata = Field(default_factory=Auth0ReadAppMetadata)
     last_ip: Optional[str] = None
     last_login: Optional[datetime] = None
     logins_count: Optional[int] = None
+
+    @field_validator("app_metadata", mode="before")
+    @classmethod
+    def _default_app_metadata(cls, value):
+        return {} if value is None else value
 
 
 class Auth0UserDataWithMemberships(Auth0UserData):

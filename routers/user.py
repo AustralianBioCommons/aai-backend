@@ -49,7 +49,7 @@ from dependencies.utils import request_time
 from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
-    BiocommonsAppMetadata,
+    BiocommonsAppMetadataUpdate,
     BiocommonsEmail,
     BiocommonsFirstName,
     BiocommonsLastName,
@@ -1058,7 +1058,7 @@ def finish_migrate_password(state: str,
         raise HTTPException(status_code=400, detail=f"Invalid session token: {e}")
     # NOTE: due to the way the update user endpoint works (app_metadata is merged, not replaced),
     #  this should not overwrite existing app_metadata
-    updated_metadata = BiocommonsAppMetadata(user_needs_migration=False)
+    updated_metadata = BiocommonsAppMetadataUpdate(user_needs_migration=False)
     logger.info(f"Updating app_metadata for user: {user_id}")
     auth0_client.update_user(user_id=user_id, update_data=UpdateUserData(app_metadata=updated_metadata))
 
