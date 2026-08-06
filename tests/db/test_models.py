@@ -27,6 +27,7 @@ from schemas.biocommons import BiocommonsUserAccountType
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
+    AppMetadataFactory,
     Auth0UserDataFactory,
     RoleUserDataFactory,
     random_auth0_id,
@@ -59,7 +60,7 @@ def test_create_biocommons_user(test_db_session):
     user_data = Person(locale=Locale("en"))
     auth0_id = random_auth0_id()
     email = user_data.email()
-    user = BiocommonsUser(id=auth0_id, email=email, username="user_name")
+    user = BiocommonsUser(id=auth0_id, email=email, username="user_name", account_type="auth0")
     test_db_session.add(user)
     test_db_session.commit()
     test_db_session.refresh(user)
@@ -83,7 +84,9 @@ def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     """
     Test creating the BiocommonsUser model from Auth0 user data from the API
     """
-    user_data = Auth0UserDataFactory.build()
+    user_data = Auth0UserDataFactory.build(
+        app_metadata=AppMetadataFactory.build(account_type=BiocommonsUserAccountType.AUTH0)
+    )
     mock_auth0_client.get_user.return_value = user_data
     user = BiocommonsUser.create_from_auth0(auth0_id=user_data.user_id, auth0_client=mock_auth0_client)
     test_db_session.add(user)
@@ -1513,6 +1516,7 @@ def test_soft_delete_recreate_revives_deleted(test_db_session, persistent_factor
     user = BiocommonsUserFactory.create_sync(
         email="user@example.com",
         username="soft_delete_user",
+        account_type=BiocommonsUserAccountType.AUTH0
     )
     test_db_session.commit()
 
@@ -1524,6 +1528,7 @@ def test_soft_delete_recreate_revives_deleted(test_db_session, persistent_factor
         email="new@example.com",
         username="soft_delete_user",
         email_verified=True,
+        account_type=BiocommonsUserAccountType.AUTH0
     )
     test_db_session.add(replacement)
     test_db_session.commit()

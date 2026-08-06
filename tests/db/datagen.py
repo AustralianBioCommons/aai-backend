@@ -11,6 +11,7 @@ from db.models import (
     PlatformMembership,
 )
 from db.types import ApprovalStatusEnum, PlatformEnum
+from schemas.biocommons import BiocommonsUserAccountType
 from tests.datagen import BiocommonsProviders, random_auth0_id
 
 fake = Faker()
@@ -34,6 +35,10 @@ class BiocommonsUserFactory(SQLAlchemyFactory[BiocommonsUser]):
     @classmethod
     def is_deleted(cls) -> bool:
         return False
+
+    @classmethod
+    def account_type(cls) -> BiocommonsUserAccountType:
+        return BiocommonsUserAccountType.AUTH0
 
 
 class Auth0RoleFactory(SQLAlchemyFactory[Auth0Role]):
