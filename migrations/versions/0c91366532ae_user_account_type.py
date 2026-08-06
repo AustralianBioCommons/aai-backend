@@ -31,13 +31,13 @@ def upgrade() -> None:
         ),
     )
     op.execute("UPDATE biocommons_user SET account_type = 'auth0' WHERE account_type IS NULL")
-    op.alter_column(
-        'biocommons_user',
-        'account_type',
-        existing_type=account_type_enum,
-        nullable=False,
-        server_default=None,
-    )
+    with op.batch_alter_table('biocommons_user') as batch_op:
+        batch_op.alter_column(
+            'account_type',
+            existing_type=account_type_enum,
+            nullable=False,
+            server_default=None,
+        )
 
 
 def downgrade() -> None:
