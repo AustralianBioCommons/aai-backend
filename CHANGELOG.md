@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/AustralianBioCommons/aai-backend/compare/v1.4.0...v1.4.1) (2026-08-07)
+
+
+### Bug Fixes
+
+* vulnerable dependencies ([#289](https://github.com/AustralianBioCommons/aai-backend/issues/289)) ([00778c1](https://github.com/AustralianBioCommons/aai-backend/commit/00778c112deb53fd874cef113bb148ecc8fa2516))
+
 ## [1.4.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.3.0...v1.4.0) (2026-07-21)
 
 
