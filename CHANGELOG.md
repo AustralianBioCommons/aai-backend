@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.5.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.4.0...v1.5.0) (2026-08-07)
+
+
+### Features
+
+* add eDNA Explorer platform ([71ca9a3](https://github.com/AustralianBioCommons/aai-backend/commit/71ca9a30a8d5c75dfc13b4a0d7ea86d8a2d1b8ab))
+* add EDNA_EXPLORER to PlatformEnum via generated migration ([686003f](https://github.com/AustralianBioCommons/aai-backend/commit/686003f78e4e72a5b2cb1f20f9aca74b9dd74ebe))
+
+
+### Bug Fixes
+
+* use ALTER TYPE ADD VALUE for EDNA_EXPLORER, drop enum plugin ([d0d601e](https://github.com/AustralianBioCommons/aai-backend/commit/d0d601e1813826f8729ca5651a018b4a43fb0c8f))
+* vulnerable dependencies ([#289](https://github.com/AustralianBioCommons/aai-backend/issues/289)) ([360d61f](https://github.com/AustralianBioCommons/aai-backend/commit/360d61f510cab8bbcaa439abf412ccecca5a70c4))
+
 ## [1.4.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.3.0...v1.4.0) (2026-07-21)
 
 
