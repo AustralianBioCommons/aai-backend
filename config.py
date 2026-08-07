@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    environment: Literal["dev", "staging", "production"] = "dev"
+    environment: Literal["dev", "staging", "production", "dev-aaf"] = "dev"
     auth0_domain: str
     auth0_custom_domain: Optional[str] = None
     auth0_management_id: str
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     @field_validator("environment", mode="before")
     @classmethod
-    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production"]:
+    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production", "dev-aaf"]:
         normalized = str(value).strip().lower()
         if normalized in {"dev", "development"}:
             return "dev"
@@ -66,6 +66,7 @@ class Settings(BaseSettings):
             return self
         env_to_url = {
             "dev": "https://dev.portal.aai.test.biocommons.org.au",
+            "dev-aaf": "https://dev-aaf.portal.aai.test.biocommons.org.au",
             "staging": "https://staging.portal.aai.test.biocommons.org.au",
             "production": "https://portal.access.services.biocommons.org.au",
         }
