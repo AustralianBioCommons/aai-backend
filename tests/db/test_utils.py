@@ -71,17 +71,11 @@ def test_refresh_unverified_users_task_gets_auth0_client_when_none(test_db_sessi
     auth0_client.close.assert_called_once()
 
 
-def test_refresh_unverified_users_updates_status(test_db_session: Session):
+def test_refresh_unverified_users_updates_status(test_db_session: Session, persistent_factories):
     """Verifies that a user's status is updated when Auth0 reports they are now verified."""
     # Create an unverified user
-    user = BiocommonsUser(
-        id="auth0|123",
-        email="test@example.com",
-        username="testuser",
-        email_verified=False,
-    )
-    test_db_session.add(user)
-    test_db_session.commit()
+    user = BiocommonsUserFactory.create_sync(email_verified=False)
+    user_id = user.id
 
     # Mock Auth0 to return verified=True
     auth0_client = MagicMock()
@@ -93,13 +87,13 @@ def test_refresh_unverified_users_updates_status(test_db_session: Session):
 
     # Re-fetch user to check update
     db_session_new = Session(test_db_session.bind)  # Use fresh session to avoid cache
-    updated_user = db_session_new.exec(select(BiocommonsUser).where(BiocommonsUser.id == "auth0|123")).one()
+    updated_user = db_session_new.exec(select(BiocommonsUser).where(BiocommonsUser.id == user_id)).one()
     assert updated_user.email_verified is True
 
 
-def test_refresh_unverified_users_skips_verified_users(test_db_session):
+def test_refresh_unverified_users_skips_verified_users(test_db_session, persistent_factories):
     """Verifies that the query only targets users where email_verified is False."""
-    user = BiocommonsUser(
+    user = BiocommonsUserFactory.create_sync(
         id="auth0|456",
         email="verified@example.com",
         username="verified",

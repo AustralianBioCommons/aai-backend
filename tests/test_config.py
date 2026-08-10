@@ -86,6 +86,6 @@ def test_aai_portal_url_override_strips_trailing_slash():
     assert settings.aai_portal_url == "https://example.test"
 
 
-def test_unknown_environment_requires_explicit_portal_url():
-    with pytest.raises(ValidationError, match="Input should be 'dev', 'staging' or 'production'"):
+def test_unknown_environment_raises_error():
+    with pytest.raises(ValidationError, match="Input should be 'dev', 'staging', 'production' or 'dev-aaf'"):
         Settings(_env_file=None, environment="qa", **_base_settings_kwargs())

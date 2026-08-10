@@ -27,7 +27,7 @@ from schemas.biocommons import BiocommonsUserAccountType
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
-    AppMetadataFactory,
+    Auth0ReadAppMetadataFactory,
     Auth0UserDataFactory,
     RoleUserDataFactory,
     random_auth0_id,
@@ -85,7 +85,7 @@ def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     Test creating the BiocommonsUser model from Auth0 user data from the API
     """
     user_data = Auth0UserDataFactory.build(
-        app_metadata=AppMetadataFactory.build(account_type=BiocommonsUserAccountType.AUTH0)
+        app_metadata=Auth0ReadAppMetadataFactory.build(account_type=BiocommonsUserAccountType.AUTH0)
     )
     mock_auth0_client.get_user.return_value = user_data
     user = BiocommonsUser.create_from_auth0(auth0_id=user_data.user_id, auth0_client=mock_auth0_client)
