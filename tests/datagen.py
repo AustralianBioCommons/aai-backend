@@ -18,6 +18,7 @@ from auth0.user_info import UserInfo
 from scheduled_tasks.tasks import ExportedUser
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
+    Auth0ReadAppMetadata,
     Auth0UserData,
     BiocommonsAppMetadata,
     BiocommonsPassword,
@@ -124,6 +125,9 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
 
 
 class AppMetadataFactory(ModelFactory[BiocommonsAppMetadata]): ...
+
+
+class Auth0ReadAppMetadataFactory(ModelFactory[Auth0ReadAppMetadata]): ...
 
 
 class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationRequest]):
