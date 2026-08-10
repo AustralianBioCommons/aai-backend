@@ -23,7 +23,7 @@ dependencies = [
     "loguru>=0.7.3",
     "cachetools~=7.1",
     "typer>=0.26.8",
-    "starlette-admin>=0.16.1",
+    "starlette-admin>=0.17.1",
     # Security floor for CVE-2026-27199 (safe_join Windows device names)
     "werkzeug>=3.1.8",
 ]

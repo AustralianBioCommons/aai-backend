@@ -86,7 +86,7 @@ requires-dist = [
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.22.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.4" },
     { name = "sqlmodel", specifier = ">=0.0.39" },
-    { name = "starlette-admin", specifier = ">=0.16.1" },
+    { name = "starlette-admin", specifier = ">=0.17.1" },
     { name = "typer", specifier = ">=0.26.8" },
     { name = "werkzeug", specifier = ">=3.1.8" },
 ]
@@ -1656,16 +1656,16 @@ wheels = [
 
 [[package]]
 name = "starlette-admin"
-version = "0.16.1"
+version = "0.17.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jinja2" },
     { name = "python-multipart" },
     { name = "starlette" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/36/a566ba401ba9cbf5da74a7697e0ae3d1294a8ab7211bb1d7d18f0ce42b3f/starlette_admin-0.16.1.tar.gz", hash = "sha256:f34bdba033f0a2a4b39188e8e70a684956ef6b774db01762f44d022cde418b3a", size = 2104666, upload-time = "2026-06-06T20:10:40.307Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/1d/49347d67cf11a453d6f8379e0b87e6c1ecc671dee347f61de8240c5d2b11/starlette_admin-0.17.1.tar.gz", hash = "sha256:7bdeaf1c30fd9036ef3779fb0255002d3d18aaf6f7e674200e21c604ee563fc7", size = 2106865, upload-time = "2026-07-20T06:13:58.132Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/7c/add7d4be6690fb61f4d30b672e544b1ac541c824f05a7de50ff5d8985db5/starlette_admin-0.16.1-py3-none-any.whl", hash = "sha256:a5e6cb0beb2e9bdc65b07dbb4bd01726aaad34764595e3bc3ff8578e698ff98a", size = 2176514, upload-time = "2026-06-06T20:10:42.308Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/d1/5fc2df30b98b59cc81b8184b66ca5d76fe194a7a9ff5197b70a23e49fc0b/starlette_admin-0.17.1-py3-none-any.whl", hash = "sha256:685615945d55de636879e3523ec70a6419176f7cd6f04a17470e35670f96b972", size = 2183488, upload-time = "2026-07-20T06:13:56.048Z" },
 ]
 
 [[package]]
