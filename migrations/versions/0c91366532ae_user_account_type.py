@@ -21,6 +21,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     account_type_enum = sa.Enum('auth0', 'aaf', name='biocommons_user_account_type')
+    account_type_enum.create(op.get_bind(), checkfirst=True)
     op.add_column(
         'biocommons_user',
         sa.Column(
@@ -41,4 +42,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    account_type_enum = sa.Enum('auth0', 'aaf', name='biocommons_user_account_type')
     op.drop_column('biocommons_user', 'account_type')
+    account_type_enum.drop(op.get_bind(), checkfirst=True)
