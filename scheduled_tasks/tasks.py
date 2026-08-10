@@ -54,7 +54,7 @@ from schemas.auth0 import (
     PLATFORM_ROLE_PATTERN,
     get_platform_id_from_role_name,
 )
-from schemas.biocommons import Auth0UserData
+from schemas.biocommons import Auth0UserData, BiocommonsUserAccountType
 
 
 def chunked[T](items: list[T], size: int) -> list[list[T]]:
@@ -123,6 +123,23 @@ def _find_conflicting_user_by_email(
         )
 
 
+def _create_biocommons_user_from_sync_data(
+    user_data: Auth0UserData | ExportedUser,
+) -> BiocommonsUser:
+    account_type = (
+        user_data.app_metadata.account_type
+        if isinstance(user_data, Auth0UserData)
+        else BiocommonsUserAccountType.AUTH0
+    )
+    return BiocommonsUser(
+        id=user_data.user_id,
+        email=user_data.email,
+        username=user_data.username,
+        email_verified=user_data.email_verified,
+        account_type=account_type,
+    )
+
+
 def _ensure_user_from_auth0(
         session: Session,
         user_data: Auth0UserData | ExportedUser
@@ -181,7 +198,7 @@ def _ensure_user_from_auth0(
             )
         else:
             created = True
-            user = BiocommonsUser.from_auth0_data(user_data)
+            user = _create_biocommons_user_from_sync_data(user_data)
     session.add(user)
 
     # Save history entry if updating from Auth0 sync
@@ -519,7 +536,7 @@ def _create_user_in_db(user_data: ExportedUser, session: Session):
     email_conflict = BiocommonsUser.get_by_email(user_data.email, session, include_deleted=True)
     if email_conflict is not None:
         raise UserSyncConflictError(f"Email {user_data.email} is already in use")
-    db_user = BiocommonsUser.from_auth0_data(user_data)
+    db_user = _create_biocommons_user_from_sync_data(user_data)
     session.add(db_user)
     return db_user
 
