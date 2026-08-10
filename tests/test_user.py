@@ -913,6 +913,44 @@ def test_get_admin_groups(test_client, test_db_session, mocker, persistent_facto
     assert invalid_group.group_id not in returned_ids
 
 
+@pytest.mark.parametrize(
+    ["endpoint", "payload"],
+    [
+        ("/me/profile/email/update", {"email": "new@example.com"}),
+        ("/me/profile/email/continue", {"otp": "123456"}),
+        (
+            "/me/profile/password/update",
+            {
+                "current_password": "CurrentPass123!",
+                "new_password": "NewPass123!",
+            },
+        ),
+    ],
+)
+def test_profile_update_endpoints_disallowed_for_aaf_accounts(
+    endpoint,
+    payload,
+    test_client,
+    test_db_session,
+    mocker,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(account_type="aaf")
+    test_db_session.commit()
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        endpoint,
+        headers={"Authorization": "Bearer valid_token"},
+        json=payload,
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json() == {
+        "detail": "You do not have permission to perform this action."
+    }
+
+
 def test_update_username(test_client, test_db_session, mocker, persistent_factories):
     user = BiocommonsUserFactory.create_sync(username="old_username")
     mock_data = Auth0UserDataFactory.build(sub=user.id, username="new_username")
