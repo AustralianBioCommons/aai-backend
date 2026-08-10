@@ -44,6 +44,7 @@ from scheduled_tasks.tasks import (
     update_auth0_user,
     update_auth0_users_batch,
 )
+from schemas.biocommons import BiocommonsUserAccountType
 from tests.datagen import (
     Auth0UserDataFactory,
     ExportedUserFactory,
@@ -1184,9 +1185,9 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
 def test_parse_auth0_export_parses_csv_file(tmp_path):
     csv_path = tmp_path / "auth0_users.csv"
     csv_path.write_text(
-        "user_id,email,email_verified,username,blocked,updated_at\n"
-        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n"
-        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00\n",
+        "user_id,email,email_verified,username,blocked,updated_at,account_type\n"
+        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00,'aaf\n"
+        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00,\n",
         encoding="utf-8",
     )
 
@@ -1201,6 +1202,7 @@ def test_parse_auth0_export_parses_csv_file(tmp_path):
     assert users[0].username == "u1"
     assert users[0].blocked is False
     assert users[0].updated_at.isoformat() == "2024-01-01T12:00:00+00:00"
+    assert users[0].account_type == BiocommonsUserAccountType.AAF
 
 
     assert users[1].user_id == "auth0|u2"
@@ -1211,6 +1213,20 @@ def test_parse_auth0_export_parses_csv_file(tmp_path):
     # Check empty username parses as None
     assert users[1].username is None
     assert users[1].updated_at.isoformat() == "2024-01-02T12:00:00+00:00"
+    assert users[1].account_type == BiocommonsUserAccountType.AUTH0
+
+
+def test_parse_auth0_export_defaults_account_type_when_field_missing(tmp_path):
+    csv_path = tmp_path / "auth0_users.csv"
+    csv_path.write_text(
+        "user_id,email,email_verified,username,blocked,updated_at\n"
+        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n",
+        encoding="utf-8",
+    )
+
+    users = parse_auth0_export(csv_path)
+
+    assert users[0].account_type == BiocommonsUserAccountType.AUTH0
 
 
 @pytest.mark.asyncio
