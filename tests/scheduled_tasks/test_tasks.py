@@ -1238,7 +1238,8 @@ async def test_export_auth0_users_writes_temp_csv_file(mocker):
     csv_existed_at_parse_time = False
     csv_path: Path | None = None
 
-    def _fake_export_and_download_users(*, download_path, fields):
+    def _fake_export_and_download_users(*, download_path, fields, connection_id):
+        assert connection_id is None
         # Simulate Auth0Client writing the file to the provided temp path
         download_path.write_text(
             "user_id,email,email_verified,username,blocked,updated_at\n"
@@ -1276,3 +1277,30 @@ async def test_export_auth0_users_writes_temp_csv_file(mocker):
     assert not csv_path.exists()
     assert len(users) == 1
     assert users[0].user_id == "auth0|u1"
+
+
+@pytest.mark.asyncio
+async def test_export_auth0_users_passes_connection_id(mocker):
+    def _fake_export_and_download_users(*, download_path, fields, connection_id):
+        assert fields == [
+            {"name": "user_id"},
+            {"name": "email"},
+            {"name": "email_verified"},
+            {"name": "username"},
+            {"name": "blocked"},
+            {"name": "updated_at"},
+            {"name": "app_metadata.account_type", "export_as": "account_type"},
+        ]
+        assert connection_id == "con_aaf"
+        download_path.write_text(
+            "user_id,email,email_verified,username,blocked,updated_at,account_type\n",
+            encoding="utf-8",
+        )
+
+    auth0_client = MagicMock()
+    auth0_client.export_and_download_users.side_effect = _fake_export_and_download_users
+
+    users = await export_auth0_users(auth0_client, connection_id="con_aaf")
+
+    assert users == []
+    auth0_client.export_and_download_users.assert_called_once()

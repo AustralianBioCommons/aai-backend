@@ -231,7 +231,12 @@ class Auth0Client:
             raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
 
-    def start_user_export(self, format: str = "csv", fields: Optional[list[dict]] = None, ) -> str:
+    def start_user_export(
+        self,
+        format: str = "csv",
+        fields: Optional[list[dict]] = None,
+        connection_id: str | None = None,
+    ) -> str:
         """
         Start a user export job, return the job ID.
         """
@@ -242,7 +247,10 @@ class Auth0Client:
                 {"name": "email"},
                 {"name": "username"}
             ]
-        resp = self._client.post(url, json={"format": format, "fields": fields})
+        payload = {"format": format, "fields": fields}
+        if connection_id is not None:
+            payload["connection_id"] = connection_id
+        resp = self._client.post(url, json=payload)
         resp.raise_for_status()
         return resp.json()["id"]
 
@@ -252,13 +260,19 @@ class Auth0Client:
         resp.raise_for_status()
         return JobStatus(**resp.json())
 
-    def export_and_download_users(self, download_path: pathlib.Path, fields: Optional[list[dict]] = None, timeout: int = 300):
+    def export_and_download_users(
+        self,
+        download_path: pathlib.Path,
+        fields: Optional[list[dict]] = None,
+        timeout: int = 300,
+        connection_id: str | None = None,
+    ):
         """
         Export Auth0 users to a CSV file and download it.
 
         NOTE: the Auth0 export has some quirks, e.g. string fields are preceded by '.
         """
-        job_id = self.start_user_export(fields=fields)
+        job_id = self.start_user_export(fields=fields, connection_id=connection_id)
 
         location = None
         start_time = time.time()

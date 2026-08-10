@@ -397,7 +397,10 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
     return parsed
 
 
-async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
+async def export_auth0_users(
+    auth0_client: Auth0Client,
+    connection_id: str | None = None,
+) -> list[ExportedUser]:
     """
     Export all users to CSV and return a list
     """
@@ -415,7 +418,11 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
 
         logger.info(f"Exporting Auth0 users to {temp_path}")
         try:
-            auth0_client.export_and_download_users(download_path=temp_path, fields=fields)
+            auth0_client.export_and_download_users(
+                download_path=temp_path,
+                fields=fields,
+                connection_id=connection_id,
+            )
         except HTTPStatusError as exc:
             logger.error(f"Failed to export Auth0 users: {exc}")
             logger.error(f"Response: {exc.response.content}")
