@@ -71,6 +71,7 @@ class ExportedUser(BaseModel):
     username: str | None
     blocked: bool
     updated_at: datetime
+    account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
 
     @field_validator("email_verified", "blocked", mode="before")
     @classmethod
@@ -129,7 +130,7 @@ def _create_biocommons_user_from_sync_data(
     account_type = (
         user_data.app_metadata.account_type
         if isinstance(user_data, Auth0UserData)
-        else BiocommonsUserAccountType.AUTH0
+        else user_data.account_type
     )
     return BiocommonsUser(
         id=user_data.user_id,
@@ -391,6 +392,7 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
                 username=row["username"].lstrip("'") or None,
                 blocked=row["blocked"],
                 updated_at=row["updated_at"],
+                account_type=row.get("account_type", "").lstrip("'") or BiocommonsUserAccountType.AUTH0,
             ))
     return parsed
 
@@ -405,7 +407,8 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
         {"name": "email_verified"},
         {"name": "username"},
         {"name": "blocked"},
-        {"name": "updated_at"}
+        {"name": "updated_at"},
+        {"name": "app_metadata.account_type", "export_as": "account_type"},
     ]
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir) / "auth0_users.csv"
