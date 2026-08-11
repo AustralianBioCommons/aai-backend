@@ -453,7 +453,10 @@ async def sync_auth0_users():
     settings = get_settings()
     token = get_management_token(settings=settings)
     with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
-        users = await export_auth0_users(auth0_client)
+        db_connection = auth0_client.get_connection_by_name(settings.auth0_db_connection)
+        if db_connection is None:
+            raise ValueError(f"Could not find Auth0 connection: {settings.auth0_db_connection}")
+        users = await export_auth0_users(auth0_client, connection_id=db_connection.id)
         db_session = next(get_db_session())
         auth0_user_ids: set[str] = set()
         try:
