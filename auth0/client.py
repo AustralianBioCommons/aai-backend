@@ -7,7 +7,7 @@ from typing import Iterator, Optional, Type, TypeVar
 import httpx
 from fastapi import Depends
 from httpx import HTTPStatusError
-from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 
 from auth.management import get_management_token
 from config import Settings, get_settings
@@ -19,6 +19,27 @@ from schemas.biocommons import (
 )
 
 logger = logging.getLogger("uvicorn.error")
+
+
+class Auth0Connection(BaseModel):
+    name: str
+    display_name: str | None = None
+    options: dict = Field(default_factory=dict)
+    id: str
+    strategy: str
+    realms: list[str]
+    is_domain_connection: bool
+    show_as_button: bool | None = None
+    metadata: dict[str, str] | None = None
+    authentication: dict[str, bool]
+    connected_accounts: dict[str, bool]
+    cross_app_access_requesting_app: dict[str, bool] | None = None
+    cross_app_access_resource_app: dict[str, str] | None = None
+
+
+class ConnectionsWithCheckpoint(BaseModel):
+    connections: list[Auth0Connection]
+    next: str | None = None
 
 
 class RoleData(BaseModel):
@@ -400,6 +421,23 @@ class Auth0Client:
             }
         )
         return self._convert_users(resp)
+
+    def get_connections(self) -> list[Auth0Connection]:
+        url = f"https://{self.domain}/api/v2/connections"
+        resp = self._client.get(url, params={"take": 10})
+        resp.raise_for_status()
+        converted = ConnectionsWithCheckpoint(**resp.json())
+        if converted.next is not None:
+            logger.warning("More connections than expected - not all will be returned")
+        return converted.connections
+
+    def get_connection_by_name(self, name: str) -> Auth0Connection | None:
+        connections = self.get_connections()
+        result = None
+        for connection in connections:
+            if connection.name == name:
+                result = connection
+        return result
 
     def get_roles(self,
                   name_filter: Optional[str] = None,
