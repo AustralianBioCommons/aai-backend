@@ -31,9 +31,9 @@ def account_action_allowed(action: AccountActions, user: BiocommonsUser) -> bool
             case AccountActions.CHANGE_EMAIL:
                 return False
             case AccountActions.CHANGE_USERNAME:
-                # TODO: assuming usernames are specific to BiocommonsAccess,
-                #   so changes are still allowed.
-                return True
+                # TODO: username change code currently assumes the
+                #   Auth0 DB connection, so disable for AAF for now
+                return False
             case AccountActions.CHANGE_PASSWORD:
                 return False
             case AccountActions.CHANGE_NAME:
