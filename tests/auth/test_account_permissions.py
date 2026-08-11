@@ -28,7 +28,7 @@ def test_account_action_allowed_auth0(action: AccountActions, expected: bool, pe
     ["action", "expected"],
     [
         (AccountActions.CHANGE_EMAIL, False),
-        (AccountActions.CHANGE_USERNAME, True),
+        (AccountActions.CHANGE_USERNAME, False),
         (AccountActions.CHANGE_PASSWORD, False),
         (AccountActions.CHANGE_NAME, True)
     ]
