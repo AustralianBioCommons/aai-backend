@@ -13,8 +13,10 @@ from auth0.client import (
     UpdateUserData,
 )
 from tests.datagen import (
+    Auth0ConnectionFactory,
     Auth0UserDataFactory,
     BiocommonsRegisterDataFactory,
+    ConnectionsWithCheckpointFactory,
     EmailVerificationResponseFactory,
     random_auth0_id,
     random_auth0_role_id,
@@ -63,6 +65,32 @@ def test_get_user_by_id(test_auth0_client):
 
     assert route.called
     assert result.model_dump(mode="json") == user.model_dump(mode="json")
+
+
+@respx.mock
+def test_get_connections(test_auth0_client):
+    connections = Auth0ConnectionFactory.batch(3)
+    resp = ConnectionsWithCheckpointFactory.build(connections=connections, next=None)
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=resp.model_dump(mode="json"))
+
+    result = test_auth0_client.get_connections()
+
+    assert route.called
+    assert result == connections
+
+
+@respx.mock
+def test_get_connection_by_name(test_auth0_client):
+    db_connection = Auth0ConnectionFactory.build(name="db_connection")
+    other = Auth0ConnectionFactory.build(name="other")
+    resp = ConnectionsWithCheckpointFactory.build(connections=[db_connection, other])
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=resp.model_dump(mode="json"))
+
+    result = test_auth0_client.get_connection_by_name(db_connection.name)
+
+    assert route.called
+    assert result == db_connection
+
 
 
 @respx.mock
