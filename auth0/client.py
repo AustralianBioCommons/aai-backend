@@ -7,18 +7,39 @@ from typing import Iterator, Optional, Type, TypeVar
 import httpx
 from fastapi import Depends
 from httpx import HTTPStatusError
-from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 
 from auth.management import get_management_token
 from config import Settings, get_settings
 from schemas.biocommons import (
     Auth0UserData,
-    BiocommonsAppMetadata,
+    BiocommonsAppMetadataUpdate,
     BiocommonsPassword,
     BiocommonsRegisterData,
 )
 
 logger = logging.getLogger("uvicorn.error")
+
+
+class Auth0Connection(BaseModel):
+    name: str
+    display_name: str | None = None
+    options: dict = Field(default_factory=dict)
+    id: str
+    strategy: str
+    realms: list[str]
+    is_domain_connection: bool
+    show_as_button: bool | None = None
+    metadata: dict[str, str] | None = None
+    authentication: dict[str, bool]
+    connected_accounts: dict[str, bool]
+    cross_app_access_requesting_app: dict[str, bool] | None = None
+    cross_app_access_resource_app: dict[str, str] | None = None
+
+
+class ConnectionsWithCheckpoint(BaseModel):
+    connections: list[Auth0Connection]
+    next: str | None = None
 
 
 class RoleData(BaseModel):
@@ -114,7 +135,7 @@ class UpdateUserData(BaseModel):
     """
     _connection_required_fields = ["email", "email_verified", "password", "username"]
     # NOTE: app_metadata will be merged instead of replaced when updating
-    app_metadata: Optional[BiocommonsAppMetadata] = None
+    app_metadata: Optional[BiocommonsAppMetadataUpdate] = None
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None
@@ -231,7 +252,12 @@ class Auth0Client:
             raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
 
-    def start_user_export(self, format: str = "csv", fields: Optional[list[dict]] = None, ) -> str:
+    def start_user_export(
+        self,
+        format: str = "csv",
+        fields: Optional[list[dict]] = None,
+        connection_id: str | None = None,
+    ) -> str:
         """
         Start a user export job, return the job ID.
         """
@@ -242,7 +268,10 @@ class Auth0Client:
                 {"name": "email"},
                 {"name": "username"}
             ]
-        resp = self._client.post(url, json={"format": format, "fields": fields})
+        payload = {"format": format, "fields": fields}
+        if connection_id is not None:
+            payload["connection_id"] = connection_id
+        resp = self._client.post(url, json=payload)
         resp.raise_for_status()
         return resp.json()["id"]
 
@@ -252,13 +281,19 @@ class Auth0Client:
         resp.raise_for_status()
         return JobStatus(**resp.json())
 
-    def export_and_download_users(self, download_path: pathlib.Path, fields: Optional[list[dict]] = None, timeout: int = 300):
+    def export_and_download_users(
+        self,
+        download_path: pathlib.Path,
+        fields: Optional[list[dict]] = None,
+        timeout: int = 300,
+        connection_id: str | None = None,
+    ):
         """
         Export Auth0 users to a CSV file and download it.
 
         NOTE: the Auth0 export has some quirks, e.g. string fields are preceded by '.
         """
-        job_id = self.start_user_export(fields=fields)
+        job_id = self.start_user_export(fields=fields, connection_id=connection_id)
 
         location = None
         start_time = time.time()
@@ -386,6 +421,23 @@ class Auth0Client:
             }
         )
         return self._convert_users(resp)
+
+    def get_connections(self) -> list[Auth0Connection]:
+        url = f"https://{self.domain}/api/v2/connections"
+        resp = self._client.get(url, params={"take": 10})
+        resp.raise_for_status()
+        converted = ConnectionsWithCheckpoint(**resp.json())
+        if converted.next is not None:
+            logger.warning("More connections than expected - not all will be returned")
+        return converted.connections
+
+    def get_connection_by_name(self, name: str) -> Auth0Connection | None:
+        connections = self.get_connections()
+        result = None
+        for connection in connections:
+            if connection.name == name:
+                result = connection
+        return result
 
     def get_roles(self,
                   name_filter: Optional[str] = None,

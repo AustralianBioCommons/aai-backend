@@ -54,7 +54,7 @@ from schemas.auth0 import (
     PLATFORM_ROLE_PATTERN,
     get_platform_id_from_role_name,
 )
-from schemas.biocommons import Auth0UserData
+from schemas.biocommons import Auth0UserData, BiocommonsUserAccountType
 
 
 def chunked[T](items: list[T], size: int) -> list[list[T]]:
@@ -71,6 +71,7 @@ class ExportedUser(BaseModel):
     username: str | None
     blocked: bool
     updated_at: datetime
+    account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
 
     @field_validator("email_verified", "blocked", mode="before")
     @classmethod
@@ -121,6 +122,23 @@ def _find_conflicting_user_by_email(
             include_deleted=True,
             exclude_user_id=user_id,
         )
+
+
+def _create_biocommons_user_from_sync_data(
+    user_data: Auth0UserData | ExportedUser,
+) -> BiocommonsUser:
+    account_type = (
+        user_data.app_metadata.account_type
+        if isinstance(user_data, Auth0UserData)
+        else user_data.account_type
+    )
+    return BiocommonsUser(
+        id=user_data.user_id,
+        email=user_data.email,
+        username=user_data.username,
+        email_verified=user_data.email_verified,
+        account_type=account_type,
+    )
 
 
 def _ensure_user_from_auth0(
@@ -181,7 +199,7 @@ def _ensure_user_from_auth0(
             )
         else:
             created = True
-            user = BiocommonsUser.from_auth0_data(user_data)
+            user = _create_biocommons_user_from_sync_data(user_data)
     session.add(user)
 
     # Save history entry if updating from Auth0 sync
@@ -374,11 +392,15 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
                 username=row["username"].lstrip("'") or None,
                 blocked=row["blocked"],
                 updated_at=row["updated_at"],
+                account_type=row.get("account_type", "").lstrip("'") or BiocommonsUserAccountType.AUTH0,
             ))
     return parsed
 
 
-async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
+async def export_auth0_users(
+    auth0_client: Auth0Client,
+    connection_id: str | None = None,
+) -> list[ExportedUser]:
     """
     Export all users to CSV and return a list
     """
@@ -388,14 +410,19 @@ async def export_auth0_users(auth0_client: Auth0Client) -> list[ExportedUser]:
         {"name": "email_verified"},
         {"name": "username"},
         {"name": "blocked"},
-        {"name": "updated_at"}
+        {"name": "updated_at"},
+        {"name": "app_metadata.account_type", "export_as": "account_type"},
     ]
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir) / "auth0_users.csv"
 
         logger.info(f"Exporting Auth0 users to {temp_path}")
         try:
-            auth0_client.export_and_download_users(download_path=temp_path, fields=fields)
+            auth0_client.export_and_download_users(
+                download_path=temp_path,
+                fields=fields,
+                connection_id=connection_id,
+            )
         except HTTPStatusError as exc:
             logger.error(f"Failed to export Auth0 users: {exc}")
             logger.error(f"Response: {exc.response.content}")
@@ -426,7 +453,10 @@ async def sync_auth0_users():
     settings = get_settings()
     token = get_management_token(settings=settings)
     with Auth0Client(domain=settings.auth0_domain, management_token=token) as auth0_client:
-        users = await export_auth0_users(auth0_client)
+        db_connection = auth0_client.get_connection_by_name(settings.auth0_db_connection)
+        if db_connection is None:
+            raise ValueError(f"Could not find Auth0 connection: {settings.auth0_db_connection}")
+        users = await export_auth0_users(auth0_client, connection_id=db_connection.id)
         db_session = next(get_db_session())
         auth0_user_ids: set[str] = set()
         try:
@@ -519,7 +549,7 @@ def _create_user_in_db(user_data: ExportedUser, session: Session):
     email_conflict = BiocommonsUser.get_by_email(user_data.email, session, include_deleted=True)
     if email_conflict is not None:
         raise UserSyncConflictError(f"Email {user_data.email} is already in use")
-    db_user = BiocommonsUser.from_auth0_data(user_data)
+    db_user = _create_biocommons_user_from_sync_data(user_data)
     session.add(db_user)
     return db_user
 

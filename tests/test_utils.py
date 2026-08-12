@@ -9,7 +9,10 @@ from db.models import EmailNotification
 from main import app
 from routers import utils
 from services.institutions import GALAXY_AU_VALIDATE_URL
-from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
+from tests.datagen import (
+    Auth0ReadAppMetadataFactory,
+    Auth0UserDataFactory,
+)
 
 
 @pytest.fixture
@@ -28,7 +31,7 @@ def test_get_registration_info(override_auth0_client, test_client):
     Test we can look up a user by email, and return their
     app_metadata.registration_from value, if available.
     """
-    app_metadata = AppMetadataFactory.build(registration_from="galaxy")
+    app_metadata = Auth0ReadAppMetadataFactory.build(registration_from="galaxy")
     user = Auth0UserDataFactory.build(email="user@example.com",
                                       app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
@@ -42,7 +45,7 @@ def test_get_registration_info_no_registration_from(override_auth0_client, test_
     """
     Test the default of 'biocommons' is returned if registration_from isn't set.
     """
-    app_metadata = AppMetadataFactory.build(registration_from=None)
+    app_metadata = Auth0ReadAppMetadataFactory.build(registration_from=None)
     user = Auth0UserDataFactory.build(email="user@example.com",
                                       app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]

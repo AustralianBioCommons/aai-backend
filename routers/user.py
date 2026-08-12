@@ -17,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from starlette.responses import RedirectResponse
 
+from auth.account_permissions import AccountActions, require_account_permission
 from auth.management import get_management_token
 from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
@@ -49,7 +50,7 @@ from dependencies.utils import request_time
 from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
-    BiocommonsAppMetadata,
+    BiocommonsAppMetadataUpdate,
     BiocommonsEmail,
     BiocommonsFirstName,
     BiocommonsLastName,
@@ -574,6 +575,7 @@ async def get_all_pending(
         200: {"model": Auth0UserData},
         400: {"model": FieldErrorResponse},
     },
+    dependencies=[require_account_permission(AccountActions.CHANGE_USERNAME)],
 )
 async def update_username(
     username: Annotated[BiocommonsUsername, Body(embed=True)],
@@ -654,7 +656,8 @@ class NameUpdateRequest(BaseModel):
 
 
 @router.post("/profile/name/update",
-             response_model=Auth0UserData)
+             response_model=Auth0UserData,
+             dependencies=[require_account_permission(AccountActions.CHANGE_NAME)])
 async def update_name(
     payload: Annotated[NameUpdateRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
@@ -695,6 +698,7 @@ async def update_name(
         200: {"model": dict},
         400: {"model": FieldErrorResponse},
     },
+    dependencies=[require_account_permission(AccountActions.CHANGE_EMAIL)]
 )
 async def update_email(
     payload: Annotated[EmailChangeRequest, Body()],
@@ -764,7 +768,8 @@ async def update_email(
 
 
 @router.post("/profile/email/continue",
-             response_model=Auth0UserData)
+             response_model=Auth0UserData,
+             dependencies=[require_account_permission(AccountActions.CHANGE_EMAIL)])
 async def continue_email_update(
     payload: Annotated[EmailChangeContinueRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
@@ -910,6 +915,7 @@ async def _revoke_sbp_if_non_institutional(
         200: {"model": dict},
         400: {"model": FieldErrorResponse},
     },
+    dependencies=[require_account_permission(AccountActions.CHANGE_PASSWORD)]
 )
 async def change_password(
     payload: PasswordChangeRequest,
@@ -1058,7 +1064,7 @@ def finish_migrate_password(state: str,
         raise HTTPException(status_code=400, detail=f"Invalid session token: {e}")
     # NOTE: due to the way the update user endpoint works (app_metadata is merged, not replaced),
     #  this should not overwrite existing app_metadata
-    updated_metadata = BiocommonsAppMetadata(user_needs_migration=False)
+    updated_metadata = BiocommonsAppMetadataUpdate(user_needs_migration=False)
     logger.info(f"Updating app_metadata for user: {user_id}")
     auth0_client.update_user(user_id=user_id, update_data=UpdateUserData(app_metadata=updated_metadata))
 

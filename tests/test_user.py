@@ -24,7 +24,11 @@ from db.types import (
     PlatformEnum,
 )
 from routers.user import get_user_data, update_user_metadata
-from schemas.biocommons import Auth0Identity, BiocommonsAppMetadata
+from schemas.biocommons import (
+    Auth0Identity,
+    Auth0ReadAppMetadata,
+    BiocommonsAppMetadata,
+)
 from tests.datagen import (
     AccessTokenPayloadFactory,
     Auth0UserDataFactory,
@@ -909,6 +913,44 @@ def test_get_admin_groups(test_client, test_db_session, mocker, persistent_facto
     assert invalid_group.group_id not in returned_ids
 
 
+@pytest.mark.parametrize(
+    ["endpoint", "payload"],
+    [
+        ("/me/profile/email/update", {"email": "new@example.com"}),
+        ("/me/profile/email/continue", {"otp": "123456"}),
+        (
+            "/me/profile/password/update",
+            {
+                "current_password": "CurrentPass123!",
+                "new_password": "NewPass123!",
+            },
+        ),
+    ],
+)
+def test_profile_update_endpoints_disallowed_for_aaf_accounts(
+    endpoint,
+    payload,
+    test_client,
+    test_db_session,
+    mocker,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(account_type="aaf")
+    test_db_session.commit()
+    _act_as_user(mocker, user)
+
+    response = test_client.post(
+        endpoint,
+        headers={"Authorization": "Bearer valid_token"},
+        json=payload,
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json() == {
+        "detail": "You do not have permission to perform this action."
+    }
+
+
 def test_update_username(test_client, test_db_session, mocker, persistent_factories):
     user = BiocommonsUserFactory.create_sync(username="old_username")
     mock_data = Auth0UserDataFactory.build(sub=user.id, username="new_username")
@@ -1072,12 +1114,12 @@ def test_email_continue_updates_user(test_client, test_db_session, mocker, persi
         sub=user.id,
         email="new@example.com",
         email_verified=True,
-        app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+        app_metadata=Auth0ReadAppMetadata(registration_from="biocommons", account_type="auth0"),
     )
     current_auth0_user = Auth0UserDataFactory.build(
         sub=user.id,
         email=user.email,
-        app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+        app_metadata=Auth0ReadAppMetadata(registration_from="biocommons", account_type="auth0"),
     )
     mocker.patch("routers.user.Auth0Client.update_user", return_value=updated_user)
     mocker.patch("routers.user.Auth0Client.get_user", return_value=current_auth0_user)
@@ -1156,7 +1198,7 @@ def _setup_email_change_with_sbp(
         sub=user.id,
         email=new_email,
         email_verified=True,
-        app_metadata=BiocommonsAppMetadata(registration_from="biocommons"),
+        app_metadata=Auth0ReadAppMetadata(registration_from="biocommons"),
     )
     mock_auth0_client.update_user.return_value = updated_user
     mock_auth0_client.get_role_by_name.return_value = MagicMock(id="role_sbp")

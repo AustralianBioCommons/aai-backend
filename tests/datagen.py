@@ -9,6 +9,8 @@ from polyfactory.factories.pydantic_factory import ModelFactory
 from pydantic import TypeAdapter, ValidationError
 
 from auth0.client import (
+    Auth0Connection,
+    ConnectionsWithCheckpoint,
     EmailVerificationResponse,
     RoleUserData,
     RoleUsersWithTotals,
@@ -18,6 +20,7 @@ from auth0.user_info import UserInfo
 from scheduled_tasks.tasks import ExportedUser
 from schemas.biocommons import (
     ALLOWED_SPECIAL_CHARS,
+    Auth0ReadAppMetadata,
     Auth0UserData,
     BiocommonsAppMetadata,
     BiocommonsPassword,
@@ -123,7 +126,20 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
     blocked = False
 
 
+class Auth0ConnectionFactory(ModelFactory[Auth0Connection]):
+
+    @classmethod
+    def options(cls):
+        return {}
+
+
+class ConnectionsWithCheckpointFactory(ModelFactory[ConnectionsWithCheckpoint]): ...
+
+
 class AppMetadataFactory(ModelFactory[BiocommonsAppMetadata]): ...
+
+
+class Auth0ReadAppMetadataFactory(ModelFactory[Auth0ReadAppMetadata]): ...
 
 
 class BiocommonsRegistrationDataFactory(ModelFactory[BiocommonsRegistrationRequest]):

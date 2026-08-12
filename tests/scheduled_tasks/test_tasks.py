@@ -44,6 +44,7 @@ from scheduled_tasks.tasks import (
     update_auth0_user,
     update_auth0_users_batch,
 )
+from schemas.biocommons import BiocommonsUserAccountType
 from tests.datagen import (
     Auth0UserDataFactory,
     ExportedUserFactory,
@@ -1184,9 +1185,9 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
 def test_parse_auth0_export_parses_csv_file(tmp_path):
     csv_path = tmp_path / "auth0_users.csv"
     csv_path.write_text(
-        "user_id,email,email_verified,username,blocked,updated_at\n"
-        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n"
-        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00\n",
+        "user_id,email,email_verified,username,blocked,updated_at,account_type\n"
+        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00,'aaf\n"
+        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00,\n",
         encoding="utf-8",
     )
 
@@ -1201,6 +1202,7 @@ def test_parse_auth0_export_parses_csv_file(tmp_path):
     assert users[0].username == "u1"
     assert users[0].blocked is False
     assert users[0].updated_at.isoformat() == "2024-01-01T12:00:00+00:00"
+    assert users[0].account_type == BiocommonsUserAccountType.AAF
 
 
     assert users[1].user_id == "auth0|u2"
@@ -1211,6 +1213,20 @@ def test_parse_auth0_export_parses_csv_file(tmp_path):
     # Check empty username parses as None
     assert users[1].username is None
     assert users[1].updated_at.isoformat() == "2024-01-02T12:00:00+00:00"
+    assert users[1].account_type == BiocommonsUserAccountType.AUTH0
+
+
+def test_parse_auth0_export_defaults_account_type_when_field_missing(tmp_path):
+    csv_path = tmp_path / "auth0_users.csv"
+    csv_path.write_text(
+        "user_id,email,email_verified,username,blocked,updated_at\n"
+        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n",
+        encoding="utf-8",
+    )
+
+    users = parse_auth0_export(csv_path)
+
+    assert users[0].account_type == BiocommonsUserAccountType.AUTH0
 
 
 @pytest.mark.asyncio
@@ -1222,7 +1238,8 @@ async def test_export_auth0_users_writes_temp_csv_file(mocker):
     csv_existed_at_parse_time = False
     csv_path: Path | None = None
 
-    def _fake_export_and_download_users(*, download_path, fields):
+    def _fake_export_and_download_users(*, download_path, fields, connection_id):
+        assert connection_id is None
         # Simulate Auth0Client writing the file to the provided temp path
         download_path.write_text(
             "user_id,email,email_verified,username,blocked,updated_at\n"
@@ -1260,3 +1277,30 @@ async def test_export_auth0_users_writes_temp_csv_file(mocker):
     assert not csv_path.exists()
     assert len(users) == 1
     assert users[0].user_id == "auth0|u1"
+
+
+@pytest.mark.asyncio
+async def test_export_auth0_users_passes_connection_id(mocker):
+    def _fake_export_and_download_users(*, download_path, fields, connection_id):
+        assert fields == [
+            {"name": "user_id"},
+            {"name": "email"},
+            {"name": "email_verified"},
+            {"name": "username"},
+            {"name": "blocked"},
+            {"name": "updated_at"},
+            {"name": "app_metadata.account_type", "export_as": "account_type"},
+        ]
+        assert connection_id == "con_aaf"
+        download_path.write_text(
+            "user_id,email,email_verified,username,blocked,updated_at,account_type\n",
+            encoding="utf-8",
+        )
+
+    auth0_client = MagicMock()
+    auth0_client.export_and_download_users.side_effect = _fake_export_and_download_users
+
+    users = await export_auth0_users(auth0_client, connection_id="con_aaf")
+
+    assert users == []
+    auth0_client.export_and_download_users.assert_called_once()
