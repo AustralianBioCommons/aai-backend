@@ -192,6 +192,10 @@ class BiocommonsAppMetadata(BaseModel):
     old_emails: Optional[list[OldEmailRecord]] = None
     user_needs_migration: Optional[bool] = None
     account_type: BiocommonsUserAccountType
+    aaf_only: Optional[bool] = None
+    checked_email: Optional[EmailStr] = None
+    linking_completed: Optional[bool] = None
+    linking_completed_at: Optional[bool] = None
 
     model_config = {
         "extra": "ignore"
@@ -217,6 +221,10 @@ class BiocommonsAppMetadataUpdate(BaseModel):
     old_emails: Optional[list[OldEmailRecord]] = None
     user_needs_migration: Optional[bool] = None
     account_type: Optional[BiocommonsUserAccountType] = None
+    aaf_only: Optional[bool] = None
+    checked_email: Optional[EmailStr] = None
+    linking_completed: Optional[bool] = None
+    linking_completed_at: Optional[bool] = None
 
     model_config = {
         "extra": "ignore"
