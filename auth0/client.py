@@ -395,10 +395,22 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
-    def search_users_by_email(self, email: str) -> list[Auth0UserData]:
+    def search_users_by_email(self, email: str, connection: str | None = None) -> list[Auth0UserData]:
+        """
+        Search users by email, optionally filtering by connection name.
+        """
         url = f"https://{self.domain}/api/v2/users-by-email"
         resp = self._client.get(url, params={"email": email})
-        return self._convert_users(resp)
+        users = self._convert_users(resp)
+        if connection is not None:
+            filtered_users = []
+            for user in users:
+                in_connection = any(ident.connection == connection for ident in user.identities)
+                if in_connection:
+                    filtered_users.append(user)
+            return filtered_users
+        else:
+            return users
 
     def _search_users(self, query: str, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         params = {"q": query, "search_engine": "v3"}
