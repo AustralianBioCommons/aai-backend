@@ -121,6 +121,18 @@ class IdentityData(BaseModel):
     provider: str
 
 
+class LinkIdentityRequest(BaseModel):
+    """
+    POST data sent when linking identities.
+
+    Note: user_id is the secondary ID here. Primary ID goes in the
+    URL
+    """
+    provider: str
+    connection_id: str | None = None
+    user_id: str
+
+
 class EmailVerificationRequest(BaseModel):
     user_id: str
     client_id: Optional[str] = None
@@ -593,6 +605,21 @@ class Auth0Client:
                   "client_id": client_id,
                   "connection": settings.auth0_db_connection,}
         )
+        resp.raise_for_status()
+        return True
+
+    def link_identity(self, primary_user_id: str, secondary_user_id: str, secondary_provider: str) -> bool:
+        """
+        Link an identity to a primary account
+        """
+        url = f"https://{self.domain}/users/{primary_user_id}/identities"
+        secondary_connection = self.get_connection_by_name(secondary_provider)
+        payload = LinkIdentityRequest(
+            provider=secondary_provider,
+            connection_id=secondary_connection.id,
+            user_id=secondary_user_id,
+        )
+        resp = self._client.post(url, json=payload.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
         return True
 
