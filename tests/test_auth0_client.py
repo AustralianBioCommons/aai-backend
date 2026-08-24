@@ -94,6 +94,57 @@ def test_get_connection_by_name(test_auth0_client):
 
 
 @respx.mock
+def test_get_connection_by_name_not_found(test_auth0_client):
+    other = Auth0ConnectionFactory.build(name="other")
+    resp = ConnectionsWithCheckpointFactory.build(connections=[other])
+    respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=resp.model_dump(mode="json"))
+
+    result = test_auth0_client.get_connection_by_name("db_connection")
+
+    assert result is None
+
+
+@respx.mock
+def test_link_identity(test_auth0_client):
+    """
+    Test linking a secondary identity to a primary account.
+
+    Per https://auth0.com/docs/api/management/v2/users/post-identities,
+    when linking with an API v2 token the request body has provider/user_id/
+    connection_id, and the response is a list of identity objects.
+    """
+    primary_user_id = random_auth0_id()
+    secondary_user_id = random_auth0_id()
+    connection = Auth0ConnectionFactory.build(name="google-oauth2")
+    connections_resp = ConnectionsWithCheckpointFactory.build(connections=[connection])
+    respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=connections_resp.model_dump(mode="json")
+    )
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{primary_user_id}/identities").respond(
+        201,
+        json=[
+            {
+                "connection": connection.name,
+                "provider": "google-oauth2",
+                "user_id": secondary_user_id,
+                "isSocial": True,
+            }
+        ],
+    )
+
+    result = test_auth0_client.link_identity(primary_user_id, secondary_user_id, "google-oauth2")
+
+    assert route.called
+    assert result is True
+    call_data = json.loads(route.calls.last.request.content)
+    assert call_data == {
+        "provider": "google-oauth2",
+        "connection_id": connection.id,
+        "user_id": secondary_user_id,
+    }
+
+
+@respx.mock
 def test_get_role_users(test_auth0_client):
     """
     Test we can get users for a role from Auth0 API
