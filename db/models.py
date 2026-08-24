@@ -40,6 +40,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     )
     # Auth0 ID
     id: str = Field(primary_key=True)
+    # User ID from other providers, i.e. AAF. Don't want to rely on this in the DB
+    # (Auth0 should handle linked identities), but good for tracking user info
+    other_user_id: str | None = Field(default=None, nullable=True)
     account_type: BiocommonsUserAccountType = Field(
         sa_type=DbEnum(
             BiocommonsUserAccountType,
