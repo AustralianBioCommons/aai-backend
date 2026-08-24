@@ -15,6 +15,7 @@ from email_validator import EmailNotValidError, validate_email
 from fastapi import Path
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     EmailStr,
     Field,
@@ -195,7 +196,7 @@ class BiocommonsAppMetadata(BaseModel):
     aaf_only: Optional[bool] = None
     checked_email: Optional[EmailStr] = None
     linking_completed: Optional[bool] = None
-    linking_completed_at: Optional[bool] = None
+    linking_completed_at: Optional[AwareDatetime] = None
 
     model_config = {
         "extra": "ignore"
@@ -224,7 +225,7 @@ class BiocommonsAppMetadataUpdate(BaseModel):
     aaf_only: Optional[bool] = None
     checked_email: Optional[EmailStr] = None
     linking_completed: Optional[bool] = None
-    linking_completed_at: Optional[bool] = None
+    linking_completed_at: Optional[AwareDatetime] = None
 
     model_config = {
         "extra": "ignore"
