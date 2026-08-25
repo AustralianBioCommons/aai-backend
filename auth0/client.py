@@ -411,6 +411,7 @@ class Auth0Client:
         """
         url = f"{self.api_base}/users-by-email"
         resp = self._client.get(url, params={"email": email})
+        resp.raise_for_status()
         users = self._convert_users(resp)
         if connection is not None:
             filtered_users = []
@@ -454,12 +455,17 @@ class Auth0Client:
         return converted.connections
 
     def get_connection_by_name(self, name: str) -> Auth0Connection | None:
-        connections = self.get_connections()
-        result = None
-        for connection in connections:
-            if connection.name == name:
-                result = connection
-        return result
+        # Filter server-side rather than paginating get_connections(), which caps at 10.
+        url = f"{self.api_base}/connections"
+        resp = self._client.get(url, params={"name": name})
+        resp.raise_for_status()
+        connections = self._convert_list(resp, Auth0Connection)
+        # Ensure an exact match
+        if connections:
+            for connection in connections:
+                if connection.name == name:
+                    return connection
+        return None
 
     def get_roles(self,
                   name_filter: Optional[str] = None,
@@ -606,12 +612,18 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
-    def link_identity(self, primary_user_id: str, secondary_user_id: str, secondary_provider: str) -> bool:
+    def link_identity(self, primary_user_id: str, secondary_user_id: str, secondary_provider: str,
+                      secondary_connection_name: str) -> bool:
         """
-        Link an identity to a primary account
+        Link an identity to a primary account.
+
+        secondary_provider is the identity's strategy (e.g. "samlp"), secondary_connection_name
+        is the connection's name (e.g. "AAF") - these can differ, so both are needed.
         """
         url = f"{self.api_base}/users/{primary_user_id}/identities"
-        secondary_connection = self.get_connection_by_name(secondary_provider)
+        secondary_connection = self.get_connection_by_name(secondary_connection_name)
+        if secondary_connection is None:
+            raise ValueError(f"Could not find Auth0 connection named {secondary_connection_name!r}")
         payload = LinkIdentityRequest(
             provider=secondary_provider,
             connection_id=secondary_connection.id,

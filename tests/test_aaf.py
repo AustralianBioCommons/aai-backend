@@ -17,7 +17,7 @@ def test_link_aaf_account_links_identity_updates_metadata_and_db(test_db_session
 
     aaf_user_id = random_auth0_id()
     aaf_user_data = Auth0UserDataFactory.build(
-        identities=[Auth0Identity(connection="AAF", provider="aaf-connection", user_id=aaf_user_id, isSocial=False)]
+        identities=[Auth0Identity(connection="AAF", provider="samlp", user_id=aaf_user_id, isSocial=False)]
     )
     auth0_client = MagicMock(spec=Auth0Client)
     auth0_client.get_user.return_value = aaf_user_data
@@ -33,7 +33,8 @@ def test_link_aaf_account_links_identity_updates_metadata_and_db(test_db_session
     auth0_client.link_identity.assert_called_once_with(
         primary_user_id=db_user.id,
         secondary_user_id=aaf_user_id,
-        secondary_provider="aaf-connection",
+        secondary_provider="samlp",
+        secondary_connection_name="AAF",
     )
 
     auth0_client.update_user.assert_called_once()
@@ -132,7 +133,7 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     existing_account = Auth0UserDataFactory.build(user_id=db_user.id, email=email, blocked=False)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
     aaf_user_data = Auth0UserDataFactory.build(
-        identities=[Auth0Identity(connection="AAF", provider="aaf-connection", user_id=aaf_user_id, isSocial=False)]
+        identities=[Auth0Identity(connection="AAF", provider="samlp", user_id=aaf_user_id, isSocial=False)]
     )
     mocker.patch("routers.aaf.Auth0Client.get_user", return_value=aaf_user_data)
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
@@ -145,7 +146,8 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     link_identity.assert_called_once_with(
         primary_user_id=db_user.id,
         secondary_user_id=aaf_user_id,
-        secondary_provider="aaf-connection",
+        secondary_provider="samlp",
+        secondary_connection_name="AAF",
     )
     update_user.assert_called_once()
 

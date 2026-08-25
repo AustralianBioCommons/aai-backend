@@ -45,7 +45,8 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
     logger.info("Linking AAF account to existing database account")
     now = datetime.now(tz=timezone.utc)
     auth0_client.link_identity(primary_user_id=db_user_id, secondary_user_id=aaf_user_id,
-                               secondary_provider=aaf_identity.provider)
+                               secondary_provider=aaf_identity.provider,
+                               secondary_connection_name=aaf_identity.connection)
     auth0_client.update_user(
         db_user_id,
         update_data=UpdateUserData(
