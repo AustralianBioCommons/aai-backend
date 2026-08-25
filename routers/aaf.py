@@ -67,7 +67,16 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
     return db_user
 
 
-
+def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Client):
+    update_data = UpdateUserData(
+        app_metadata=BiocommonsAppMetadataUpdate(
+            aaf_only=True,
+            checked_email=user_email,
+            linking_completed=True,
+            linking_completed_at=datetime.now(tz=timezone.utc),
+        )
+    )
+    auth0_client.update_user(user_id=aaf_user_id, update_data=update_data)
 
 
 
@@ -86,7 +95,7 @@ def check_aaf_account_link(
     )
     # No existing account: no need to link
     if not auth0_matches:
-        # TODO: update app_metadata
+        mark_user_aaf_only(email, aaf_user_id, auth0_client)
         return AccountLinkResponse(link=False, aaf_only=True, primary_id=token.user_id)
 
     existing_account = None
@@ -94,8 +103,9 @@ def check_aaf_account_link(
         if user.email.lower() == email.lower():
             existing_account = user
             break
-    # No exact match: are we safe to say there's no existing account here?
+    # No exact match: no existing account
     if not existing_account:
+        mark_user_aaf_only(email, aaf_user_id, auth0_client)
         return AccountLinkResponse(link=False, aaf_only=True, primary_id=email)
 
     if existing_account.blocked:
