@@ -89,6 +89,34 @@ def test_link_aaf_account_raises_404_when_no_aaf_identity(test_db_session, persi
     assert db_user.other_user_id is None
 
 
+def test_link_aaf_account_raises_502_when_auth0_linking_fails(test_db_session, persistent_factories):
+    db_user = BiocommonsUserFactory.create_sync(account_type=BiocommonsUserAccountType.AUTH0, other_user_id=None)
+    test_db_session.commit()
+
+    aaf_user_id = random_auth0_id()
+    aaf_user_data = Auth0UserDataFactory.build(
+        identities=[Auth0Identity(connection="AAF", provider="samlp", user_id=aaf_user_id, isSocial=False)]
+    )
+    auth0_client = MagicMock(spec=Auth0Client)
+    auth0_client.get_user.return_value = aaf_user_data
+    auth0_client.link_identity.side_effect = ValueError("Identity already linked")
+
+    with pytest.raises(HTTPException) as exc_info:
+        link_aaf_account(
+            db_user_id=db_user.id,
+            aaf_user_id=aaf_user_id,
+            auth0_client=auth0_client,
+            session=test_db_session,
+        )
+
+    assert exc_info.value.status_code == HTTPStatus.BAD_GATEWAY
+    auth0_client.update_user.assert_not_called()
+
+    test_db_session.refresh(db_user)
+    assert db_user.account_type == BiocommonsUserAccountType.AUTH0
+    assert db_user.other_user_id is None
+
+
 def test_link_aaf_account_idempotent_when_already_linked(test_db_session, persistent_factories):
     aaf_user_id = random_auth0_id()
     db_user = BiocommonsUserFactory.create_sync(

@@ -158,6 +158,28 @@ def test_link_identity_connection_not_found(test_auth0_client):
 
 
 @respx.mock
+def test_link_identity_already_linked(test_auth0_client):
+    """
+    Auth0 rejects linking an identity that's already linked (e.g. a retried
+    request) - this should surface as a clean ValueError, not a raw HTTPStatusError.
+    """
+    primary_user_id = random_auth0_id()
+    secondary_user_id = random_auth0_id()
+    connection = Auth0ConnectionFactory.build(name="AAF", strategy="samlp")
+    respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[connection.model_dump(mode="json")]
+    )
+    respx.post(f"https://auth0.example.com/api/v2/users/{primary_user_id}/identities").respond(
+        400, json={"statusCode": 400, "error": "Bad Request", "message": "Identity already linked"}
+    )
+
+    with pytest.raises(ValueError):
+        test_auth0_client.link_identity(
+            primary_user_id, secondary_user_id, secondary_provider="samlp", secondary_connection_name="AAF"
+        )
+
+
+@respx.mock
 def test_get_role_users(test_auth0_client):
     """
     Test we can get users for a role from Auth0 API

@@ -629,8 +629,11 @@ class Auth0Client:
             connection_id=secondary_connection.id,
             user_id=secondary_user_id,
         )
-        resp = self._client.post(url, json=payload.model_dump(mode="json", exclude_none=True))
-        resp.raise_for_status()
+        try:
+            resp = self._client.post(url, json=payload.model_dump(mode="json", exclude_none=True))
+            resp.raise_for_status()
+        except HTTPStatusError as exc:
+            raise ValueError(f"Failed to link identity for user {primary_user_id}: {exc.response.json()}") from exc
         return True
 
 

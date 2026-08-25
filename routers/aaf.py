@@ -49,19 +49,23 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
 
     logger.info("Linking AAF account to existing database account")
     now = datetime.now(tz=timezone.utc)
-    auth0_client.link_identity(primary_user_id=db_user_id, secondary_user_id=aaf_user_id,
-                               secondary_provider=aaf_identity.provider,
-                               secondary_connection_name=aaf_identity.connection)
-    auth0_client.update_user(
-        db_user_id,
-        update_data=UpdateUserData(
-            app_metadata=BiocommonsAppMetadataUpdate(
-                account_type=BiocommonsUserAccountType.AAF,
-                linking_completed=True,
-                linking_completed_at=now
+    try:
+        auth0_client.link_identity(primary_user_id=db_user_id, secondary_user_id=aaf_user_id,
+                                   secondary_provider=aaf_identity.provider,
+                                   secondary_connection_name=aaf_identity.connection)
+        auth0_client.update_user(
+            db_user_id,
+            update_data=UpdateUserData(
+                app_metadata=BiocommonsAppMetadataUpdate(
+                    account_type=BiocommonsUserAccountType.AAF,
+                    linking_completed=True,
+                    linking_completed_at=now
+                )
             )
         )
-    )
+    except ValueError as exc:
+        logger.error(f"Failed to link AAF account in Auth0: {exc}")
+        raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Failed to link account with Auth0") from exc
     logger.info("Updating DB record")
     db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user, commit=True)
     return db_user
