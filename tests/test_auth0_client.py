@@ -82,15 +82,101 @@ def test_get_connections(test_auth0_client):
 @respx.mock
 def test_get_connection_by_name(test_auth0_client):
     db_connection = Auth0ConnectionFactory.build(name="db_connection")
-    other = Auth0ConnectionFactory.build(name="other")
-    resp = ConnectionsWithCheckpointFactory.build(connections=[db_connection, other])
-    route = respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=resp.model_dump(mode="json"))
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[db_connection.model_dump(mode="json")]
+    )
 
     result = test_auth0_client.get_connection_by_name(db_connection.name)
 
     assert route.called
+    assert route.calls.last.request.url.params["name"] == db_connection.name
     assert result == db_connection
 
+
+@respx.mock
+def test_get_connection_by_name_not_found(test_auth0_client):
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=[])
+
+    result = test_auth0_client.get_connection_by_name("db_connection")
+
+    assert route.called
+    assert result is None
+
+
+@respx.mock
+def test_link_identity(test_auth0_client):
+    """
+    Test linking a secondary identity to a primary account.
+
+    Per https://auth0.com/docs/api/management/v2/users/post-identities,
+    when linking with an API v2 token the request body has provider/user_id/
+    connection_id, and the response is a list of identity objects.
+
+    Uses a connection name ("AAF") that differs from its provider/strategy
+    ("samlp") to make sure the two aren't confused with each other.
+    """
+    primary_user_id = random_auth0_id()
+    secondary_user_id = random_auth0_id()
+    connection = Auth0ConnectionFactory.build(name="AAF", strategy="samlp")
+    respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[connection.model_dump(mode="json")]
+    )
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{primary_user_id}/identities").respond(
+        201,
+        json=[
+            {
+                "connection": connection.name,
+                "provider": "samlp",
+                "user_id": secondary_user_id,
+                "isSocial": False,
+            }
+        ],
+    )
+
+    result = test_auth0_client.link_identity(
+        primary_user_id, secondary_user_id, secondary_provider="samlp", secondary_connection_name="AAF"
+    )
+
+    assert route.called
+    assert result is True
+    call_data = json.loads(route.calls.last.request.content)
+    assert call_data == {
+        "provider": "samlp",
+        "connection_id": connection.id,
+        "user_id": secondary_user_id,
+    }
+
+
+@respx.mock
+def test_link_identity_connection_not_found(test_auth0_client):
+    respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=[])
+
+    with pytest.raises(ValueError):
+        test_auth0_client.link_identity(
+            random_auth0_id(), random_auth0_id(), secondary_provider="samlp", secondary_connection_name="AAF"
+        )
+
+
+@respx.mock
+def test_link_identity_already_linked(test_auth0_client):
+    """
+    Auth0 rejects linking an identity that's already linked (e.g. a retried
+    request) - this should surface as a clean ValueError, not a raw HTTPStatusError.
+    """
+    primary_user_id = random_auth0_id()
+    secondary_user_id = random_auth0_id()
+    connection = Auth0ConnectionFactory.build(name="AAF", strategy="samlp")
+    respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[connection.model_dump(mode="json")]
+    )
+    respx.post(f"https://auth0.example.com/api/v2/users/{primary_user_id}/identities").respond(
+        400, json={"statusCode": 400, "error": "Bad Request", "message": "Identity already linked"}
+    )
+
+    with pytest.raises(ValueError):
+        test_auth0_client.link_identity(
+            primary_user_id, secondary_user_id, secondary_provider="samlp", secondary_connection_name="AAF"
+        )
 
 
 @respx.mock

@@ -40,6 +40,9 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     )
     # Auth0 ID
     id: str = Field(primary_key=True)
+    # User ID from other providers, i.e. AAF. Don't want to rely on this in the DB
+    # (Auth0 should handle linked identities), but good for tracking user info
+    other_user_id: str | None = Field(default=None, nullable=True)
     account_type: BiocommonsUserAccountType = Field(
         sa_type=DbEnum(
             BiocommonsUserAccountType,
@@ -362,6 +365,21 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         session.add(self)
         if commit:
             session.commit()
+
+    def link_aaf_account(self, aaf_user_id: str, session: Session, updated_by: Self | None = None, commit: bool = False) -> None:
+        """
+        Set an existing account as an AAF account with a linked ID.
+
+        Auth0 linking is not handled here and must be done separately.
+        """
+        # Save history before update
+        self.save_history(session=session, change="aaf_account_linking", updated_by=updated_by, commit=False)
+        self.account_type = BiocommonsUserAccountType.AAF
+        self.other_user_id = aaf_user_id
+        session.add(self)
+        if commit:
+            session.commit()
+
 
     def save_history(self, session: Session, change: str | None = None, reason: str | None = None,
                      updated_by: Self | None = None,

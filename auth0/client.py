@@ -121,6 +121,18 @@ class IdentityData(BaseModel):
     provider: str
 
 
+class LinkIdentityRequest(BaseModel):
+    """
+    POST data sent when linking identities.
+
+    Note: user_id is the secondary ID here. Primary ID goes in the
+    URL
+    """
+    provider: str
+    connection_id: str | None = None
+    user_id: str
+
+
 class EmailVerificationRequest(BaseModel):
     user_id: str
     client_id: Optional[str] = None
@@ -178,6 +190,7 @@ class Auth0Client:
 
     def __init__(self, domain: str, management_token: str):
         self.domain = domain
+        self.api_base = f"https://{domain}/api/v2"
         self.management_token = management_token
         self._client = httpx.Client(headers={"Authorization": f"Bearer {management_token}"})
 
@@ -218,7 +231,7 @@ class Auth0Client:
         if q is not None:
             params["q"] = q
             params["search_engine"] = "v3"
-        url = f"https://{self.domain}/api/v2/users"
+        url = f"{self.api_base}/users"
         resp = self._client.get(url, params=params)
         resp.raise_for_status()
         if include_totals:
@@ -226,13 +239,13 @@ class Auth0Client:
         return self._convert_users(resp)
 
     def get_user(self, user_id: str) -> Auth0UserData:
-        url = f"https://{self.domain}/api/v2/users/{user_id}"
+        url = f"{self.api_base}/users/{user_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
     def create_user(self, user: BiocommonsRegisterData) -> Auth0UserData:
-        url = f"https://{self.domain}/api/v2/users"
+        url = f"{self.api_base}/users"
         # Exclude None values to avoid validation errors.
         resp = self._client.post(url, json=user.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
@@ -242,7 +255,7 @@ class Auth0Client:
         """
         Send a PATCH request to the /users/{user_id} endpoint to update the included fields.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}"
+        url = f"{self.api_base}/users/{user_id}"
         # Make sure we exclude None to not update fields with null values.
         data = update_data.model_dump(mode="json", exclude_none=True)
         try:
@@ -261,7 +274,7 @@ class Auth0Client:
         """
         Start a user export job, return the job ID.
         """
-        url = f"https://{self.domain}/api/v2/jobs/users-exports"
+        url = f"{self.api_base}/jobs/users-exports"
         if fields is None:
             fields = [
                 {"name": "user_id"},
@@ -276,7 +289,7 @@ class Auth0Client:
         return resp.json()["id"]
 
     def get_job_status(self, job_id: str) -> JobStatus:
-        url = f"https://{self.domain}/api/v2/jobs/{job_id}"
+        url = f"{self.api_base}/jobs/{job_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return JobStatus(**resp.json())
@@ -333,9 +346,6 @@ class Auth0Client:
         download_path.write_text(csv_data, encoding="utf-8")
         return download_path
 
-
-
-
     def check_user_password(self, email: str, password: str, settings: Settings) -> bool:
         """
         Verify a user's password by using the password-realm grant type.
@@ -367,7 +377,7 @@ class Auth0Client:
         """
         Delete all refresh tokens for a user.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}/refresh-tokens"
+        url = f"{self.api_base}/users/{user_id}/refresh-tokens"
         resp = self._client.delete(url)
         resp.raise_for_status()
         return True
@@ -376,7 +386,7 @@ class Auth0Client:
         """
         Add one or more roles to a user. The role(s) must already exist.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
+        url = f"{self.api_base}/users/{user_id}/roles"
         if isinstance(role_id, str):
             role_id = [role_id]
         resp = self._client.post(url, json={"roles": role_id})
@@ -387,7 +397,7 @@ class Auth0Client:
         """
         Remove one or more roles from a user.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
+        url = f"{self.api_base}/users/{user_id}/roles"
         if isinstance(role_id, str):
             role_id = [role_id]
         # httpx.Client.delete() no longer accepts json payloads (0.28+), so use request()
@@ -395,10 +405,23 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
-    def search_users_by_email(self, email: str) -> list[Auth0UserData]:
-        url = f"https://{self.domain}/api/v2/users-by-email"
+    def search_users_by_email(self, email: str, connection: str | None = None) -> list[Auth0UserData]:
+        """
+        Search users by email, optionally filtering by connection name.
+        """
+        url = f"{self.api_base}/users-by-email"
         resp = self._client.get(url, params={"email": email})
-        return self._convert_users(resp)
+        resp.raise_for_status()
+        users = self._convert_users(resp)
+        if connection is not None:
+            filtered_users = []
+            for user in users:
+                in_connection = any(ident.connection == connection for ident in user.identities)
+                if in_connection:
+                    filtered_users.append(user)
+            return filtered_users
+        else:
+            return users
 
     def _search_users(self, query: str, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         params = {"q": query, "search_engine": "v3"}
@@ -408,7 +431,7 @@ class Auth0Client:
             params["page"] = page
         if per_page is not None:
             params["per_page"] = per_page
-        url = f"https://{self.domain}/api/v2/users"
+        url = f"{self.api_base}/users"
         # TODO: set primary_order=false for faster search?
         #   https://auth0.com/docs/manage-users/user-search/user-search-best-practices
         resp = self._client.get(
@@ -423,7 +446,7 @@ class Auth0Client:
         return self._convert_users(resp)
 
     def get_connections(self) -> list[Auth0Connection]:
-        url = f"https://{self.domain}/api/v2/connections"
+        url = f"{self.api_base}/connections"
         resp = self._client.get(url, params={"take": 10})
         resp.raise_for_status()
         converted = ConnectionsWithCheckpoint(**resp.json())
@@ -432,12 +455,17 @@ class Auth0Client:
         return converted.connections
 
     def get_connection_by_name(self, name: str) -> Auth0Connection | None:
-        connections = self.get_connections()
-        result = None
-        for connection in connections:
-            if connection.name == name:
-                result = connection
-        return result
+        # Filter server-side rather than paginating get_connections(), which caps at 10.
+        url = f"{self.api_base}/connections"
+        resp = self._client.get(url, params={"name": name})
+        resp.raise_for_status()
+        connections = self._convert_list(resp, Auth0Connection)
+        # Ensure an exact match
+        if connections:
+            for connection in connections:
+                if connection.name == name:
+                    return connection
+        return None
 
     def get_roles(self,
                   name_filter: Optional[str] = None,
@@ -453,7 +481,7 @@ class Auth0Client:
             params["page"] = page
         if per_page is not None:
             params["per_page"] = per_page
-        url = f"https://{self.domain}/api/v2/roles"
+        url = f"{self.api_base}/roles"
         resp = self._client.get(url, params=params)
         resp.raise_for_status()
         if include_totals:
@@ -489,7 +517,7 @@ class Auth0Client:
         return roles[0]
 
     def get_role_by_id(self, role_id: str) -> RoleData:
-        url = f"https://{self.domain}/api/v2/roles/{role_id}"
+        url = f"{self.api_base}/roles/{role_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return RoleData(**resp.json())
@@ -501,7 +529,7 @@ class Auth0Client:
                        include_totals: Optional[bool] = False,
                        take: Optional[int] = None,
                        checkpoint: Optional[str] = None) -> list[RoleUserData] | RoleUsersWithTotals | RoleUsersWithCheckpoint:
-        url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
+        url = f"{self.api_base}/roles/{role_id}/users"
         params = {}
         if page is not None:
             params["page"] = page
@@ -552,7 +580,7 @@ class Auth0Client:
             checkpoint = page_users.next
 
     def create_role(self, name: str, description: str) -> RoleData:
-        url = f"https://{self.domain}/api/v2/roles"
+        url = f"{self.api_base}/roles"
         resp = self._client.post(url, json={"name": name, "description": description})
         resp.raise_for_status()
         return RoleData(**resp.json())
@@ -565,7 +593,7 @@ class Auth0Client:
         return role
 
     def resend_verification_email(self, user_id: str) -> EmailVerificationResponse:
-        url = f"https://{self.domain}/api/v2/jobs/verification-email"
+        url = f"{self.api_base}/jobs/verification-email"
         request_body = EmailVerificationRequest(user_id=user_id)
         resp = self._client.post(url, json=request_body.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
@@ -582,6 +610,30 @@ class Auth0Client:
                   "connection": settings.auth0_db_connection,}
         )
         resp.raise_for_status()
+        return True
+
+    def link_identity(self, primary_user_id: str, secondary_user_id: str, secondary_provider: str,
+                      secondary_connection_name: str) -> bool:
+        """
+        Link an identity to a primary account.
+
+        secondary_provider is the identity's strategy (e.g. "samlp"), secondary_connection_name
+        is the connection's name (e.g. "AAF") - these can differ, so both are needed.
+        """
+        url = f"{self.api_base}/users/{primary_user_id}/identities"
+        secondary_connection = self.get_connection_by_name(secondary_connection_name)
+        if secondary_connection is None:
+            raise ValueError(f"Could not find Auth0 connection named {secondary_connection_name!r}")
+        payload = LinkIdentityRequest(
+            provider=secondary_provider,
+            connection_id=secondary_connection.id,
+            user_id=secondary_user_id,
+        )
+        try:
+            resp = self._client.post(url, json=payload.model_dump(mode="json", exclude_none=True))
+            resp.raise_for_status()
+        except HTTPStatusError as exc:
+            raise ValueError(f"Failed to link identity for user {primary_user_id}: {exc.response.json()}") from exc
         return True
 
 
