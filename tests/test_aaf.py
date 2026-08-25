@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from auth0.client import Auth0Client
-from routers.aaf import link_aaf_account
+from routers.aaf import link_aaf_account, mark_user_aaf_only
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
@@ -115,6 +115,27 @@ def _action_token_payload(user_id: str, email: str, purpose: str = "aaf_link", c
     return {"user_id": user_id, "email": email, "client_id": client_id, "purpose": purpose}
 
 
+def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
+    update_user_mock.assert_called_once()
+    call_args, call_kwargs = update_user_mock.call_args
+    assert call_kwargs["user_id"] == aaf_user_id
+    app_metadata = call_kwargs["update_data"].app_metadata
+    assert app_metadata.aaf_only is True
+    assert app_metadata.checked_email == email
+    assert app_metadata.linking_completed is True
+    assert app_metadata.linking_completed_at is not None
+
+
+def test_mark_user_aaf_only():
+    aaf_user_id = random_auth0_id()
+    email = "aaf-user@example.com"
+    auth0_client = MagicMock(spec=Auth0Client)
+
+    mark_user_aaf_only(email, aaf_user_id, auth0_client)
+
+    _assert_marked_aaf_only(auth0_client.update_user, aaf_user_id, email)
+
+
 def test_check_link_no_existing_account(test_client, mocker):
     aaf_user_id = random_auth0_id()
     email = "new-aaf-user@example.com"
@@ -128,7 +149,24 @@ def test_check_link_no_existing_account(test_client, mocker):
     assert response.status_code == 200
     assert response.json() == {"link": False, "aaf_only": True, "primary_id": aaf_user_id}
     link_identity.assert_not_called()
-    update_user.assert_not_called()
+    _assert_marked_aaf_only(update_user, aaf_user_id, email)
+
+
+def test_check_link_no_exact_email_match(test_client, mocker):
+    aaf_user_id = random_auth0_id()
+    email = "aaf-user@example.com"
+    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    near_miss_account = Auth0UserDataFactory.build(email="different-user@example.com")
+    mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[near_miss_account])
+    link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
+    update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
+
+    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+
+    assert response.status_code == 200
+    assert response.json() == {"link": False, "aaf_only": True, "primary_id": email}
+    link_identity.assert_not_called()
+    _assert_marked_aaf_only(update_user, aaf_user_id, email)
 
 
 def test_check_link_existing_account_blocked(test_client, mocker):
