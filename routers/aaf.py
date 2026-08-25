@@ -37,6 +37,11 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
             if identity.connection == "AAF":
                 return identity
         return None
+    db_user = BiocommonsUser.get_by_id_or_404(db_user_id, session=session)
+    if db_user.account_type == BiocommonsUserAccountType.AAF and db_user.other_user_id == aaf_user_id:
+        logger.info("AAF account already linked, skipping re-link")
+        return db_user
+
     aaf_user_info = auth0_client.get_user(user_id=aaf_user_id)
     aaf_identity = _get_aaf_identity(aaf_user_info)
     if aaf_identity is None:
@@ -58,7 +63,6 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
         )
     )
     logger.info("Updating DB record")
-    db_user = BiocommonsUser.get_by_id_or_404(db_user_id, session=session)
     db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user, commit=True)
     return db_user
 
