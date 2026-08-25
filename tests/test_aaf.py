@@ -86,3 +86,69 @@ def test_link_aaf_account_raises_404_when_no_aaf_identity(test_db_session, persi
     test_db_session.refresh(db_user)
     assert db_user.account_type == BiocommonsUserAccountType.AUTH0
     assert db_user.other_user_id is None
+
+
+def _action_token_payload(user_id: str, email: str, purpose: str = "aaf_link", client_id: str = "test-client") -> dict:
+    return {"user_id": user_id, "email": email, "client_id": client_id, "purpose": purpose}
+
+
+def test_check_link_no_existing_account(test_client, mocker):
+    aaf_user_id = random_auth0_id()
+    email = "new-aaf-user@example.com"
+    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[])
+    link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
+    update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
+
+    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+
+    assert response.status_code == 200
+    assert response.json() == {"link": False, "aaf_only": True, "primary_id": aaf_user_id}
+    link_identity.assert_not_called()
+    update_user.assert_not_called()
+
+
+def test_check_link_existing_account_blocked(test_client, mocker):
+    aaf_user_id = random_auth0_id()
+    email = "blocked-user@example.com"
+    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    existing_account = Auth0UserDataFactory.build(email=email, blocked=True)
+    mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
+
+    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+
+    assert response.status_code == 403
+
+
+def test_check_link_existing_account_links(test_client, test_db_session, persistent_factories, mocker):
+    email = "existing-user@example.com"
+    aaf_user_id = random_auth0_id()
+    db_user = BiocommonsUserFactory.create_sync(
+        email=email, account_type=BiocommonsUserAccountType.AUTH0, other_user_id=None
+    )
+    test_db_session.commit()
+
+    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    existing_account = Auth0UserDataFactory.build(user_id=db_user.id, email=email, blocked=False)
+    mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
+    aaf_user_data = Auth0UserDataFactory.build(
+        identities=[Auth0Identity(connection="AAF", provider="aaf-connection", user_id=aaf_user_id, isSocial=False)]
+    )
+    mocker.patch("routers.aaf.Auth0Client.get_user", return_value=aaf_user_data)
+    link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
+    update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
+
+    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+
+    assert response.status_code == 200
+    assert response.json() == {"link": True, "aaf_only": False, "primary_id": db_user.id}
+    link_identity.assert_called_once_with(
+        primary_user_id=db_user.id,
+        secondary_user_id=aaf_user_id,
+        secondary_provider="aaf-connection",
+    )
+    update_user.assert_called_once()
+
+    test_db_session.refresh(db_user)
+    assert db_user.account_type == BiocommonsUserAccountType.AAF
+    assert db_user.other_user_id == aaf_user_id
