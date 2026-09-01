@@ -156,16 +156,21 @@ def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     assert app_metadata.linking_completed_at is not None
 
 
-def _decode_check_link_redirect(response, state: str, secret: str) -> dict:
+def _decode_check_link_redirect(response, state: str, settings) -> dict:
     assert response.status_code == HTTPStatus.TEMPORARY_REDIRECT
     assert response.is_redirect
     redirect = urlparse(response.headers["location"])
+    expected_base_url = settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
+    expected_continue_url = urlparse(f"{expected_base_url}/continue")
+    assert redirect.scheme == expected_continue_url.scheme
+    assert redirect.netloc == expected_continue_url.netloc
+    assert redirect.path == expected_continue_url.path
     query_params = parse_qs(redirect.query)
     assert query_params["state"] == [state]
     assert "session_token" in query_params
     return jwt.decode(
         query_params["session_token"][0],
-        key=secret,
+        key=settings.auth0_management_secret,
         algorithms=["HS256"],
     )
 
@@ -198,7 +203,7 @@ def test_check_link_no_existing_account(test_client, mocker, mock_settings):
     decoded_token = _decode_check_link_redirect(
         response,
         state=state,
-        secret=mock_settings.auth0_management_secret,
+        settings=mock_settings,
     )
     assert decoded_token["link"] is False
     assert decoded_token["aaf_only"] is True
@@ -227,7 +232,7 @@ def test_check_link_no_exact_email_match(test_client, mocker, mock_settings):
     decoded_token = _decode_check_link_redirect(
         response,
         state=state,
-        secret=mock_settings.auth0_management_secret,
+        settings=mock_settings,
     )
     assert decoded_token["link"] is False
     assert decoded_token["aaf_only"] is True
@@ -279,7 +284,7 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     decoded_token = _decode_check_link_redirect(
         response,
         state=state,
-        secret=mock_settings.auth0_management_secret,
+        settings=mock_settings,
     )
     assert decoded_token["link"] is True
     assert decoded_token["aaf_only"] is False
@@ -322,7 +327,7 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     decoded_token = _decode_check_link_redirect(
         response,
         state=state,
-        secret=mock_settings.auth0_management_secret,
+        settings=mock_settings,
     )
     assert decoded_token["link"] is True
     assert decoded_token["aaf_only"] is False
