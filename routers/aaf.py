@@ -100,8 +100,11 @@ def return_signed_response(
         payload=response.model_dump(mode="json"),
         settings=settings,
     )
-    redirect_url = httpx2.URL(f"{settings.auth0_custom_domain}/continue",
-                              params={"state": state, "session_token": token})
+    auth0_base_url = settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
+    redirect_url = httpx2.URL(
+        f"{auth0_base_url}/continue",
+        params={"state": state, "session_token": token},
+    )
     return RedirectResponse(url=redirect_url)
 
 
