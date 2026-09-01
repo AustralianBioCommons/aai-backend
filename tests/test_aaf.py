@@ -1,6 +1,8 @@
 from http import HTTPStatus
 from unittest.mock import MagicMock
+from urllib.parse import parse_qs, urlparse
 
+import jwt
 import pytest
 from fastapi import HTTPException
 
@@ -154,6 +156,20 @@ def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     assert app_metadata.linking_completed_at is not None
 
 
+def _decode_check_link_redirect(response, state: str, secret: str) -> dict:
+    assert response.status_code == HTTPStatus.TEMPORARY_REDIRECT
+    assert response.is_redirect
+    redirect = urlparse(response.headers["location"])
+    query_params = parse_qs(redirect.query)
+    assert query_params["state"] == [state]
+    assert "session_token" in query_params
+    return jwt.decode(
+        query_params["session_token"][0],
+        key=secret,
+        algorithms=["HS256"],
+    )
+
+
 def test_mark_user_aaf_only():
     aaf_user_id = random_auth0_id()
     email = "aaf-user@example.com"
@@ -164,7 +180,7 @@ def test_mark_user_aaf_only():
     _assert_marked_aaf_only(auth0_client.update_user, aaf_user_id, email)
 
 
-def test_check_link_no_existing_account(test_client, mocker):
+def test_check_link_no_existing_account(test_client, mocker, mock_settings):
     aaf_user_id = random_auth0_id()
     email = "new-aaf-user@example.com"
     mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
@@ -172,15 +188,27 @@ def test_check_link_no_existing_account(test_client, mocker):
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
     update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
 
-    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+    state = "dummy"
+    response = test_client.get(
+        "/aaf/check-link",
+        params={"session_token": "valid_token", "state": state},
+        follow_redirects=False,
+    )
 
-    assert response.status_code == 200
-    assert response.json() == {"link": False, "aaf_only": True, "primary_id": aaf_user_id}
+    decoded_token = _decode_check_link_redirect(
+        response,
+        state=state,
+        secret=mock_settings.auth0_management_secret,
+    )
+    assert decoded_token["link"] is False
+    assert decoded_token["aaf_only"] is True
+    assert decoded_token["primary_id"] == aaf_user_id
+
     link_identity.assert_not_called()
     _assert_marked_aaf_only(update_user, aaf_user_id, email)
 
 
-def test_check_link_no_exact_email_match(test_client, mocker):
+def test_check_link_no_exact_email_match(test_client, mocker, mock_settings):
     aaf_user_id = random_auth0_id()
     email = "aaf-user@example.com"
     mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
@@ -189,10 +217,21 @@ def test_check_link_no_exact_email_match(test_client, mocker):
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
     update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
 
-    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+    state = "dummy"
+    response = test_client.get(
+        "/aaf/check-link",
+        params={"session_token": "valid_token", "state": state},
+        follow_redirects=False,
+    )
 
-    assert response.status_code == 200
-    assert response.json() == {"link": False, "aaf_only": True, "primary_id": email}
+    decoded_token = _decode_check_link_redirect(
+        response,
+        state=state,
+        secret=mock_settings.auth0_management_secret,
+    )
+    assert decoded_token["link"] is False
+    assert decoded_token["aaf_only"] is True
+    assert decoded_token["primary_id"] == email
     link_identity.assert_not_called()
     _assert_marked_aaf_only(update_user, aaf_user_id, email)
 
@@ -204,12 +243,15 @@ def test_check_link_existing_account_blocked(test_client, mocker):
     existing_account = Auth0UserDataFactory.build(email=email, blocked=True)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
 
-    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+    response = test_client.get(
+        "/aaf/check-link",
+        params={"session_token": "valid_token", "state": "dummy"},
+    )
 
     assert response.status_code == 403
 
 
-def test_check_link_existing_account_links(test_client, test_db_session, persistent_factories, mocker):
+def test_check_link_existing_account_links(test_client, test_db_session, persistent_factories, mocker, mock_settings):
     email = "existing-user@example.com"
     aaf_user_id = random_auth0_id()
     db_user = BiocommonsUserFactory.create_sync(
@@ -227,10 +269,21 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
     update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
 
-    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+    state = "dummy"
+    response = test_client.get(
+        "/aaf/check-link",
+        params={"session_token": "valid_token", "state": state},
+        follow_redirects=False,
+    )
 
-    assert response.status_code == 200
-    assert response.json() == {"link": True, "aaf_only": False, "primary_id": db_user.id}
+    decoded_token = _decode_check_link_redirect(
+        response,
+        state=state,
+        secret=mock_settings.auth0_management_secret,
+    )
+    assert decoded_token["link"] is True
+    assert decoded_token["aaf_only"] is False
+    assert decoded_token["primary_id"] == db_user.id
     link_identity.assert_called_once_with(
         primary_user_id=db_user.id,
         secondary_user_id=aaf_user_id,
@@ -244,7 +297,7 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     assert db_user.other_user_id == aaf_user_id
 
 
-def test_check_link_already_linked_is_idempotent(test_client, test_db_session, persistent_factories, mocker):
+def test_check_link_already_linked_is_idempotent(test_client, test_db_session, persistent_factories, mocker, mock_settings):
     email = "already-linked@example.com"
     aaf_user_id = random_auth0_id()
     db_user = BiocommonsUserFactory.create_sync(
@@ -259,10 +312,21 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
     update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
 
-    response = test_client.get("/aaf/check-link", params={"session_token": "valid_token"})
+    state = "dummy"
+    response = test_client.get(
+        "/aaf/check-link",
+        params={"session_token": "valid_token", "state": state},
+        follow_redirects=False,
+    )
 
-    assert response.status_code == 200
-    assert response.json() == {"link": True, "aaf_only": False, "primary_id": db_user.id}
+    decoded_token = _decode_check_link_redirect(
+        response,
+        state=state,
+        secret=mock_settings.auth0_management_secret,
+    )
+    assert decoded_token["link"] is True
+    assert decoded_token["aaf_only"] is False
+    assert decoded_token["primary_id"] == db_user.id
     get_user.assert_not_called()
     link_identity.assert_not_called()
     update_user.assert_not_called()
