@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from unittest.mock import AsyncMock, patch
 
@@ -19,7 +19,9 @@ from cryptography.hazmat.primitives.asymmetric.rsa import (
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
+from freezegun import freeze_time
 from httpx import Request, Response
+from jwt import InvalidSignatureError
 from jwt.algorithms import RSAAlgorithm
 
 from auth import auth0_security, get_auth0_token
@@ -27,6 +29,7 @@ from auth.user_permissions import user_is_general_admin
 from auth.validator import (
     KEY_CACHE,
     _fetch_rsa_keys,
+    create_action_token,
     get_rsa_key,
     verify_action_token,
     verify_jwt,
@@ -39,6 +42,16 @@ TEST_HS256_SECRET = "test-hs256-secret-key-with-32-bytes"
 TEST_MANAGEMENT_SECRET = "test-management-secret-key-with-32b"
 TEST_WRONG_MANAGEMENT_SECRET = "wrong-management-secret-key-32b!"
 TEST_CORRECT_MANAGEMENT_SECRET = "correct-management-secret-key-32"
+FROZEN_TIME = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+@pytest.fixture
+def frozen_time():
+    """
+    Freeze time so datetime.now() returns FROZEN_TIME.
+    """
+    with freeze_time("2025-01-01 12:00:00") as time:
+        yield time
 
 
 def generate_public_private_key_pair():
@@ -585,6 +598,39 @@ def test_verify_action_token_missing_exp(mock_settings: Settings):
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "invalid session_token"
 
+
+def test_create_action_token_success(mock_settings: Settings, frozen_time):
+    secret = TEST_MANAGEMENT_SECRET
+    mock_settings.auth0_management_secret = secret
+    payload = {"data": "test-payload"}
+    token = create_action_token(payload, mock_settings)
+    decoded = jwt.decode(token, secret, algorithms=["HS256"])
+    assert decoded["data"] == "test-payload"
+    assert decoded["exp"] == (FROZEN_TIME + timedelta(minutes=5)).timestamp()
+
+
+def test_create_action_token_expiry(mock_settings: Settings, frozen_time):
+    """
+    Test we can change expiry time of an action token.
+    """
+    secret = TEST_MANAGEMENT_SECRET
+    mock_settings.auth0_management_secret = secret
+    payload = {"data": "test-payload"}
+    token = create_action_token(payload, mock_settings, expires_in_seconds=10 * 60)
+    decoded = jwt.decode(token, secret, algorithms=["HS256"])
+    assert decoded["data"] == "test-payload"
+    assert decoded["exp"] == (FROZEN_TIME + timedelta(minutes=10)).timestamp()
+
+
+def test_create_action_token_invalid(mock_settings: Settings, frozen_time):
+    secret = TEST_MANAGEMENT_SECRET
+    # Use invalid secret to sign
+    mock_settings.auth0_management_secret = "invalid-secret"
+    payload = {"data": "test-payload"}
+    token = create_action_token(payload, mock_settings, expires_in_seconds=10 * 60)
+    # Use expected secret to decode
+    with pytest.raises(InvalidSignatureError, match="Signature verification failed"):
+        jwt.decode(token, secret, algorithms=["HS256"])
 
 @pytest.mark.asyncio
 @respx.mock
