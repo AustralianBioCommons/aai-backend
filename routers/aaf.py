@@ -3,10 +3,13 @@ from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Annotated
 
+import httpx2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
+from starlette.responses import RedirectResponse
 
+from auth.validator import create_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser
@@ -83,9 +86,29 @@ def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Cli
     auth0_client.update_user(user_id=aaf_user_id, update_data=update_data)
 
 
+def return_signed_response(
+    state: str,
+    response: AccountLinkResponse,
+    settings: Settings,
+):
+    """
+    Auth0 Actions need to receive the response as a signed JWT
+    token, sign the AccountLinkResponse we want to return
+    and redirect to the continue endpoint
+    """
+    token = create_action_token(
+        payload=response.model_dump(mode="json"),
+        settings=settings,
+    )
+    redirect_url = httpx2.URL(f"{settings.auth0_custom_domain}/continue",
+                              params={"state": state, "session_token": token})
+    return RedirectResponse(url=redirect_url)
+
+
 
 @router.get("/check-link", response_model=AccountLinkResponse)
 def check_aaf_account_link(
+    state: str,
     token: Annotated[Auth0ActionToken, Depends(require_action_token(purpose="aaf_link"))],
     session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -100,7 +123,8 @@ def check_aaf_account_link(
     # No existing account: no need to link
     if not auth0_matches:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
-        return AccountLinkResponse(link=False, aaf_only=True, primary_id=token.user_id)
+        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=token.user_id)
+        return return_signed_response(state=state, response=resp, settings=settings)
 
     existing_account = None
     for user in auth0_matches:
@@ -110,7 +134,8 @@ def check_aaf_account_link(
     # No exact match: no existing account
     if not existing_account:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
-        return AccountLinkResponse(link=False, aaf_only=True, primary_id=email)
+        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=email)
+        return return_signed_response(state=state, response=resp, settings=settings)
 
     if existing_account.blocked:
         raise HTTPException(status_code=403, detail="Existing account is blocked.")
@@ -121,4 +146,5 @@ def check_aaf_account_link(
         auth0_client=auth0_client,
         session=session,
     )
-    return AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id)
+    resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id)
+    return return_signed_response(state=state, response=resp, settings=settings)
