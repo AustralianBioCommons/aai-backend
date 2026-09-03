@@ -615,6 +615,7 @@ def test_create_action_token_success(mock_settings: Settings, frozen_time):
     assert decoded["state"] == "test-state"
     assert decoded["data"] == "test-payload"
     assert decoded["exp"] == (FROZEN_TIME + timedelta(minutes=5)).timestamp()
+    assert decoded["iat"] == FROZEN_TIME.timestamp()
 
 
 def test_create_action_token_expiry(mock_settings: Settings, frozen_time):

@@ -179,8 +179,9 @@ def create_action_token(payload: dict, settings: Settings, expires_in_seconds: i
     for field in required_fields:
         if field not in payload:
             raise ValueError( f"Missing required field {field} in action token")
-    exp = (datetime.now(tz=UTC) + timedelta(seconds=expires_in_seconds)).timestamp()
-    payload = {**payload, "exp": int(exp)}
+    now  = datetime.now(tz=UTC)
+    exp = (now + timedelta(seconds=expires_in_seconds)).timestamp()
+    payload = {**payload, "exp": int(exp), "iat": int(now.timestamp())}
     secret = settings.auth0_management_secret
     signed_payload = jwt.encode(
         payload,
