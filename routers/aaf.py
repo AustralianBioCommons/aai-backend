@@ -34,6 +34,16 @@ class AccountLinkResponse(BaseModel):
     primary_id: str
 
 
+class SignedAccountLinkResponse(AccountLinkResponse):
+    """
+    Set the fields we need a signed action token to return
+    to Auth0
+    """
+    sub: str
+    iss: str
+    state: str
+
+
 def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Client, session: Session):
     def _get_aaf_identity(aaf_user: Auth0UserData):
         for identity in aaf_user.identities:
@@ -89,6 +99,7 @@ def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Cli
 def return_signed_response(
     state: str,
     response: AccountLinkResponse,
+    action_token: Auth0ActionToken,
     settings: Settings,
 ):
     """
@@ -96,14 +107,20 @@ def return_signed_response(
     token, sign the AccountLinkResponse we want to return
     and redirect to the continue endpoint
     """
-    token = create_action_token(
-        payload=response.model_dump(mode="json"),
+    signed_payload = SignedAccountLinkResponse(
+        **response.model_dump(),
+        sub=action_token.sub or action_token.user_id,
+        iss=action_token.iss or settings.auth0_domain,
+        state=state,
+    )
+    signed_token = create_action_token(
+        payload=signed_payload.model_dump(mode="json", exclude_none=True),
         settings=settings,
     )
     auth0_base_url = settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
     redirect_url = httpx2.URL(
         f"{auth0_base_url}/continue",
-        params={"state": state, "session_token": token},
+        params={"state": state, "session_token": signed_token},
     )
     return RedirectResponse(url=redirect_url)
 
@@ -127,7 +144,12 @@ def check_aaf_account_link(
     if not auth0_matches:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
         resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=token.user_id)
-        return return_signed_response(state=state, response=resp, settings=settings)
+        return return_signed_response(
+            state=state,
+            response=resp,
+            action_token=token,
+            settings=settings,
+        )
 
     existing_account = None
     for user in auth0_matches:
@@ -138,7 +160,12 @@ def check_aaf_account_link(
     if not existing_account:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
         resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=email)
-        return return_signed_response(state=state, response=resp, settings=settings)
+        return return_signed_response(
+            state=state,
+            response=resp,
+            action_token=token,
+            settings=settings,
+        )
 
     if existing_account.blocked:
         raise HTTPException(status_code=403, detail="Existing account is blocked.")
@@ -150,4 +177,9 @@ def check_aaf_account_link(
         session=session,
     )
     resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id)
-    return return_signed_response(state=state, response=resp, settings=settings)
+    return return_signed_response(
+        state=state,
+        response=resp,
+        action_token=token,
+        settings=settings,
+    )
