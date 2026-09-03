@@ -141,8 +141,25 @@ def test_link_aaf_account_idempotent_when_already_linked(test_db_session, persis
     assert result.id == db_user.id
 
 
-def _action_token_payload(user_id: str, email: str, purpose: str = "aaf_link", client_id: str = "test-client") -> dict:
-    return {"user_id": user_id, "email": email, "client_id": client_id, "purpose": purpose}
+def _action_token_payload(
+    user_id: str,
+    email: str,
+    purpose: str = "aaf_link",
+    client_id: str = "test-client",
+    sub: str | None = None,
+    iss: str | None = "mock-domain",
+) -> dict:
+    payload = {
+        "user_id": user_id,
+        "email": email,
+        "client_id": client_id,
+        "purpose": purpose,
+    }
+    if sub is not None:
+        payload["sub"] = sub
+    if iss is not None:
+        payload["iss"] = iss
+    return payload
 
 
 def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
@@ -156,7 +173,12 @@ def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     assert app_metadata.linking_completed_at is not None
 
 
-def _decode_check_link_redirect(response, state: str, settings) -> dict:
+def _decode_check_link_redirect(
+    response,
+    state: str,
+    settings,
+    incoming_token: dict,
+) -> dict:
     assert response.status_code == HTTPStatus.TEMPORARY_REDIRECT
     assert response.is_redirect
     redirect = urlparse(response.headers["location"])
@@ -168,11 +190,15 @@ def _decode_check_link_redirect(response, state: str, settings) -> dict:
     query_params = parse_qs(redirect.query)
     assert query_params["state"] == [state]
     assert "session_token" in query_params
-    return jwt.decode(
+    decoded_token = jwt.decode(
         query_params["session_token"][0],
         key=settings.auth0_management_secret,
         algorithms=["HS256"],
     )
+    assert decoded_token["state"] == state
+    assert decoded_token["sub"] == incoming_token.get("sub", incoming_token["user_id"])
+    assert decoded_token["iss"] == incoming_token.get("iss", settings.auth0_domain)
+    return decoded_token
 
 
 def test_mark_user_aaf_only():
@@ -188,7 +214,8 @@ def test_mark_user_aaf_only():
 def test_check_link_no_existing_account(test_client, mocker, mock_settings):
     aaf_user_id = random_auth0_id()
     email = "new-aaf-user@example.com"
-    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    action_token_payload = _action_token_payload(aaf_user_id, email, sub=aaf_user_id)
+    mocker.patch("dependencies.auth.verify_action_token", return_value=action_token_payload)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[])
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
     update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
@@ -204,6 +231,7 @@ def test_check_link_no_existing_account(test_client, mocker, mock_settings):
         response,
         state=state,
         settings=mock_settings,
+        incoming_token=action_token_payload,
     )
     assert decoded_token["link"] is False
     assert decoded_token["aaf_only"] is True
@@ -216,7 +244,12 @@ def test_check_link_no_existing_account(test_client, mocker, mock_settings):
 def test_check_link_no_exact_email_match(test_client, mocker, mock_settings):
     aaf_user_id = random_auth0_id()
     email = "aaf-user@example.com"
-    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        sub="auth0|original-sub",
+    )
+    mocker.patch("dependencies.auth.verify_action_token", return_value=action_token_payload)
     near_miss_account = Auth0UserDataFactory.build(email="different-user@example.com")
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[near_miss_account])
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
@@ -233,6 +266,7 @@ def test_check_link_no_exact_email_match(test_client, mocker, mock_settings):
         response,
         state=state,
         settings=mock_settings,
+        incoming_token=action_token_payload,
     )
     assert decoded_token["link"] is False
     assert decoded_token["aaf_only"] is True
@@ -244,7 +278,10 @@ def test_check_link_no_exact_email_match(test_client, mocker, mock_settings):
 def test_check_link_existing_account_blocked(test_client, mocker):
     aaf_user_id = random_auth0_id()
     email = "blocked-user@example.com"
-    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    mocker.patch(
+        "dependencies.auth.verify_action_token",
+        return_value=_action_token_payload(aaf_user_id, email),
+    )
     existing_account = Auth0UserDataFactory.build(email=email, blocked=True)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
 
@@ -264,7 +301,8 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     )
     test_db_session.commit()
 
-    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    action_token_payload = _action_token_payload(aaf_user_id, email, sub=aaf_user_id)
+    mocker.patch("dependencies.auth.verify_action_token", return_value=action_token_payload)
     existing_account = Auth0UserDataFactory.build(user_id=db_user.id, email=email, blocked=False)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
     aaf_user_data = Auth0UserDataFactory.build(
@@ -285,6 +323,7 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
         response,
         state=state,
         settings=mock_settings,
+        incoming_token=action_token_payload,
     )
     assert decoded_token["link"] is True
     assert decoded_token["aaf_only"] is False
@@ -310,7 +349,13 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     )
     test_db_session.commit()
 
-    mocker.patch("dependencies.auth.verify_action_token", return_value=_action_token_payload(aaf_user_id, email))
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        sub=None,
+        iss=None,
+    )
+    mocker.patch("dependencies.auth.verify_action_token", return_value=action_token_payload)
     existing_account = Auth0UserDataFactory.build(user_id=db_user.id, email=email, blocked=False)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
     get_user = mocker.patch("routers.aaf.Auth0Client.get_user")
@@ -328,6 +373,7 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
         response,
         state=state,
         settings=mock_settings,
+        incoming_token=action_token_payload,
     )
     assert decoded_token["link"] is True
     assert decoded_token["aaf_only"] is False

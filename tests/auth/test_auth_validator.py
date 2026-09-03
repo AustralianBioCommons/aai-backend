@@ -602,9 +602,17 @@ def test_verify_action_token_missing_exp(mock_settings: Settings):
 def test_create_action_token_success(mock_settings: Settings, frozen_time):
     secret = TEST_MANAGEMENT_SECRET
     mock_settings.auth0_management_secret = secret
-    payload = {"data": "test-payload"}
+    payload = {
+        "sub": "auth0|123",
+        "iss": "https://issuer.example.com",
+        "state": "test-state",
+        "data": "test-payload",
+    }
     token = create_action_token(payload, mock_settings)
     decoded = jwt.decode(token, secret, algorithms=["HS256"])
+    assert decoded["sub"] == "auth0|123"
+    assert decoded["iss"] == "https://issuer.example.com"
+    assert decoded["state"] == "test-state"
     assert decoded["data"] == "test-payload"
     assert decoded["exp"] == (FROZEN_TIME + timedelta(minutes=5)).timestamp()
 
@@ -615,22 +623,55 @@ def test_create_action_token_expiry(mock_settings: Settings, frozen_time):
     """
     secret = TEST_MANAGEMENT_SECRET
     mock_settings.auth0_management_secret = secret
-    payload = {"data": "test-payload"}
+    payload = {
+        "sub": "auth0|123",
+        "iss": "https://issuer.example.com",
+        "state": "test-state",
+        "data": "test-payload",
+    }
     token = create_action_token(payload, mock_settings, expires_in_seconds=10 * 60)
     decoded = jwt.decode(token, secret, algorithms=["HS256"])
     assert decoded["data"] == "test-payload"
     assert decoded["exp"] == (FROZEN_TIME + timedelta(minutes=10)).timestamp()
 
 
+@pytest.mark.parametrize("missing_field", ["sub", "iss", "state"])
+def test_create_action_token_missing_required_field(
+    mock_settings: Settings,
+    frozen_time,
+    missing_field: str,
+):
+    secret = TEST_MANAGEMENT_SECRET
+    mock_settings.auth0_management_secret = secret
+    payload = {
+        "sub": "auth0|123",
+        "iss": "https://issuer.example.com",
+        "state": "test-state",
+    }
+    del payload[missing_field]
+
+    with pytest.raises(
+        ValueError,
+        match=f"Missing required field {missing_field} in action token",
+    ):
+        create_action_token(payload, mock_settings)
+
+
 def test_create_action_token_invalid(mock_settings: Settings, frozen_time):
     secret = TEST_MANAGEMENT_SECRET
     # Use invalid secret to sign
     mock_settings.auth0_management_secret = "invalid-secret"
-    payload = {"data": "test-payload"}
+    payload = {
+        "sub": "auth0|123",
+        "iss": "https://issuer.example.com",
+        "state": "test-state",
+        "data": "test-payload",
+    }
     token = create_action_token(payload, mock_settings, expires_in_seconds=10 * 60)
     # Use expected secret to decode
     with pytest.raises(InvalidSignatureError, match="Signature verification failed"):
         jwt.decode(token, secret, algorithms=["HS256"])
+
 
 @pytest.mark.asyncio
 @respx.mock
