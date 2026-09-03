@@ -31,6 +31,7 @@ logger = logging.getLogger("uvicorn.error")
 class AccountLinkResponse(BaseModel):
     link: bool
     aaf_only: bool = False
+    blocked: bool = False
     primary_id: str
 
 
@@ -143,7 +144,7 @@ def check_aaf_account_link(
     # No existing account: no need to link
     if not auth0_matches:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
-        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=token.user_id)
+        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=aaf_user_id)
         return return_signed_response(
             state=state,
             response=resp,
@@ -159,7 +160,7 @@ def check_aaf_account_link(
     # No exact match: no existing account
     if not existing_account:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
-        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=email)
+        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=aaf_user_id)
         return return_signed_response(
             state=state,
             response=resp,
@@ -168,7 +169,13 @@ def check_aaf_account_link(
         )
 
     if existing_account.blocked:
-        raise HTTPException(status_code=403, detail="Existing account is blocked.")
+        resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id, blocked=True)
+        return return_signed_response(
+            state=state,
+            response=resp,
+            action_token=token,
+            settings=settings,
+        )
 
     link_aaf_account(
         db_user_id=existing_account.user_id,

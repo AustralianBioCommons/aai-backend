@@ -270,27 +270,46 @@ def test_check_link_no_exact_email_match(test_client, mocker, mock_settings):
     )
     assert decoded_token["link"] is False
     assert decoded_token["aaf_only"] is True
-    assert decoded_token["primary_id"] == email
+    assert decoded_token["primary_id"] == aaf_user_id
     link_identity.assert_not_called()
     _assert_marked_aaf_only(update_user, aaf_user_id, email)
 
 
-def test_check_link_existing_account_blocked(test_client, mocker):
+def test_check_link_existing_account_blocked(test_client, mocker, mock_settings):
     aaf_user_id = random_auth0_id()
     email = "blocked-user@example.com"
+    action_token_payload = _action_token_payload(aaf_user_id, email)
     mocker.patch(
         "dependencies.auth.verify_action_token",
-        return_value=_action_token_payload(aaf_user_id, email),
+        return_value=action_token_payload,
     )
     existing_account = Auth0UserDataFactory.build(email=email, blocked=True)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
+    get_user = mocker.patch("routers.aaf.Auth0Client.get_user")
+    link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
+    update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
 
+    state = "dummy"
     response = test_client.get(
         "/aaf/check-link",
-        params={"session_token": "valid_token", "state": "dummy"},
+        params={"session_token": "valid_token", "state": state},
+        follow_redirects=False,
     )
 
-    assert response.status_code == 403
+    decoded_token = _decode_check_link_redirect(
+        response,
+        state=state,
+        settings=mock_settings,
+        incoming_token=action_token_payload,
+    )
+    assert decoded_token["link"] is True
+    assert decoded_token["aaf_only"] is False
+    assert decoded_token["blocked"] is True
+    assert decoded_token["primary_id"] == existing_account.user_id
+
+    get_user.assert_not_called()
+    link_identity.assert_not_called()
+    update_user.assert_not_called()
 
 
 def test_check_link_existing_account_links(test_client, test_db_session, persistent_factories, mocker, mock_settings):
