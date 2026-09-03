@@ -175,8 +175,12 @@ def create_action_token(payload: dict, settings: Settings, expires_in_seconds: i
     """
     Create a signed JWT that can be passed back to Auth0 actions
     """
+    required_fields = ["sub", "iss", "state"]
+    for field in required_fields:
+        if field not in payload:
+            raise ValueError( f"Missing required field {field} in action token")
     exp = (datetime.now(tz=UTC) + timedelta(seconds=expires_in_seconds)).timestamp()
-    payload = {**payload, "exp": exp}
+    payload = {**payload, "exp": int(exp)}
     secret = settings.auth0_management_secret
     signed_payload = jwt.encode(
         payload,
