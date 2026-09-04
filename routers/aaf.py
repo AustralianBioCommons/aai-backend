@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Annotated
+from urllib.parse import urlparse
 
 import httpx2
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +18,7 @@ from db.setup import get_db_session
 from dependencies.auth import require_action_token
 from schemas.auth0 import Auth0ActionToken
 from schemas.biocommons import (
+    Auth0Identity,
     Auth0UserData,
     BiocommonsAppMetadataUpdate,
     BiocommonsUserAccountType,
@@ -33,6 +35,7 @@ class AccountLinkResponse(BaseModel):
     aaf_only: bool = False
     blocked: bool = False
     primary_id: str
+    aaf_identity: Auth0Identity | None = None
 
 
 class SignedAccountLinkResponse(AccountLinkResponse):
@@ -45,28 +48,32 @@ class SignedAccountLinkResponse(AccountLinkResponse):
     state: str
 
 
-def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Client, session: Session):
-    def _get_aaf_identity(aaf_user: Auth0UserData):
+def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Client, session: Session) -> Auth0Identity:
+    """
+    Update app_metadata and DB record for AAF account linking.
+
+    NOTE: we can't do the actual linking here, it needs to be done
+    on the Auth0 side. See: https://support.auth0.com/center/s/article/Unable-to-process-redirect-callback
+    """
+    def _get_aaf_identity(aaf_user: Auth0UserData) -> Auth0Identity | None:
         for identity in aaf_user.identities:
             if identity.connection == "AAF":
                 return identity
         return None
-    db_user = BiocommonsUser.get_by_id_or_404(db_user_id, session=session)
-    if db_user.account_type == BiocommonsUserAccountType.AAF and db_user.other_user_id == aaf_user_id:
-        logger.info("AAF account already linked, skipping re-link")
-        return db_user
 
     aaf_user_info = auth0_client.get_user(user_id=aaf_user_id)
     aaf_identity = _get_aaf_identity(aaf_user_info)
     if aaf_identity is None:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Couldn't get AAF provider information")
 
-    logger.info("Linking AAF account to existing database account")
+    db_user = BiocommonsUser.get_by_id_or_404(db_user_id, session=session)
+    if db_user.account_type == BiocommonsUserAccountType.AAF and db_user.other_user_id == aaf_user_id:
+        logger.info("AAF account already linked, skipping re-link")
+        return aaf_identity
+
+    logger.info("Updating DB record and account metadata")
     now = datetime.now(tz=timezone.utc)
     try:
-        auth0_client.link_identity(primary_user_id=db_user_id, secondary_user_id=aaf_user_id,
-                                   secondary_provider=aaf_identity.provider,
-                                   secondary_connection_name=aaf_identity.connection)
         auth0_client.update_user(
             db_user_id,
             update_data=UpdateUserData(
@@ -78,11 +85,11 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
             )
         )
     except ValueError as exc:
-        logger.error(f"Failed to link AAF account in Auth0: {exc}")
+        logger.error(f"Failed to update account metadata in Auth0: {exc}")
         raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Failed to link account with Auth0") from exc
     logger.info("Updating DB record")
     db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user, commit=True)
-    return db_user
+    return aaf_identity
 
 
 def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Client):
@@ -118,13 +125,26 @@ def return_signed_response(
         payload=signed_payload.model_dump(mode="json", exclude_none=True),
         settings=settings,
     )
-    auth0_base_url = settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
+    auth0_base_url = get_auth0_continue_base_url(action_token, settings)
     redirect_url = httpx2.URL(
         f"{auth0_base_url}/continue",
         params={"state": state, "session_token": signed_token},
     )
     return RedirectResponse(url=redirect_url)
 
+
+def get_auth0_continue_base_url(action_token: Auth0ActionToken, settings: Settings) -> str:
+    """
+    Get domain to continue action from action token's issuer, if possible - want
+    to ensure we continue on the same domain
+    """
+    if action_token.iss:
+        issuer = action_token.iss.rstrip("/")
+        parsed_issuer = urlparse(issuer)
+        if parsed_issuer.scheme and parsed_issuer.netloc:
+            return f"{parsed_issuer.scheme}://{parsed_issuer.netloc}"
+        return f"https://{issuer}"
+    return settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
 
 
 @router.get("/check-link", response_model=AccountLinkResponse)
@@ -177,13 +197,13 @@ def check_aaf_account_link(
             settings=settings,
         )
 
-    link_aaf_account(
+    aaf_identity = link_aaf_account(
         db_user_id=existing_account.user_id,
         aaf_user_id=aaf_user_id,
         auth0_client=auth0_client,
         session=session,
     )
-    resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id)
+    resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id, aaf_identity=aaf_identity)
     return return_signed_response(
         state=state,
         response=resp,
