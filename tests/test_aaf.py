@@ -32,13 +32,7 @@ def test_link_aaf_account_links_identity_updates_metadata_and_db(test_db_session
     )
 
     auth0_client.get_user.assert_called_once_with(user_id=aaf_user_id)
-    auth0_client.link_identity.assert_called_once_with(
-        primary_user_id=db_user.id,
-        secondary_user_id=aaf_user_id,
-        secondary_provider="samlp",
-        secondary_connection_name="AAF",
-    )
-
+    auth0_client.link_identity.assert_not_called()
     auth0_client.update_user.assert_called_once()
     call_args, call_kwargs = auth0_client.update_user.call_args
     assert call_args[0] == db_user.id
@@ -47,9 +41,7 @@ def test_link_aaf_account_links_identity_updates_metadata_and_db(test_db_session
     assert app_metadata.linking_completed is True
     assert app_metadata.linking_completed_at is not None
 
-    assert result.id == db_user.id
-    assert result.account_type == BiocommonsUserAccountType.AAF
-    assert result.other_user_id == aaf_user_id
+    assert result == aaf_user_data.identities[0]
 
     test_db_session.refresh(db_user)
     assert db_user.account_type == BiocommonsUserAccountType.AAF
@@ -91,7 +83,7 @@ def test_link_aaf_account_raises_404_when_no_aaf_identity(test_db_session, persi
     assert db_user.other_user_id is None
 
 
-def test_link_aaf_account_raises_502_when_auth0_linking_fails(test_db_session, persistent_factories):
+def test_link_aaf_account_raises_502_when_auth0_update_fails(test_db_session, persistent_factories):
     db_user = BiocommonsUserFactory.create_sync(account_type=BiocommonsUserAccountType.AUTH0, other_user_id=None)
     test_db_session.commit()
 
@@ -101,7 +93,7 @@ def test_link_aaf_account_raises_502_when_auth0_linking_fails(test_db_session, p
     )
     auth0_client = MagicMock(spec=Auth0Client)
     auth0_client.get_user.return_value = aaf_user_data
-    auth0_client.link_identity.side_effect = ValueError("Identity already linked")
+    auth0_client.update_user.side_effect = ValueError("Auth0 update failed")
 
     with pytest.raises(HTTPException) as exc_info:
         link_aaf_account(
@@ -112,7 +104,8 @@ def test_link_aaf_account_raises_502_when_auth0_linking_fails(test_db_session, p
         )
 
     assert exc_info.value.status_code == HTTPStatus.BAD_GATEWAY
-    auth0_client.update_user.assert_not_called()
+    auth0_client.link_identity.assert_not_called()
+    auth0_client.update_user.assert_called_once()
 
     test_db_session.refresh(db_user)
     assert db_user.account_type == BiocommonsUserAccountType.AUTH0
@@ -126,7 +119,11 @@ def test_link_aaf_account_idempotent_when_already_linked(test_db_session, persis
     )
     test_db_session.commit()
 
+    aaf_user_data = Auth0UserDataFactory.build(
+        identities=[Auth0Identity(connection="AAF", provider="samlp", user_id=aaf_user_id, isSocial=False)]
+    )
     auth0_client = MagicMock(spec=Auth0Client)
+    auth0_client.get_user.return_value = aaf_user_data
 
     result = link_aaf_account(
         db_user_id=db_user.id,
@@ -135,10 +132,10 @@ def test_link_aaf_account_idempotent_when_already_linked(test_db_session, persis
         session=test_db_session,
     )
 
-    auth0_client.get_user.assert_not_called()
+    auth0_client.get_user.assert_called_once_with(user_id=aaf_user_id)
     auth0_client.link_identity.assert_not_called()
     auth0_client.update_user.assert_not_called()
-    assert result.id == db_user.id
+    assert result == aaf_user_data.identities[0]
 
 
 def _action_token_payload(
@@ -173,6 +170,17 @@ def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     assert app_metadata.linking_completed_at is not None
 
 
+def _expected_auth0_continue_base_url(incoming_token: dict, settings) -> str:
+    issuer = incoming_token.get("iss")
+    if issuer is None:
+        return settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
+    issuer = issuer.rstrip("/")
+    parsed_issuer = urlparse(issuer)
+    if parsed_issuer.scheme and parsed_issuer.netloc:
+        return f"{parsed_issuer.scheme}://{parsed_issuer.netloc}"
+    return f"https://{issuer}"
+
+
 def _decode_check_link_redirect(
     response,
     state: str,
@@ -182,7 +190,7 @@ def _decode_check_link_redirect(
     assert response.status_code == HTTPStatus.TEMPORARY_REDIRECT
     assert response.is_redirect
     redirect = urlparse(response.headers["location"])
-    expected_base_url = settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
+    expected_base_url = _expected_auth0_continue_base_url(incoming_token, settings)
     expected_continue_url = urlparse(f"{expected_base_url}/continue")
     assert redirect.scheme == expected_continue_url.scheme
     assert redirect.netloc == expected_continue_url.netloc
@@ -214,7 +222,12 @@ def test_mark_user_aaf_only():
 def test_check_link_no_existing_account(test_client, mocker, mock_settings):
     aaf_user_id = random_auth0_id()
     email = "new-aaf-user@example.com"
-    action_token_payload = _action_token_payload(aaf_user_id, email, sub=aaf_user_id)
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        sub=aaf_user_id,
+        iss="https://login.example.com/",
+    )
     mocker.patch("dependencies.auth.verify_action_token", return_value=action_token_payload)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[])
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
@@ -347,12 +360,13 @@ def test_check_link_existing_account_links(test_client, test_db_session, persist
     assert decoded_token["link"] is True
     assert decoded_token["aaf_only"] is False
     assert decoded_token["primary_id"] == db_user.id
-    link_identity.assert_called_once_with(
-        primary_user_id=db_user.id,
-        secondary_user_id=aaf_user_id,
-        secondary_provider="samlp",
-        secondary_connection_name="AAF",
-    )
+    assert decoded_token["aaf_identity"] == {
+        "connection": "AAF",
+        "provider": "samlp",
+        "user_id": aaf_user_id,
+        "isSocial": False,
+    }
+    link_identity.assert_not_called()
     update_user.assert_called_once()
 
     test_db_session.refresh(db_user)
@@ -377,7 +391,10 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     mocker.patch("dependencies.auth.verify_action_token", return_value=action_token_payload)
     existing_account = Auth0UserDataFactory.build(user_id=db_user.id, email=email, blocked=False)
     mocker.patch("routers.aaf.Auth0Client.search_users_by_email", return_value=[existing_account])
-    get_user = mocker.patch("routers.aaf.Auth0Client.get_user")
+    aaf_user_data = Auth0UserDataFactory.build(
+        identities=[Auth0Identity(connection="AAF", provider="samlp", user_id=aaf_user_id, isSocial=False)]
+    )
+    get_user = mocker.patch("routers.aaf.Auth0Client.get_user", return_value=aaf_user_data)
     link_identity = mocker.patch("routers.aaf.Auth0Client.link_identity")
     update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
 
@@ -397,6 +414,12 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     assert decoded_token["link"] is True
     assert decoded_token["aaf_only"] is False
     assert decoded_token["primary_id"] == db_user.id
-    get_user.assert_not_called()
+    assert decoded_token["aaf_identity"] == {
+        "connection": "AAF",
+        "provider": "samlp",
+        "user_id": aaf_user_id,
+        "isSocial": False,
+    }
+    get_user.assert_called_once_with(user_id=aaf_user_id)
     link_identity.assert_not_called()
     update_user.assert_not_called()
