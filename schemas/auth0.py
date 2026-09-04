@@ -30,3 +30,5 @@ class Auth0ActionToken(BaseModel):
     email: EmailStr
     client_id: str
     purpose: str
+    sub: str | None = None
+    iss: str | None = None

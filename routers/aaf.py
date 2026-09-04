@@ -2,11 +2,15 @@ import logging
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Annotated
+from urllib.parse import urlparse
 
+import httpx2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
+from starlette.responses import RedirectResponse
 
+from auth.validator import create_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser
@@ -14,6 +18,7 @@ from db.setup import get_db_session
 from dependencies.auth import require_action_token
 from schemas.auth0 import Auth0ActionToken
 from schemas.biocommons import (
+    Auth0Identity,
     Auth0UserData,
     BiocommonsAppMetadataUpdate,
     BiocommonsUserAccountType,
@@ -28,31 +33,47 @@ logger = logging.getLogger("uvicorn.error")
 class AccountLinkResponse(BaseModel):
     link: bool
     aaf_only: bool = False
+    blocked: bool = False
     primary_id: str
+    aaf_identity: Auth0Identity | None = None
 
 
-def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Client, session: Session):
-    def _get_aaf_identity(aaf_user: Auth0UserData):
+class SignedAccountLinkResponse(AccountLinkResponse):
+    """
+    Set the fields we need a signed action token to return
+    to Auth0
+    """
+    sub: str
+    iss: str
+    state: str
+
+
+def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Client, session: Session) -> Auth0Identity:
+    """
+    Update app_metadata and DB record for AAF account linking.
+
+    NOTE: we can't do the actual linking here, it needs to be done
+    on the Auth0 side. See: https://support.auth0.com/center/s/article/Unable-to-process-redirect-callback
+    """
+    def _get_aaf_identity(aaf_user: Auth0UserData) -> Auth0Identity | None:
         for identity in aaf_user.identities:
             if identity.connection == "AAF":
                 return identity
         return None
-    db_user = BiocommonsUser.get_by_id_or_404(db_user_id, session=session)
-    if db_user.account_type == BiocommonsUserAccountType.AAF and db_user.other_user_id == aaf_user_id:
-        logger.info("AAF account already linked, skipping re-link")
-        return db_user
 
     aaf_user_info = auth0_client.get_user(user_id=aaf_user_id)
     aaf_identity = _get_aaf_identity(aaf_user_info)
     if aaf_identity is None:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Couldn't get AAF provider information")
 
-    logger.info("Linking AAF account to existing database account")
+    db_user = BiocommonsUser.get_by_id_or_404(db_user_id, session=session)
+    if db_user.account_type == BiocommonsUserAccountType.AAF and db_user.other_user_id == aaf_user_id:
+        logger.info("AAF account already linked, skipping re-link")
+        return aaf_identity
+
+    logger.info("Updating DB record and account metadata")
     now = datetime.now(tz=timezone.utc)
     try:
-        auth0_client.link_identity(primary_user_id=db_user_id, secondary_user_id=aaf_user_id,
-                                   secondary_provider=aaf_identity.provider,
-                                   secondary_connection_name=aaf_identity.connection)
         auth0_client.update_user(
             db_user_id,
             update_data=UpdateUserData(
@@ -64,11 +85,11 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
             )
         )
     except ValueError as exc:
-        logger.error(f"Failed to link AAF account in Auth0: {exc}")
+        logger.error(f"Failed to update account metadata in Auth0: {exc}")
         raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Failed to link account with Auth0") from exc
     logger.info("Updating DB record")
     db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user, commit=True)
-    return db_user
+    return aaf_identity
 
 
 def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Client):
@@ -83,9 +104,52 @@ def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Cli
     auth0_client.update_user(user_id=aaf_user_id, update_data=update_data)
 
 
+def return_signed_response(
+    state: str,
+    response: AccountLinkResponse,
+    action_token: Auth0ActionToken,
+    settings: Settings,
+):
+    """
+    Auth0 Actions need to receive the response as a signed JWT
+    token, sign the AccountLinkResponse we want to return
+    and redirect to the continue endpoint
+    """
+    signed_payload = SignedAccountLinkResponse(
+        **response.model_dump(),
+        sub=action_token.sub or action_token.user_id,
+        iss=action_token.iss or settings.auth0_domain,
+        state=state,
+    )
+    signed_token = create_action_token(
+        payload=signed_payload.model_dump(mode="json", exclude_none=True),
+        settings=settings,
+    )
+    auth0_base_url = get_auth0_continue_base_url(action_token, settings)
+    redirect_url = httpx2.URL(
+        f"{auth0_base_url}/continue",
+        params={"state": state, "session_token": signed_token},
+    )
+    return RedirectResponse(url=redirect_url)
 
-@router.get("/check-link", response_model=AccountLinkResponse)
+
+def get_auth0_continue_base_url(action_token: Auth0ActionToken, settings: Settings) -> str:
+    """
+    Get domain to continue action from action token's issuer, if possible - want
+    to ensure we continue on the same domain
+    """
+    if action_token.iss:
+        issuer = action_token.iss.rstrip("/")
+        parsed_issuer = urlparse(issuer)
+        if parsed_issuer.scheme and parsed_issuer.netloc:
+            return f"{parsed_issuer.scheme}://{parsed_issuer.netloc}"
+        return f"https://{issuer}"
+    return settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
+
+
+@router.get("/check-link")
 def check_aaf_account_link(
+    state: str,
     token: Annotated[Auth0ActionToken, Depends(require_action_token(purpose="aaf_link"))],
     session: Annotated[Session, Depends(get_db_session)],
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
@@ -100,7 +164,13 @@ def check_aaf_account_link(
     # No existing account: no need to link
     if not auth0_matches:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
-        return AccountLinkResponse(link=False, aaf_only=True, primary_id=token.user_id)
+        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=aaf_user_id)
+        return return_signed_response(
+            state=state,
+            response=resp,
+            action_token=token,
+            settings=settings,
+        )
 
     existing_account = None
     for user in auth0_matches:
@@ -110,15 +180,33 @@ def check_aaf_account_link(
     # No exact match: no existing account
     if not existing_account:
         mark_user_aaf_only(email, aaf_user_id, auth0_client)
-        return AccountLinkResponse(link=False, aaf_only=True, primary_id=email)
+        resp = AccountLinkResponse(link=False, aaf_only=True, primary_id=aaf_user_id)
+        return return_signed_response(
+            state=state,
+            response=resp,
+            action_token=token,
+            settings=settings,
+        )
 
     if existing_account.blocked:
-        raise HTTPException(status_code=403, detail="Existing account is blocked.")
+        resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id, blocked=True)
+        return return_signed_response(
+            state=state,
+            response=resp,
+            action_token=token,
+            settings=settings,
+        )
 
-    link_aaf_account(
+    aaf_identity = link_aaf_account(
         db_user_id=existing_account.user_id,
         aaf_user_id=aaf_user_id,
         auth0_client=auth0_client,
         session=session,
     )
-    return AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id)
+    resp = AccountLinkResponse(link=True, aaf_only=False, primary_id=existing_account.user_id, aaf_identity=aaf_identity)
+    return return_signed_response(
+        state=state,
+        response=resp,
+        action_token=token,
+        settings=settings,
+    )

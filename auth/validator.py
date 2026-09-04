@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import weakref
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import jwt
@@ -168,3 +169,23 @@ def verify_action_token(token: str, settings: Settings) -> dict:
     except InvalidTokenError:
         raise HTTPException(status_code=401, detail="invalid session_token")
     return payload
+
+
+def create_action_token(payload: dict, settings: Settings, expires_in_seconds: int = 300) -> dict:
+    """
+    Create a signed JWT that can be passed back to Auth0 actions
+    """
+    required_fields = ["sub", "iss", "state"]
+    for field in required_fields:
+        if field not in payload:
+            raise ValueError( f"Missing required field {field} in action token")
+    now  = datetime.now(tz=UTC)
+    exp = (now + timedelta(seconds=expires_in_seconds)).timestamp()
+    payload = {**payload, "exp": int(exp), "iat": int(now.timestamp())}
+    secret = settings.auth0_management_secret
+    signed_payload = jwt.encode(
+        payload,
+        key=secret,
+        algorithm="HS256",
+    )
+    return signed_payload
