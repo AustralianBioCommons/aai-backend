@@ -147,7 +147,7 @@ def get_auth0_continue_base_url(action_token: Auth0ActionToken, settings: Settin
     return settings.auth0_custom_domain or f"https://{settings.auth0_domain}"
 
 
-@router.get("/check-link", response_model=AccountLinkResponse)
+@router.get("/check-link")
 def check_aaf_account_link(
     state: str,
     token: Annotated[Auth0ActionToken, Depends(require_action_token(purpose="aaf_link"))],
