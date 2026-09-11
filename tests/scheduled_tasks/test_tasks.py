@@ -773,15 +773,18 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         user_id=user_keep.id,
         email="keep.user@example.com",
         username="keep_user",
+        email_verified=True,
     )
     auth0_user_pending = Auth0UserDataFactory.build(
         user_id=user_pending.id,
         email="pending.user@example.com",
         username="pending_user",
+        email_verified=True,
     )
     auth0_user_new = Auth0UserDataFactory.build(
         email="new.assignment@example.com",
         username="new_assignment",
+        email_verified=True,
     )
     role_user_keep = RoleUserDataFactory.build(user_id=auth0_user_keep.user_id)
     role_user_pending = RoleUserDataFactory.build(user_id=auth0_user_pending.user_id)

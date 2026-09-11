@@ -303,7 +303,7 @@ class Auth0UserData(BaseModel):
     created_at: datetime
     email: EmailStr
     username: Optional[BiocommonsUsername] = None
-    email_verified: bool
+    email_verified: Optional[bool] = None
     identities: List[Auth0Identity]
     name: str
     given_name: Optional[str] = None

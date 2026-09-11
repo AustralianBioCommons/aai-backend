@@ -86,6 +86,7 @@ def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     Test creating the BiocommonsUser model from Auth0 user data from the API
     """
     user_data = Auth0UserDataFactory.build(
+        email_verified=False,
         app_metadata=Auth0ReadAppMetadataFactory.build(account_type=BiocommonsUserAccountType.AUTH0)
     )
     mock_auth0_client.get_user.return_value = user_data
