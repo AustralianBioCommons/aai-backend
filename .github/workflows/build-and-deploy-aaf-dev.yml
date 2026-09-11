@@ -1,14 +1,12 @@
 name: build-and-deploy-aaf-dev
 # Builds a `dev-aaf`-tagged image from the aaf-dev branch and deploys it to the
 # dev-aaf backend (biocloud-dev-aaf tenant), so AAF work can be tested without
-# merging into main.
+# merging into main. Mirrors build-and-deploy-dev.yml but targets dev-aaf.
 #
-# The ECR push role (AWS_ROLE_ECR_PUSH) does both the push and the deploy: it
-# holds ECR push perms AND lambda:InvokeFunction on AaiBackendDevAafDeploymentFunction,
-# so we invoke the deploy Lambda directly (same mechanism dev/staging use). No
-# separate deploy role is needed. NOTE: the trust + invoke grant for dev-aaf were
-# applied out-of-band (AaiSharedEcr stack is stale); a proper AaiSharedEcr deploy
-# should fold them in via the committed IaC changes.
+# Deploy mechanism (assume-invoke-role, cross-account): the CI push role
+# (AWS_ROLE_ECR_PUSH, in 331315009666) assumes the dev-aaf invoke role
+# (AWS_ROLE_BACKEND_DEPLOY_DEV_AAF = aai-backend-dev-aaf-deploy-invoke-role in
+# 498096047392), which invokes AaiBackendDevAafDeploymentFunction.
 on:
   push:
     branches: [aaf-dev]
@@ -32,6 +30,7 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ECR_IMAGE_REPO: ${{ secrets.AWS_ECR_IMAGE_REPO }}
           AWS_ROLE_ECR_PUSH: ${{ secrets.AWS_ROLE_ECR_PUSH }}
+          AWS_ROLE_BACKEND_DEPLOY_DEV_AAF: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_DEV_AAF }}
         run: |
           set -euo pipefail
           if [ -z "${AWS_REGION}" ]; then
@@ -44,6 +43,10 @@ jobs:
           fi
           if [ -z "${AWS_ROLE_ECR_PUSH}" ]; then
             echo "Missing required secret AWS_ROLE_ECR_PUSH" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ROLE_BACKEND_DEPLOY_DEV_AAF}" ]; then
+            echo "Missing required secret AWS_ROLE_BACKEND_DEPLOY_DEV_AAF" >&2
             exit 1
           fi
 
@@ -92,7 +95,7 @@ jobs:
           python -m pip install uv==0.11.15
           uv lock
 
-      # Authenticate to AWS
+      # Authenticate to AWS (push role, in 331315009666)
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ECR_PUSH }}
@@ -113,9 +116,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # No separate deploy-role step: the ECR push role (still active from the
-      # auth step above) also holds lambda:InvokeFunction on the dev-aaf deploy
-      # function, so we invoke it directly.
+      - name: Configure AWS credentials for dev-aaf deploy
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_DEV_AAF }}
+          role-session-name: backend-aaf-dev-deploy
+          aws-region: ${{ env.AWS_REGION }}
+          role-chaining: true
+          role-skip-session-tagging: true
+
       - name: Deploy dev-aaf backend via Lambda
         env:
           DEPLOY_FUNCTION_NAME: AaiBackendDevAafDeploymentFunction
