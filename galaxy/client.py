@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import Depends
-from httpx import Client
+from httpx2 import Client
 
 from galaxy.config import GalaxySettings, get_galaxy_settings
 from galaxy.schemas import GalaxyUserModel

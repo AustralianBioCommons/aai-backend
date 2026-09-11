@@ -2,7 +2,7 @@ from http import HTTPStatus
 
 import pytest
 import respx
-from httpx import Response
+from httpx2 import Response
 from sqlmodel import select
 
 from db.models import Auth0Role, BiocommonsGroup, Platform

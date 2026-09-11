@@ -4,7 +4,7 @@ from enum import StrEnum
 from logging import getLogger
 from typing import Optional, Self, Type
 
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from pydantic import AwareDatetime
 from sqlalchemy import Column, Index, String, Text, UniqueConstraint, delete, desc, func
 from sqlmodel import DateTime, Field, Relationship, Session, select

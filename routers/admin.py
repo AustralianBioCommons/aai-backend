@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from pydantic import (
     BaseModel,
     ConfigDict,

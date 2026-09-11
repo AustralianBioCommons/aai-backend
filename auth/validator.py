@@ -4,7 +4,7 @@ import logging
 import weakref
 from datetime import UTC, datetime, timedelta
 
-import httpx
+import httpx2
 import jwt
 from cachetools import TTLCache
 from fastapi import HTTPException
@@ -106,7 +106,7 @@ async def _fetch_rsa_keys(auth0_domain: str) -> dict:
 
         try:
             metadata_url = f"https://{auth0_domain}/.well-known/openid-configuration"
-            async with httpx.AsyncClient() as client:
+            async with httpx2.AsyncClient() as client:
                 metadata_response = await client.get(metadata_url)
                 metadata_response.raise_for_status()
                 metadata = metadata_response.json()
@@ -118,7 +118,7 @@ async def _fetch_rsa_keys(auth0_domain: str) -> dict:
         except KeyError as exc:
             logger.error(f"OIDC metadata from {metadata_url} did not include jwks_uri")
             raise InvalidTokenError("Failed to fetch JWKS") from exc
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx2.HTTPError, ValueError) as exc:
             logger.error(
                 f"Failed to fetch OIDC metadata or JWKS for domain {auth0_domain}: {exc}"
             )

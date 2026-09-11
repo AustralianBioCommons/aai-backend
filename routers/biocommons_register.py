@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client

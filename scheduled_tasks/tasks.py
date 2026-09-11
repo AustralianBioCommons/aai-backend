@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from loguru import logger
 from pydantic import BaseModel, field_validator
 from sqlalchemy.exc import IntegrityError

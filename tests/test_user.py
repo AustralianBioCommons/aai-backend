@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import respx
 from fastapi import HTTPException
-from httpx import HTTPStatusError, Request, Response
+from httpx2 import HTTPStatusError, Request, Response
 from sqlmodel import Session, select
 
 from db.models import (

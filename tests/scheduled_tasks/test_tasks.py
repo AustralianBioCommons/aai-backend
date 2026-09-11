@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from sqlmodel import Session, select
 
 from db.models import (

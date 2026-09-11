@@ -20,7 +20,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
-from httpx import Request, Response
+from httpx2 import Request, Response
 from jwt import InvalidSignatureError
 from jwt.algorithms import RSAAlgorithm
 
@@ -150,7 +150,7 @@ async def test_get_rsa_key_returns_key(mock_settings: Settings):
     jwks_url = f"https://{mock_settings.auth0_domain}/.well-known/jwks.json"
 
     with patch("auth.validator.jwt.get_unverified_header", return_value=unverified_header), \
-         patch("auth.validator.httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+         patch("auth.validator.httpx2.AsyncClient.get", new_callable=AsyncMock) as mock_get:
         metadata_response = Response(
             200,
             json={"jwks_uri": jwks_url},
