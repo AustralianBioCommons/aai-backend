@@ -19,6 +19,7 @@ from starlette_admin import (
     HasMany,
     HasOne,
     StringField,
+    action,
     row_action,
 )
 from starlette_admin.auth import AdminUser, AuthProvider, login_not_required
@@ -43,6 +44,7 @@ from db.models import (
 )
 from db.setup import get_db_session, get_engine
 from db.types import PlatformEnum
+from scheduled_tasks.tasks import sync_auth0_users
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -79,11 +81,24 @@ class IncludeDeletedUserMixin(ModelView):
 
 class UserView(DefaultView):
     fields = ["email", "email_verified", "username", "created_at", "id"]
+    actions = ["sync_auth0_users"]
 
     async def repr(self, obj: Any, request: Request) -> str:
         if getattr(obj, "is_deleted", False):
             return f"❌ {obj.email} (deleted)"
         return obj.email
+
+    @action(
+        name="sync_auth0_users",
+        text="Sync Auth0 Users",
+        confirmation="This runs the Auth0 → DB user sync immediately, "
+                     "instead of waiting for the hourly scheduled job. Continue?",
+        submit_btn_text="Sync Now",
+        icon_class="fa fa-rotate",
+    )
+    async def sync_auth0_users_action(self, request: Request, pks: list) -> str:
+        await sync_auth0_users()
+        return "Auth0 user sync completed"
 
     async def is_row_action_allowed(self, request: Request, name: str) -> bool:
         if name == "hard_delete_user":
