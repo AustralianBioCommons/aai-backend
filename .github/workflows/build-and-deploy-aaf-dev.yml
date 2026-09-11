@@ -1,0 +1,157 @@
+name: build-and-deploy-aaf-dev
+# Builds a `dev-aaf`-tagged image from the aaf-dev branch and deploys it to the
+# dev-aaf backend (biocloud-dev-aaf tenant), so AAF work can be tested without
+# merging into main. Mirrors build-and-deploy-dev.yml but targets dev-aaf.
+on:
+  push:
+    branches: [aaf-dev]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  IMAGE_REPO: ${{ secrets.AWS_ECR_IMAGE_REPO }}
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate required secrets
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ECR_IMAGE_REPO: ${{ secrets.AWS_ECR_IMAGE_REPO }}
+          AWS_ROLE_ECR_PUSH: ${{ secrets.AWS_ROLE_ECR_PUSH }}
+          AWS_ROLE_BACKEND_DEPLOY_DEV_AAF: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_DEV_AAF }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_REGION}" ]; then
+            echo "Missing required secret AWS_REGION" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ECR_IMAGE_REPO}" ]; then
+            echo "Missing required secret AWS_ECR_IMAGE_REPO" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ROLE_ECR_PUSH}" ]; then
+            echo "Missing required secret AWS_ROLE_ECR_PUSH" >&2
+            exit 1
+          fi
+          if [ -z "${AWS_ROLE_BACKEND_DEPLOY_DEV_AAF}" ]; then
+            echo "Missing required secret AWS_ROLE_BACKEND_DEPLOY_DEV_AAF" >&2
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Stamp dev version
+        run: |
+          set -euo pipefail
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          node <<'JS'
+          const fs = require('fs');
+          const path = 'pyproject.toml';
+          const shortSha = (process.env.SHORT_SHA || '').toLowerCase().slice(0, 7);
+          const lines = fs.readFileSync(path, 'utf8').split('\n');
+          let updated = false;
+          let newVersion = null;
+          const result = lines.map((line) => {
+            if (line.startsWith('version = ')) {
+              const match = line.match(/version = \"(.+)\"/);
+              if (!match) {
+                return line;
+              }
+              const baseRaw = match[1];
+              const cleanBase = baseRaw
+                .replace(/\.dev\d+(?:\+.+)?$/i, '')
+                .replace(/\+.+$/i, '')
+                .replace(/-dev_[0-9a-f]+$/i, '');
+              newVersion = `${cleanBase}.dev0+g${shortSha}`;
+              updated = true;
+              return `version = "${newVersion}"`;
+            }
+            return line;
+          });
+          if (!updated || !newVersion) {
+            throw new Error('Failed to compute new version');
+          }
+          fs.writeFileSync(path, result.join('\n'));
+          console.log('Stamped version to', newVersion);
+          JS
+        env:
+          SHORT_SHA: ${{ github.sha }}
+
+      - name: Sync uv lockfile
+        run: |
+          set -euo pipefail
+          python -m pip install uv==0.11.15
+          uv lock
+
+      # Authenticate to AWS
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ECR_PUSH }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build & Push (dev-aaf only)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_REPO }}:dev-aaf
+          provenance: false
+          sbom: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Configure AWS credentials for dev-aaf deploy
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_BACKEND_DEPLOY_DEV_AAF }}
+          role-session-name: backend-aaf-dev-deploy
+          aws-region: ${{ env.AWS_REGION }}
+          role-chaining: true
+          role-skip-session-tagging: true
+
+      - name: Deploy dev-aaf backend via Lambda
+        env:
+          DEPLOY_FUNCTION_NAME: AaiBackendDevAafDeploymentFunction
+          IMAGE_TAG: dev-aaf
+        run: |
+          set -euo pipefail
+
+          export AWS_MAX_ATTEMPTS=1
+
+          PAYLOAD=$(jq -n --arg tag "${IMAGE_TAG}" '{tag: $tag}')
+          RESPONSE_FILE=$(mktemp)
+
+          INVOKE_METADATA=$(aws lambda invoke \
+            --function-name "${DEPLOY_FUNCTION_NAME}" \
+            --payload "${PAYLOAD}" \
+            --cli-binary-format raw-in-base64-out \
+            --cli-read-timeout 0 \
+            "${RESPONSE_FILE}")
+
+          echo "${INVOKE_METADATA}"
+
+          FUNCTION_ERROR=$(echo "${INVOKE_METADATA}" | jq -r '.FunctionError // empty')
+          if [ -n "${FUNCTION_ERROR}" ]; then
+            echo "Deployment lambda reported an error: ${FUNCTION_ERROR}" >&2
+            cat "${RESPONSE_FILE}" >&2 || true
+            exit 1
+          fi
+
+          cat "${RESPONSE_FILE}"
+
+          STATUS=$(jq -r '.status // empty' "${RESPONSE_FILE}")
+          if [ "${STATUS}" != "SUCCESS" ]; then
+            echo "Deployment lambda returned unexpected status: ${STATUS}" >&2
+            exit 1
+          fi
