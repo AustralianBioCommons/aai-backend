@@ -55,7 +55,7 @@ exclude-newer = "7 days"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=auth --cov=routers --cov=schemas --cov=db --cov=biocommons --cov=scheduled_tasks --cov-report=term --cov-report=xml"
+addopts = "-p no:respx --cov=auth --cov=routers --cov=schemas --cov=db --cov=biocommons --cov=scheduled_tasks --cov-report=term --cov-report=xml"
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -70,4 +70,5 @@ line-length = 88
 target-version = "py313"
 lint.select = ["E", "F", "I"]
 lint.ignore = ["E501"]
+lint.per-file-ignores = { "tests/conftest.py" = ["E402"] }
 exclude = ["tests/data", ".venv", "venv", "migrations"]
