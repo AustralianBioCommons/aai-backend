@@ -373,6 +373,14 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
+    def delete_user(self, user_id: str) -> None:
+        """
+        Permanently delete a user from Auth0.
+        """
+        url = f"{self.api_base}/users/{user_id}"
+        resp = self._client.delete(url)
+        resp.raise_for_status()
+
     def delete_user_refresh_tokens(self, user_id: str) -> bool:
         """
         Delete all refresh tokens for a user.
