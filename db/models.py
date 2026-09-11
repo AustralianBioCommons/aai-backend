@@ -6,7 +6,7 @@ from typing import Optional, Self, Type
 
 from httpx import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint, desc, func
+from sqlalchemy import Column, Index, String, Text, UniqueConstraint, delete, desc, func
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
@@ -253,6 +253,43 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.save_history(session, change="user_deletion", reason=reason, updated_by=deleted_by)
         super().delete(session, commit=commit)
         return self
+
+    def hard_delete(self, session: Session, auth0_client: Auth0Client) -> None:
+        """
+        Permanently delete the user and their own rows from the DB, and delete
+        the user from Auth0. For testing use only - irreversible.
+
+        Refuses if this user acted as an admin on another user's record
+        (appears as deleted_by/updated_by there) - that history would be lost.
+        """
+        user_id = self.id
+        other_admin_actions = (
+            session.exec(select(BiocommonsUser.id).execution_options(include_deleted=True).where(
+                BiocommonsUser.deleted_by_id == user_id, BiocommonsUser.id != user_id)).first()
+            or session.exec(select(BiocommonsUserHistory.id).execution_options(include_deleted=True).where(
+                BiocommonsUserHistory.updated_by_id == user_id, BiocommonsUserHistory.user_id != user_id)).first()
+            or session.exec(select(PlatformMembership.id).execution_options(include_deleted=True).where(
+                PlatformMembership.updated_by_id == user_id, PlatformMembership.user_id != user_id)).first()
+            or session.exec(select(PlatformMembershipHistory.id).execution_options(include_deleted=True).where(
+                PlatformMembershipHistory.updated_by_id == user_id, PlatformMembershipHistory.user_id != user_id)).first()
+            or session.exec(select(GroupMembership.id).execution_options(include_deleted=True).where(
+                GroupMembership.updated_by_id == user_id, GroupMembership.user_id != user_id)).first()
+            or session.exec(select(GroupMembershipHistory.id).execution_options(include_deleted=True).where(
+                GroupMembershipHistory.updated_by_id == user_id, GroupMembershipHistory.user_id != user_id)).first()
+        )
+        if other_admin_actions:
+            raise ValueError(f"User {user_id} has acted as an admin on another user's record and cannot be hard-deleted")
+
+        logger.info(f"Deleting user {user_id} from Auth0")
+        try:
+            auth0_client.delete_user(user_id=user_id)
+        except HTTPStatusError as e:
+            logger.warning(f"Error deleting user {user_id} from Auth0: {e}")
+
+        for model in (EmailChangeOtp, GroupMembershipHistory, PlatformMembershipHistory, GroupMembership, PlatformMembership, BiocommonsUserHistory):
+            session.exec(delete(model).where(model.user_id == user_id))
+        session.exec(delete(BiocommonsUser).where(BiocommonsUser.id == user_id))
+        session.commit()
 
     def update_from_auth0(self, auth0_id: str, auth0_client: Auth0Client) -> Self:
         """
