@@ -2123,7 +2123,7 @@ def test_admin_update_user_username_duplicate_in_auth0(
     persistent_factories,
 ):
     """Test username update fails when Auth0 returns 409 conflict."""
-    from httpx import HTTPStatusError, Request, Response
+    from httpx2 import HTTPStatusError, Request, Response
 
     user = _create_user_with_platform_membership(
         db_session=test_db_session,
@@ -2170,7 +2170,7 @@ def test_admin_update_user_username_auth0_400_error(
     persistent_factories,
 ):
     """Test username update handles Auth0 400 error."""
-    from httpx import HTTPStatusError, Request, Response
+    from httpx2 import HTTPStatusError, Request, Response
 
     user = _create_user_with_platform_membership(
         db_session=test_db_session,
@@ -2244,7 +2244,7 @@ def test_get_unverified_users(test_client, test_db_session, as_admin_user, galax
 def test_auth0client_get_users_forwards_filter_to_httpx(mocker):
     client = Auth0Client(domain="tenant.example.auth0.com", management_token="tok")
 
-    # Mock the underlying httpx client and its response
+    # Mock the underlying httpx2 client and its response
     fake_resp = mocker.Mock()
     fake_resp.json.return_value = []  # get_users() reads .json() only
     client._client = mocker.Mock()

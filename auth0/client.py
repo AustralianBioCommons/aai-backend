@@ -4,9 +4,9 @@ import pathlib
 import time
 from typing import Iterator, Optional, Type, TypeVar
 
-import httpx
+import httpx2
 from fastapi import Depends
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 
 from auth.management import get_management_token
@@ -192,7 +192,7 @@ class Auth0Client:
         self.domain = domain
         self.api_base = f"https://{domain}/api/v2"
         self.management_token = management_token
-        self._client = httpx.Client(headers={"Authorization": f"Bearer {management_token}"})
+        self._client = httpx2.Client(headers={"Authorization": f"Bearer {management_token}"})
 
     def close(self) -> None:
         self._client.close()
@@ -206,16 +206,16 @@ class Auth0Client:
     T = TypeVar('T', bound=BaseModel)
 
     @staticmethod
-    def _convert_list(resp: httpx.Response, model: Type[T]) -> list[T]:
+    def _convert_list(resp: httpx2.Response, model: Type[T]) -> list[T]:
         """Convert a list of data to the given pydantic model."""
         return [model(**item) for item in resp.json()]
 
     @staticmethod
-    def _convert_users(resp: httpx.Response):
+    def _convert_users(resp: httpx2.Response):
         return Auth0Client._convert_list(resp, Auth0UserData)
 
     @staticmethod
-    def _convert_roles(resp: httpx.Response):
+    def _convert_roles(resp: httpx2.Response):
         return Auth0Client._convert_list(resp, RoleData)
 
     def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None,  q: Optional[str] = None) -> list[Auth0UserData] | UsersWithTotals:
@@ -332,7 +332,7 @@ class Auth0Client:
 
         logger.info(f"User export job {job_id} completed successfully. Downloading from {location}...")
         # Don't use client for this, we don't want the auth header here
-        download = httpx.get(location)
+        download = httpx2.get(location)
         download.raise_for_status()
 
         content = download.content
@@ -365,7 +365,7 @@ class Auth0Client:
             "scope": "openid",
         }
         # We don't want the management token here so not using self._client
-        resp = httpx.post(url, data=data)
+        resp = httpx2.post(url, data=data)
         if resp.status_code in {400, 403}:
             error = resp.json().get("error")
             if error == "invalid_grant":
@@ -408,7 +408,7 @@ class Auth0Client:
         url = f"{self.api_base}/users/{user_id}/roles"
         if isinstance(role_id, str):
             role_id = [role_id]
-        # httpx.Client.delete() no longer accepts json payloads (0.28+), so use request()
+        # httpx2.Client.delete() no longer accepts json payloads (0.28+), so use request()
         resp = self._client.request("DELETE", url, json={"roles": role_id})
         resp.raise_for_status()
         return True
@@ -611,7 +611,7 @@ class Auth0Client:
         # NOTE: Authentication API, not management API
         url = f"https://{self.domain}/dbconnections/change_password"
         # Don't use _client here, since it's not a management API endpoint
-        resp = httpx.post(
+        resp = httpx2.post(
             url,
             json={"email": user_email,
                   "client_id": client_id,

@@ -8,7 +8,7 @@ from typing import Annotated, Any, Dict
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
-from httpx import AsyncClient, HTTPStatusError
+from httpx2 import AsyncClient, HTTPStatusError
 from loguru import logger
 from pydantic import AliasPath, AwareDatetime, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel

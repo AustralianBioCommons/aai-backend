@@ -9,7 +9,7 @@ dependencies = [
     "fastapi[standard]>=0.139.0",
     # Security floor for CVE-2026-26007 (subgroup validation for SECT curves)
     "cryptography>=49.0",
-    "httpx>=0.28.1",
+    "httpx2>=2.9.1",
     "psycopg[binary]>=3.3.4",
     "email-validator~=2.3",
     "pydantic-settings>=2.14.2",
@@ -31,7 +31,6 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "boto3-stubs>=1.43.45",
-    "httpx2>=2.9.1",
     "pytest>=9.0.3",
     "pytest-mock>=3.14.0",
 	"pytest-sugar>=1.1.1",
@@ -56,7 +55,7 @@ exclude-newer = "7 days"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "--cov=auth --cov=routers --cov=schemas --cov=db --cov=biocommons --cov=scheduled_tasks --cov-report=term --cov-report=xml"
+addopts = "-p no:respx --cov=auth --cov=routers --cov=schemas --cov=db --cov=biocommons --cov=scheduled_tasks --cov-report=term --cov-report=xml"
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -71,4 +70,5 @@ line-length = 88
 target-version = "py313"
 lint.select = ["E", "F", "I"]
 lint.ignore = ["E501"]
+lint.per-file-ignores = { "tests/conftest.py" = ["E402"] }
 exclude = ["tests/data", ".venv", "venv", "migrations"]

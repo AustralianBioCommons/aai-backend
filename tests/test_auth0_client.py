@@ -4,7 +4,7 @@ import time
 
 import pytest
 import respx
-from httpx import Response
+from httpx2 import Response
 from pydantic import ValidationError
 
 from auth0.client import (

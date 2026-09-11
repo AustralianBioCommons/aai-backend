@@ -1,6 +1,6 @@
 from typing import Annotated
 
-import httpx
+import httpx2
 from cachetools import TTLCache
 from fastapi import Depends
 
@@ -24,7 +24,7 @@ def get_management_token(settings: Annotated[Settings, Depends(get_settings)]):
         "client_secret": settings.auth0_management_secret,
         "audience": f"https://{settings.auth0_domain}/api/v2/",
     }
-    response = httpx.post(url, json=payload)
+    response = httpx2.post(url, json=payload)
     response.raise_for_status()
     data = response.json()
     token = data["access_token"]

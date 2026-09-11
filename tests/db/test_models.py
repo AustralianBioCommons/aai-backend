@@ -4,7 +4,7 @@ from unittest.mock import ANY, call
 import pytest
 import respx
 from freezegun import freeze_time
-from httpx import Response
+from httpx2 import Response
 from mimesis import Person
 from mimesis.locales import Locale
 from sqlalchemy.exc import IntegrityError

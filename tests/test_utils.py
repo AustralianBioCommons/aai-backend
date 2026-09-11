@@ -1,7 +1,7 @@
-import httpx
+import httpx2
 import pytest
 import respx
-from httpx import Response
+from httpx2 import Response
 from sqlmodel import select
 
 from auth0.client import get_auth0_client
@@ -216,7 +216,7 @@ def test_check_australian_research_institution_upstream_error_returns_false(test
 
 @respx.mock
 def test_check_australian_research_institution_upstream_timeout_returns_false(test_client):
-    respx.get(GALAXY_AU_VALIDATE_URL).mock(side_effect=httpx.TimeoutException("timeout"))
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(side_effect=httpx2.TimeoutException("timeout"))
     resp = test_client.get(
         "/utils/register/check-australian-research-institution",
         params={"email": "researcher@sydney.edu.au"},

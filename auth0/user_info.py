@@ -1,6 +1,6 @@
 from typing import Annotated
 
-import httpx
+import httpx2
 from fastapi.params import Depends
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -47,7 +47,7 @@ async def get_auth0_user_info(
     Doesn't require management API access so may be more efficient when
     only the current user is required
     """
-    async with httpx.AsyncClient() as client:
+    async with httpx2.AsyncClient() as client:
         resp = await client.get(
             f"https://{settings.auth0_domain}/userinfo", headers={
                 "Authorization": f"Bearer {auth0_token}"

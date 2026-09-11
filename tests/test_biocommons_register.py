@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 import respx
-from httpx import Response
+from httpx2 import Response
 from sqlmodel import select
 from starlette.exceptions import HTTPException
 
@@ -632,7 +632,7 @@ def test_biocommons_registration_auth0_conflict_error(
     mock_recaptcha_verify,
 ):
     """Test handling of Auth0 conflict error (user already exists)"""
-    from httpx import HTTPStatusError, Request, Response
+    from httpx2 import HTTPStatusError, Request, Response
 
     response = Response(409, json={"error": "user_exists"})
     request = Request("POST", "https://example.com")
@@ -700,7 +700,7 @@ def test_biocommons_registration_email_conflict_error(
     test_client, tsi_group, mock_auth0_client, test_db_session, mock_recaptcha_verify,
 ):
     """Test handling of Auth0 conflict error when email exists"""
-    from httpx import HTTPStatusError, Request, Response
+    from httpx2 import HTTPStatusError, Request, Response
 
     response = Response(409, json={"error": "user_exists"})
     request = Request("POST", "https://example.com")
@@ -732,7 +732,7 @@ def test_biocommons_registration_both_conflict_error(
     mock_recaptcha_verify,
 ):
     """Test handling of Auth0 conflict error when both username and email exist"""
-    from httpx import HTTPStatusError, Request, Response
+    from httpx2 import HTTPStatusError, Request, Response
 
     response = Response(409, json={"error": "user_exists"})
     request = Request("POST", "https://example.com")
