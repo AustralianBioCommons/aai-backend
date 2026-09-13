@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import Annotated
 from urllib.parse import urlparse
 
-import httpx2
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
@@ -126,7 +126,7 @@ def return_signed_response(
         settings=settings,
     )
     auth0_base_url = get_auth0_continue_base_url(action_token, settings)
-    redirect_url = httpx2.URL(
+    redirect_url = httpx.URL(
         f"{auth0_base_url}/continue",
         params={"state": state, "session_token": signed_token},
     )
