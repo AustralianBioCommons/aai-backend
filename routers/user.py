@@ -1047,8 +1047,12 @@ def finish_migrate_password(state: str,
                             auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             db_session: Annotated[Session, Depends(get_db_session)],):
     """
-    Complete the migration process. This should be called by Auth0 when a user
-    starts the actual password change, and clears their user_needs_migration flag.
+    Complete the migration process: clears the user_needs_migration flag and
+    sends the welcome email. Called by the Migrate User post-login Auth0
+    action, once a login shows the user's password has actually been reset
+    (event.user.last_password_reset is set) - not by the password-reset-post-challenge
+    flow, which fires as soon as the reset link is opened (e.g. by an email
+    security scanner), before any password has actually been changed.
     """
     # Will raise if token is invalid
     payload = verify_action_token(session_token, settings=settings)
