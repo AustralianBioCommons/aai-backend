@@ -80,8 +80,19 @@ class IncludeDeletedUserMixin(ModelView):
 
 
 class UserView(DefaultView):
-    fields = ["email", "email_verified", "username", "created_at", "id"]
+    fields = [
+        "email",
+        "account_type",
+        "email_verified",
+        "username",
+        "created_at",
+        "id",
+        "other_user_id",
+        HasMany("platform_memberships", identity="platform_membership"),
+        HasMany("group_memberships", identity="group_membership")
+    ]
     actions = ["sync_auth0_users"]
+    exclude_fields_from_list = ["platform_memberships", "group_memberships"]
 
     async def repr(self, obj: Any, request: Request) -> str:
         if getattr(obj, "is_deleted", False):
