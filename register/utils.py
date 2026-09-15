@@ -5,6 +5,7 @@ from sqlmodel import Session
 
 from auth0.client import Auth0Client
 from biocommons.bundles import BUNDLES, BiocommonsBundle
+from biocommons.default import get_default_platforms
 from biocommons.emails import (
     compose_bundle_request_confirmation_email,
     compose_group_approval_email,
@@ -206,3 +207,33 @@ async def check_sbp_email_allowed(email: str, bundles: list[BundleRequest] | Non
         else:
             return None
     return None
+
+
+def create_platform_memberships(db_user: BiocommonsUser, auth0_client: Auth0Client, session: Session, sbp_enabled: bool = True) -> None:
+    """
+    Create default platform memberships (database record and Auth0 role) for a user
+    """
+    for platform in get_default_platforms(sbp_enabled=sbp_enabled):
+        db_user.add_platform_membership(
+            platform=platform,
+            db_session=session,
+            auth0_client=auth0_client,
+            auto_approve=True
+        )
+
+
+def create_bundle_requests(bundles: list[BundleRequest] | None, db_user: BiocommonsUser, auth0_client: Auth0Client, session: Session) -> None:
+    """
+    Create bundle requests for a user, based on the bundles requested at registration
+    """
+    if bundles is not None:
+        for bundle_request in bundles:
+            bundle = BUNDLES[bundle_request.bundle_id]
+            logger.info(f"Adding group/platform memberships for bundle: {bundle}")
+            bundle.create_memberships(
+                user=db_user,
+                auth0_client=auth0_client,
+                db_session=session,
+                commit=False,
+                request_reason=bundle_request.reason,
+            )

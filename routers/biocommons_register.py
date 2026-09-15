@@ -6,8 +6,6 @@ from httpx2 import HTTPStatusError
 from sqlmodel import Session
 
 from auth0.client import Auth0Client, get_auth0_client
-from biocommons.bundles import BUNDLES
-from biocommons.default import get_default_platforms
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
@@ -15,6 +13,8 @@ from register.tokens import validate_recaptcha
 from register.utils import (
     check_is_username_used,
     check_sbp_email_allowed,
+    create_bundle_requests,
+    create_platform_memberships,
     process_bundle_request_notifications,
 )
 from routers.errors import RegistrationRoute
@@ -46,26 +46,10 @@ def create_user_in_db(user_data: Auth0UserData,
     db_user = BiocommonsUser.from_auth0_data(data=user_data)
     session.add(db_user)
     session.flush()
-    for platform in get_default_platforms(sbp_enabled=sbp_enabled):
-        db_user.add_platform_membership(
-            platform=platform,
-            db_session=session,
-            auth0_client=auth0_client,
-            auto_approve=True
-        )
-
-    if bundles is not None:
-        for bundle_request in bundles:
-            bundle = BUNDLES[bundle_request.bundle_id]
-            logger.info(f"Adding group/platform memberships for bundle: {bundle}")
-            bundle.create_memberships(
-                user=db_user,
-                auth0_client=auth0_client,
-                db_session=session,
-                commit=False,
-                request_reason=bundle_request.reason,
-            )
-
+    # Add default platform memberships
+    create_platform_memberships(db_user=db_user, auth0_client=auth0_client, session=session, sbp_enabled=sbp_enabled)
+    # Create requests for selected bundles (if any)
+    create_bundle_requests(bundles=bundles, db_user=db_user, session=session, auth0_client=auth0_client)
     session.flush()
     if commit:
         session.commit()
