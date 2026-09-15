@@ -263,6 +263,12 @@ def verify_registration_token(token: str, settings: Settings):
     return AafRegistrationActionToken(**payload)
 
 
+def _requests_sbp_bundle(registration: AafRegistrationRequest) -> bool:
+    if registration.bundles is None:
+        return False
+    return any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
+
+
 @router.post("/register")
 async def register_aaf(
     register_data: AafRegistrationRequest,
@@ -284,6 +290,10 @@ async def register_aaf(
         return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
 
     validated_token = verify_registration_token(register_data.session_token, settings=settings)
+
+    if _requests_sbp_bundle(register_data) and not settings.sbp_enabled:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(message="SBP workflow execution is currently unavailable.")
 
     is_aaf = is_aaf_email(validated_token.email, settings=settings)
     if not is_aaf:

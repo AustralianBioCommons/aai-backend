@@ -463,7 +463,53 @@ def test_register_aaf_returns_registration_error_when_auth0_update_fails(
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert response.json() == {
-        "message": "AAF registration failed: Failed to update user auth0|123: {'message': 'bad request'}",
+        "message": "AAF registration failed - couldn't update app_metadata: Failed to update user auth0|123: {'message': 'bad request'}",
         "field_errors": [],
     }
     update_user.assert_called_once()
+
+
+def test_register_aaf_sbp_disabled_rejects_before_creating_user(
+    test_client,
+    mock_settings,
+    mocker,
+):
+    mock_settings.sbp_enabled = False
+    aaf_user_id = random_auth0_id()
+    email = "researcher@unimelb.edu.au"
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        purpose="aaf_registration",
+    )
+    action_token_payload.update(
+        {
+            "given_name": "SBP",
+            "family_name": "Disabled",
+            "name": "SBP Disabled",
+        }
+    )
+    mocker.patch("routers.aaf.verify_action_token", return_value=action_token_payload)
+    mocker.patch("routers.aaf.validate_recaptcha", return_value=True)
+    is_aaf_email = mocker.patch("routers.aaf.is_aaf_email", return_value=True)
+    institution_check = mocker.patch("register.utils.is_australian_research_institution_email")
+    update_user = mocker.patch("routers.aaf.Auth0Client.update_user")
+
+    response = test_client.post(
+        "/aaf/register",
+        json={
+            "session_token": "valid_token",
+            "username": "sbp_disabled_user",
+            "bundles": [{"bundle_id": "sbp_workflow_execution", "reason": "SBP access"}],
+            "recaptcha_token": "valid_recaptcha",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "message": "SBP workflow execution is currently unavailable.",
+        "field_errors": [],
+    }
+    is_aaf_email.assert_not_called()
+    institution_check.assert_not_called()
+    update_user.assert_not_called()
