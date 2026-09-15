@@ -8,7 +8,11 @@ from auth0.client import get_auth0_client
 from db.models import EmailNotification
 from main import app
 from routers import utils
-from services.institutions import GALAXY_AU_VALIDATE_URL
+from services.institutions import (
+    GALAXY_AU_VALIDATE_URL,
+    AafCheckEmailResponse,
+    is_aaf_email,
+)
 from tests.datagen import (
     Auth0ReadAppMetadataFactory,
     Auth0UserDataFactory,
@@ -242,3 +246,14 @@ def test_send_welcome_email_suppresses_duplicate(override_auth0_client, test_cli
     assert resp.json()["message"] == "Welcome email already queued or sent."
     queued = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued) == 1
+
+
+@respx.mock
+def test_is_aaf_email(mock_settings):
+    mock_resp = AafCheckEmailResponse(email="user@example.com", is_aaf=True)
+    url = f"{mock_settings.aai_login_proxy_url}/aaf/email-check"
+    route = respx.get(url, params={"email": "user@example.com"}).respond(200, json=mock_resp.model_dump(mode="json"))
+
+    result = is_aaf_email(email="user@example.com", settings=mock_settings)
+    assert result is True
+    assert route.called

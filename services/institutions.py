@@ -37,6 +37,7 @@ class AafCheckEmailResponse(BaseModel):
     email: str
     is_aaf: bool
 
+
 def is_aaf_email(email: str, settings: Settings) -> bool:
     check_email_url = settings.aai_login_proxy_url + "/aaf/email-check"
     resp = httpx2.get(check_email_url, params={"email": email})
