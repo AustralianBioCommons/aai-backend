@@ -14,7 +14,6 @@ from starlette.responses import RedirectResponse, Response
 
 from auth.validator import create_action_token, verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
-from biocommons.default import get_default_platforms
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
@@ -23,6 +22,8 @@ from register.tokens import validate_recaptcha
 from register.utils import (
     check_is_username_used,
     check_sbp_email_allowed,
+    create_bundle_requests,
+    create_platform_memberships,
     process_bundle_request_notifications,
 )
 from schemas.auth0 import AafRegistrationActionToken, Auth0ActionToken
@@ -229,7 +230,8 @@ def create_aaf_user_in_db(register_data: AafRegistrationRequest,
                           auth0_token: AafRegistrationActionToken,
                           auth0_client: Auth0Client,
                           session: Session,
-                          settings: Settings):
+                          settings: Settings,
+                          commit: bool = False):
     db_user = BiocommonsUser(
         id=auth0_token.user_id,
         email=auth0_token.email,
@@ -240,13 +242,13 @@ def create_aaf_user_in_db(register_data: AafRegistrationRequest,
     )
     session.add(db_user)
     session.flush()
-    for platform in get_default_platforms(sbp_enabled=settings.sbp_enabled):
-        db_user.add_platform_membership(
-            platform=platform,
-            db_session=session,
-            auth0_client=auth0_client,
-            auto_approve=True
-        )
+    # Add default platform memberships
+    create_platform_memberships(db_user=db_user, auth0_client=auth0_client, session=session, sbp_enabled=settings.sbp_enabled)
+    # Create requests for selected bundles (if any)
+    create_bundle_requests(bundles=register_data.bundles, db_user=db_user, auth0_client=auth0_client, session=session)
+    session.flush()
+    if commit:
+        session.commit()
     return db_user
 
 
@@ -312,7 +314,8 @@ async def register_aaf(
             auth0_token=validated_token,
             auth0_client=auth0_client,
             session=session,
-            settings=settings
+            settings=settings,
+            commit=False,
         )
         if register_data.bundles is not None:
             process_bundle_request_notifications(
