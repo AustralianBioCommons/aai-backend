@@ -6,36 +6,23 @@ from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from httpx2 import HTTPStatusError
 from pydantic import BaseModel
 from sqlmodel import Session
-from starlette import status
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import RedirectResponse
 
-from auth.validator import create_action_token, verify_action_token
+from auth.validator import create_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
 from dependencies.auth import require_action_token
-from register.tokens import validate_recaptcha
-from register.utils import (
-    check_is_username_used,
-    check_sbp_email_allowed,
-    create_bundle_requests,
-    create_platform_memberships,
-    process_bundle_request_notifications,
-)
-from schemas.auth0 import AafRegistrationActionToken, Auth0ActionToken
+from schemas.auth0 import Auth0ActionToken
 from schemas.biocommons import (
     Auth0Identity,
     Auth0UserData,
     BiocommonsAppMetadataUpdate,
     BiocommonsUserAccountType,
 )
-from schemas.biocommons_register import AafRegistrationRequest
-from schemas.responses import RegistrationErrorResponse
-from services.institutions import is_aaf_email
 
 router = APIRouter(
     prefix="/aaf", tags=["aaf"]
@@ -223,132 +210,3 @@ def check_aaf_account_link(
         action_token=token,
         settings=settings,
     )
-
-
-def create_aaf_user_in_db(register_data: AafRegistrationRequest,
-                          *,
-                          auth0_token: AafRegistrationActionToken,
-                          auth0_client: Auth0Client,
-                          session: Session,
-                          settings: Settings,
-                          commit: bool = False):
-    db_user = BiocommonsUser(
-        id=auth0_token.user_id,
-        email=auth0_token.email,
-        username=register_data.username,
-        # AAF users are considered email_verified by default
-        email_verified=True,
-        account_type=BiocommonsUserAccountType.AAF.value,
-    )
-    session.add(db_user)
-    session.flush()
-    # Add default platform memberships
-    create_platform_memberships(db_user=db_user, auth0_client=auth0_client, session=session, sbp_enabled=settings.sbp_enabled)
-    # Create requests for selected bundles (if any)
-    create_bundle_requests(bundles=register_data.bundles, db_user=db_user, auth0_client=auth0_client, session=session)
-    session.flush()
-    if commit:
-        session.commit()
-    return db_user
-
-
-def verify_registration_token(token: str, settings: Settings):
-    """
-    Verify the token sent through from the original Auth0 action - we use this to provide
-    id, name + email so want to make sure it's verified
-    """
-    payload = verify_action_token(token, settings)
-    if payload.get("purpose", None) != "aaf_registration":
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token from Auth0 expired.")
-    return AafRegistrationActionToken(**payload)
-
-
-def _requests_sbp_bundle(registration: AafRegistrationRequest) -> bool:
-    if registration.bundles is None:
-        return False
-    return any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
-
-
-@router.post("/register")
-async def register_aaf(
-    register_data: AafRegistrationRequest,
-    response: Response,
-    session: Annotated[Session, Depends(get_db_session)],
-    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
-    settings: Annotated[Settings, Depends(get_settings)],
-):
-    """
-    Register an AAF user. Because we want to ensure we use the email and name provided by
-    the AAF, using a signed token passed through from Auth0
-    """
-    if not register_data.recaptcha_token:
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return RegistrationErrorResponse(message="Recaptcha token is required")
-    recaptcha_check = validate_recaptcha(register_data.recaptcha_token, settings=settings)
-    if not recaptcha_check:
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
-
-    validated_token = verify_registration_token(register_data.session_token, settings=settings)
-
-    if _requests_sbp_bundle(register_data) and not settings.sbp_enabled:
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return RegistrationErrorResponse(message="SBP workflow execution is currently unavailable.")
-
-    is_aaf = is_aaf_email(validated_token.email, settings=settings)
-    if not is_aaf:
-        raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_CONTENT, detail=f"{validated_token.email} is not an AAF-associated email.")
-
-    sbp_email_error = await check_sbp_email_allowed(email=validated_token.email, bundles=register_data.bundles)
-    if sbp_email_error is not None:
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return sbp_email_error
-
-    duplicate_username_error = check_is_username_used(username=register_data.username, session=session)
-    if duplicate_username_error:
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return duplicate_username_error
-
-    try:
-        logger.info("Setting username in app_metadata")
-        update_data = UpdateUserData(app_metadata=BiocommonsAppMetadataUpdate(username=register_data.username))
-        try:
-            auth0_user_data = auth0_client.update_user(user_id=validated_token.user_id, update_data=update_data)
-        except ValueError as e:
-            logger.error(f"AAF registration failed: {e}")
-            response.status_code = status.HTTP_400_BAD_REQUEST
-            return RegistrationErrorResponse(message=f"AAF registration failed - couldn't update app_metadata: {e}")
-        logger.info("Adding user to database...")
-        db_user = create_aaf_user_in_db(
-            register_data=register_data,
-            auth0_token=validated_token,
-            auth0_client=auth0_client,
-            session=session,
-            settings=settings,
-            commit=False,
-        )
-        if register_data.bundles is not None:
-            process_bundle_request_notifications(
-                bundles=register_data.bundles,
-                db_user=db_user,
-                auth0_user_data=auth0_user_data,
-                auth0_client=auth0_client,
-                db_session=session,
-                settings=settings
-            )
-
-        session.commit()
-        logger.info("Successfully added user to database.")
-        return {
-            "message": "User registered successfully",
-            "user": auth0_user_data
-        }
-    except HTTPStatusError as e:
-        logger.error(f"AAF registration failed: {e}")
-        # NOTE: don't think the checks of specific Auth0 issues are relevant here as we
-        #   aren't registering in Auth0
-        response.status_code = status.HTTP_400_BAD_REQUEST
-        return RegistrationErrorResponse(message=f"AAF registration failed: {e.response.text}")
-    except Exception as e:
-        logger.error(f"Unexpected error during registration: {e}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
