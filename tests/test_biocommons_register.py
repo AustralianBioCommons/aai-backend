@@ -10,7 +10,7 @@ from biocommons.bundles import BUNDLES
 from biocommons.default import get_default_platforms
 from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
-from routers.biocommons_register import check_sbp_email_domain, create_user_in_db
+from routers.biocommons_register import create_user_in_db
 from schemas.biocommons import BiocommonsRegisterData
 from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from tests.datagen import (
@@ -172,87 +172,6 @@ def test_biocommons_registration_tsi_bundle():
     assert dumped["app_metadata"]["registration_from"] == "biocommons"
     assert dumped["app_metadata"].get("groups", []) == []
     assert dumped["app_metadata"].get("services", []) == []
-
-
-@pytest.mark.asyncio
-async def test_check_sbp_email_domain_skips_check_without_bundles(mocker):
-    institution_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
-        new=AsyncMock(return_value=False),
-    )
-    registration = BiocommonsRegistrationRequest(
-        first_name="No",
-        last_name="Bundle",
-        email="no.bundle@example.com",
-        username="no_bundle",
-        password="StrongPass1!",
-        bundles=None,
-    )
-
-    assert await check_sbp_email_domain(registration) is True
-    institution_check.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_check_sbp_email_domain_skips_check_without_sbp_bundle(mocker):
-    institution_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
-        new=AsyncMock(return_value=False),
-    )
-    registration = BiocommonsRegistrationRequest(
-        first_name="TSI",
-        last_name="User",
-        email="tsi.user@example.com",
-        username="tsi_user",
-        password="StrongPass1!",
-        bundles=[BundleRequest(bundle_id="tsi", reason="TSI access")],
-    )
-
-    assert await check_sbp_email_domain(registration) is True
-    institution_check.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_check_sbp_email_domain_checks_sbp_bundle(mocker):
-    institution_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
-        new=AsyncMock(return_value=True),
-    )
-    registration = BiocommonsRegistrationRequest(
-        first_name="SBP",
-        last_name="User",
-        email="sbp.user@unimelb.edu.au",
-        username="sbp_user",
-        password="StrongPass1!",
-        bundles=[BundleRequest(bundle_id="sbp_workflow_execution", reason="SBP access")],
-    )
-
-    assert await check_sbp_email_domain(registration) is True
-    institution_check.assert_awaited_once_with("sbp.user@unimelb.edu.au")
-
-
-@pytest.mark.asyncio
-async def test_check_sbp_email_domain_returns_false_when_sbp_domain_check_fails(mocker):
-    institution_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
-        new=AsyncMock(return_value=False),
-    )
-    registration = BiocommonsRegistrationRequest(
-        first_name="SBP",
-        last_name="User",
-        email="sbp.user@example.com",
-        username="sbp_user",
-        password="StrongPass1!",
-        bundles=[
-            BundleRequest(bundle_id="tsi", reason="TSI access"),
-            BundleRequest(bundle_id="sbp_workflow_execution", reason="SBP access"),
-        ],
-    )
-
-    assert await check_sbp_email_domain(registration) is False
-    institution_check.assert_awaited_once_with("sbp.user@example.com")
-
-
 
 
 def test_create_biocommons_user_record_tsi_bundle(test_db_session, mock_auth0_client, tsi_group, galaxy_platform, bpa_platform, sbp_platform, persistent_factories):
@@ -463,7 +382,7 @@ def test_biocommons_registration_endpoint_multiple_bundles(
         email=admin_stub.email,
     )
     domain_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
+        "register.utils.is_australian_research_institution_email",
         new=AsyncMock(return_value=True),
     )
 
@@ -511,7 +430,7 @@ def test_biocommons_registration_endpoint_sbp_rejects_non_institutional_email(
     """Test SBP workflow registration checks the email domain before creating a user."""
     mock_settings.sbp_enabled = True
     domain_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
+        "register.utils.is_australian_research_institution_email",
         new=AsyncMock(return_value=False),
     )
 
@@ -551,7 +470,7 @@ def test_biocommons_registration_endpoint_sbp_disabled_rejects_before_creating_u
     """Test SBP workflow registration is blocked by the feature flag."""
     mock_settings.sbp_enabled = False
     domain_check = mocker.patch(
-        "routers.biocommons_register.is_australian_research_institution_email",
+        "register.utils.is_australian_research_institution_email",
         new=AsyncMock(return_value=True),
     )
 
