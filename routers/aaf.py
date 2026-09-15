@@ -300,7 +300,12 @@ async def register_aaf(
     try:
         logger.info("Setting username in app_metadata")
         update_data = UpdateUserData(app_metadata=BiocommonsAppMetadataUpdate(username=register_data.username))
-        auth0_user_data = auth0_client.update_user(user_id=validated_token.user_id, update_data=update_data)
+        try:
+            auth0_user_data = auth0_client.update_user(user_id=validated_token.user_id, update_data=update_data)
+        except ValueError as e:
+            logger.error(f"AAF registration failed: {e}")
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return RegistrationErrorResponse(message=f"AAF registration failed - couldn't update app_metadata: {e}")
         logger.info("Adding user to database...")
         db_user = create_aaf_user_in_db(
             register_data=register_data,

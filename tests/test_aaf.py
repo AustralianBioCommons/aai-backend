@@ -423,3 +423,47 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     get_user.assert_called_once_with(user_id=aaf_user_id)
     link_identity.assert_not_called()
     update_user.assert_not_called()
+
+
+def test_register_aaf_returns_registration_error_when_auth0_update_fails(
+    test_client,
+    test_db_session,
+    mocker,
+):
+    aaf_user_id = random_auth0_id()
+    email = "new-aaf-user@example.edu.au"
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        purpose="aaf_registration",
+    )
+    action_token_payload.update(
+        {
+            "given_name": "New",
+            "family_name": "User",
+            "name": "New User",
+        }
+    )
+    mocker.patch("routers.aaf.verify_action_token", return_value=action_token_payload)
+    mocker.patch("routers.aaf.validate_recaptcha", return_value=True)
+    mocker.patch("routers.aaf.is_aaf_email", return_value=True)
+    update_user = mocker.patch(
+        "routers.aaf.Auth0Client.update_user",
+        side_effect=ValueError("Failed to update user auth0|123: {'message': 'bad request'}"),
+    )
+
+    response = test_client.post(
+        "/aaf/register",
+        json={
+            "session_token": "valid_token",
+            "username": "new_aaf_user",
+            "recaptcha_token": "valid_recaptcha",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "message": "AAF registration failed: Failed to update user auth0|123: {'message': 'bad request'}",
+        "field_errors": [],
+    }
+    update_user.assert_called_once()
