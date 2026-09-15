@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
@@ -7,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from auth0.client import Auth0Client
-from routers.aaf import link_aaf_account, mark_user_aaf_only
+from routers.aaf import link_aaf_account, mark_user_aaf_only, verify_registration_token
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
@@ -159,6 +160,20 @@ def _action_token_payload(
     return payload
 
 
+def _aaf_registration_token_payload(
+    user_id: str,
+    email: str,
+    purpose: str = "aaf_registration",
+) -> dict:
+    return {
+        **_action_token_payload(user_id=user_id, email=email, purpose=purpose),
+        "given_name": "AAF",
+        "family_name": "User",
+        "name": "AAF User",
+        "exp": int((datetime.now() + timedelta(minutes=5)).timestamp()),
+    }
+
+
 def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     update_user_mock.assert_called_once()
     call_args, call_kwargs = update_user_mock.call_args
@@ -207,6 +222,47 @@ def _decode_check_link_redirect(
     assert decoded_token["sub"] == incoming_token.get("sub", incoming_token["user_id"])
     assert decoded_token["iss"] == incoming_token.get("iss", settings.auth0_domain)
     return decoded_token
+
+
+def test_verify_registration_token_accepts_token_signed_with_settings_secret(mock_settings):
+    aaf_user_id = random_auth0_id()
+    payload = _aaf_registration_token_payload(
+        user_id=aaf_user_id,
+        email="aaf-user@example.edu.au",
+    )
+    token = jwt.encode(
+        payload,
+        key=mock_settings.auth0_management_secret,
+        algorithm="HS256",
+    )
+
+    result = verify_registration_token(token, settings=mock_settings)
+
+    assert result.user_id == aaf_user_id
+    assert str(result.email) == "aaf-user@example.edu.au"
+    assert result.client_id == "test-client"
+    assert result.purpose == "aaf_registration"
+    assert result.given_name == "AAF"
+    assert result.family_name == "User"
+    assert result.name == "AAF User"
+
+
+def test_verify_registration_token_rejects_wrong_purpose(mock_settings):
+    token = jwt.encode(
+        _aaf_registration_token_payload(
+            user_id=random_auth0_id(),
+            email="aaf-user@example.edu.au",
+            purpose="aaf_link",
+        ),
+        key=mock_settings.auth0_management_secret,
+        algorithm="HS256",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_registration_token(token, settings=mock_settings)
+
+    assert exc_info.value.status_code == HTTPStatus.UNAUTHORIZED
+    assert exc_info.value.detail == "Token from Auth0 expired."
 
 
 def test_mark_user_aaf_only():
