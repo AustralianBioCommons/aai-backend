@@ -23,6 +23,7 @@ def _base_settings_kwargs():
         "recaptcha_secret": "mock-recaptcha",
         "jwt_secret_key": "mock-secret-key",
         "cors_allowed_origins": "https://test",
+        "aai_login_proxy_url": "https://proxy",
         "no_reply_email_sender": "no-reply@example.com",
     }
 
