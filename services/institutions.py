@@ -1,6 +1,9 @@
 from typing import Optional
 
 import httpx2
+from pydantic import BaseModel
+
+from config import Settings
 
 GALAXY_AU_VALIDATE_URL = "https://site.usegalaxy.org.au/institution/validate"
 
@@ -28,3 +31,15 @@ async def is_australian_research_institution_email(email: str) -> bool:
     blocked by an upstream outage.
     """
     return await check_australian_research_institution_email(email) is True
+
+
+class AafCheckEmailResponse(BaseModel):
+    email: str
+    is_aaf: bool
+
+def is_aaf_email(email: str, settings: Settings) -> bool:
+    check_email_url = settings.aai_login_proxy_url + "/aaf/email-check"
+    resp = httpx2.get(check_email_url, params={"email": email})
+    resp.raise_for_status()
+    data = AafCheckEmailResponse.model_validate_json(resp.content)
+    return data.is_aaf
