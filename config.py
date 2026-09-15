@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
     aai_portal_url: str = ""
+    # AAF login proxy: used to check if email addresses belong to AAF
+    aai_login_proxy_url: str = ""
     # Sender override for emails that should come from a no-reply address
     no_reply_email_sender: EmailStr
     # SES resource ARN for sending emails
@@ -46,7 +48,7 @@ class Settings(BaseSettings):
             return "production"
         return normalized
 
-    @field_validator('auth0_custom_domain', mode="after")
+    @field_validator('auth0_custom_domain', 'aai_login_proxy_url', mode="after")
     @classmethod
     def strip_trailing_slash(cls, value: str | None) -> str | None:
         if value is None:
@@ -76,6 +78,21 @@ class Settings(BaseSettings):
                 "Unknown ENVIRONMENT value and AAI_PORTAL_URL is not set."
             )
         self.aai_portal_url = default_url
+        return self
+
+    @model_validator(mode="after")
+    def set_default_aai_login_proxy_url(self) -> "Settings":
+        if self.aai_login_proxy_url:
+            return self
+        env_to_url = {
+            "dev-aaf": "https://dev-aaf.aaf-login.aai.test.biocommons.org.au"
+        }
+        default_url = env_to_url.get(self.environment)
+        if not default_url:
+            raise ValueError(
+                "Unknown ENVIRONMENT value and AAI_LOGIN_PROXY_URL is not set."
+            )
+        self.aai_login_proxy_url = default_url
         return self
 
 
