@@ -11,12 +11,13 @@ from biocommons.default import get_default_platforms
 from db.models import BiocommonsUser, BiocommonsUserHistory, EmailNotification
 from db.types import ApprovalStatusEnum, EmailStatusEnum, GroupEnum, PlatformEnum
 from routers.biocommons_register import create_user_in_db
-from schemas.biocommons import BiocommonsRegisterData
+from schemas.biocommons import BiocommonsRegisterData, BiocommonsUserAccountType
 from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
 from tests.datagen import (
     Auth0UserDataFactory,
     BiocommonsRegistrationRequestFactory,
     RoleUserDataFactory,
+    random_auth0_id,
 )
 from tests.db.datagen import (
     Auth0RoleFactory,
@@ -93,6 +94,18 @@ def sbp_group(persistent_factories):
         short_name="SBP",
         admin_roles=[admin_role],
     )
+
+
+def _aaf_registration_token_payload(user_id: str, email: str) -> dict:
+    return {
+        "user_id": user_id,
+        "email": email,
+        "client_id": "test-client",
+        "purpose": "aaf_registration",
+        "given_name": "AAF",
+        "family_name": "User",
+        "name": "AAF User",
+    }
 
 
 def test_biocommons_registration_data_excludes_null_user_metadata():
@@ -352,6 +365,137 @@ def test_successful_biocommons_registration_endpoint(
 
     user_email = emails_by_address[str(auth0_data.email)]
     assert user_email.subject == "Your Threatened Species Initiative Service Bundle request has been received"
+
+
+def test_register_aaf_endpoint_success_no_bundles(
+    test_client,
+    mock_settings,
+    mock_auth0_client,
+    galaxy_platform,
+    bpa_platform,
+    sbp_platform,
+    test_db_session,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test successful AAF registration without bundle requests."""
+    mock_settings.sbp_enabled = True
+    aaf_user_id = random_auth0_id()
+    email = "aaf-user@example.edu.au"
+    username = "new_aaf_user"
+    auth0_data = Auth0UserDataFactory.build(
+        user_id=aaf_user_id,
+        email=email,
+        username=username,
+        name="AAF User",
+    )
+    mock_auth0_client.update_user.return_value = auth0_data
+    mocker.patch(
+        "routers.biocommons_register.verify_action_token",
+        return_value=_aaf_registration_token_payload(aaf_user_id, email),
+    )
+    is_aaf_email = mocker.patch("routers.biocommons_register.is_aaf_email", return_value=True)
+
+    response = test_client.post(
+        "/biocommons/register-aaf",
+        json={
+            "session_token": "valid_token",
+            "username": username,
+            "recaptcha_token": "mock-token",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "User registered successfully"
+    assert response.json()["user"]["user_id"] == aaf_user_id
+    assert mock_recaptcha_verify.called
+    is_aaf_email.assert_called_once_with(email, settings=mock_settings)
+    mock_auth0_client.update_user.assert_called_once()
+    update_call = mock_auth0_client.update_user.call_args
+    assert update_call.kwargs["user_id"] == aaf_user_id
+    assert update_call.kwargs["update_data"].app_metadata.username == username
+
+    db_user = test_db_session.get(BiocommonsUser, aaf_user_id)
+    assert db_user is not None
+    assert db_user.email == email
+    assert db_user.username == username
+    assert db_user.email_verified is True
+    assert db_user.account_type == BiocommonsUserAccountType.AAF
+    assert db_user.group_memberships == []
+
+    platform_ids = {membership.platform_id for membership in db_user.platform_memberships}
+    assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
+    assert test_db_session.exec(select(EmailNotification)).all() == []
+
+
+def test_register_aaf_endpoint_success_with_bundles(
+    test_client_with_email,
+    mock_settings,
+    mock_auth0_client,
+    tsi_group,
+    galaxy_platform,
+    bpa_platform,
+    sbp_platform,
+    test_db_session,
+    mock_recaptcha_verify,
+    mocker,
+):
+    """Test successful AAF registration with requested bundles."""
+    mock_settings.sbp_enabled = True
+    aaf_user_id = random_auth0_id()
+    email = "bundle-aaf-user@example.edu.au"
+    username = "bundle_aaf_user"
+    auth0_data = Auth0UserDataFactory.build(
+        user_id=aaf_user_id,
+        email=email,
+        username=username,
+        name="Bundle AAF User",
+    )
+    mock_auth0_client.update_user.return_value = auth0_data
+    admin_stub = RoleUserDataFactory.build(email="tsi.admin@example.com")
+    mock_auth0_client.get_all_role_users.return_value = [admin_stub]
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=admin_stub.user_id,
+        email=admin_stub.email,
+    )
+    mocker.patch(
+        "routers.biocommons_register.verify_action_token",
+        return_value=_aaf_registration_token_payload(aaf_user_id, email),
+    )
+    mocker.patch("routers.biocommons_register.is_aaf_email", return_value=True)
+
+    response = test_client_with_email.post(
+        "/biocommons/register-aaf",
+        json={
+            "session_token": "valid_token",
+            "username": username,
+            "bundles": [{"bundle_id": "tsi", "reason": "Need TSI access"}],
+            "recaptcha_token": "mock-token",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "User registered successfully"
+
+    db_user = test_db_session.get(BiocommonsUser, aaf_user_id)
+    assert db_user is not None
+    assert db_user.account_type == BiocommonsUserAccountType.AAF
+    group_memberships = {membership.group_id: membership for membership in db_user.group_memberships}
+    assert set(group_memberships) == {GroupEnum.TSI.value}
+    assert group_memberships[GroupEnum.TSI.value].approval_status == ApprovalStatusEnum.PENDING
+    assert group_memberships[GroupEnum.TSI.value].request_reason == "Need TSI access"
+
+    platform_ids = {membership.platform_id for membership in db_user.platform_memberships}
+    assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
+
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 2
+    emails_by_address = {email_notification.to_address: email_notification for email_notification in queued_emails}
+    assert emails_by_address[admin_stub.email].subject == "Threatened Species Initiative Service Bundle request"
+    assert emails_by_address[email].subject == (
+        "Your Threatened Species Initiative Service Bundle request has been received"
+    )
+    assert all(email_notification.status == EmailStatusEnum.PENDING for email_notification in queued_emails)
 
 
 def test_biocommons_registration_endpoint_multiple_bundles(
