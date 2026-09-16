@@ -124,6 +124,7 @@ class Auth0UserDataFactory(ModelFactory[Auth0UserData]):
     username = BiocommonsProviders.biocommons_username
     # blocked = False by default
     blocked = False
+    email_verified = True
 
 
 class Auth0ConnectionFactory(ModelFactory[Auth0Connection]):

@@ -191,6 +191,7 @@ def mock_settings():
         auth0_db_connection="Username-Password-Authentication",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
+        aai_login_proxy_url="https://mock-proxy-url",
         admin_roles=["Admin"],
         auth0_algorithms=["RS256"],
         recaptcha_secret="mock-secret",

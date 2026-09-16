@@ -32,3 +32,12 @@ class Auth0ActionToken(BaseModel):
     purpose: str
     sub: str | None = None
     iss: str | None = None
+
+
+class AafRegistrationActionToken(Auth0ActionToken):
+    """
+    Extends Auth0ActionToken with extra fields used during AAF registration.
+    """
+    given_name: str | None = None
+    family_name: str | None = None
+    name: str | None = None

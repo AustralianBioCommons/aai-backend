@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
@@ -8,6 +9,7 @@ from fastapi import HTTPException
 
 from auth0.client import Auth0Client
 from routers.aaf import link_aaf_account, mark_user_aaf_only
+from routers.biocommons_register import verify_registration_token
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
@@ -159,6 +161,20 @@ def _action_token_payload(
     return payload
 
 
+def _aaf_registration_token_payload(
+    user_id: str,
+    email: str,
+    purpose: str = "aaf_registration",
+) -> dict:
+    return {
+        **_action_token_payload(user_id=user_id, email=email, purpose=purpose),
+        "given_name": "AAF",
+        "family_name": "User",
+        "name": "AAF User",
+        "exp": int((datetime.now() + timedelta(minutes=5)).timestamp()),
+    }
+
+
 def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     update_user_mock.assert_called_once()
     call_args, call_kwargs = update_user_mock.call_args
@@ -207,6 +223,47 @@ def _decode_check_link_redirect(
     assert decoded_token["sub"] == incoming_token.get("sub", incoming_token["user_id"])
     assert decoded_token["iss"] == incoming_token.get("iss", settings.auth0_domain)
     return decoded_token
+
+
+def test_verify_registration_token_accepts_token_signed_with_settings_secret(mock_settings):
+    aaf_user_id = random_auth0_id()
+    payload = _aaf_registration_token_payload(
+        user_id=aaf_user_id,
+        email="aaf-user@example.edu.au",
+    )
+    token = jwt.encode(
+        payload,
+        key=mock_settings.auth0_management_secret,
+        algorithm="HS256",
+    )
+
+    result = verify_registration_token(token, settings=mock_settings)
+
+    assert result.user_id == aaf_user_id
+    assert str(result.email) == "aaf-user@example.edu.au"
+    assert result.client_id == "test-client"
+    assert result.purpose == "aaf_registration"
+    assert result.given_name == "AAF"
+    assert result.family_name == "User"
+    assert result.name == "AAF User"
+
+
+def test_verify_registration_token_rejects_wrong_purpose(mock_settings):
+    token = jwt.encode(
+        _aaf_registration_token_payload(
+            user_id=random_auth0_id(),
+            email="aaf-user@example.edu.au",
+            purpose="aaf_link",
+        ),
+        key=mock_settings.auth0_management_secret,
+        algorithm="HS256",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_registration_token(token, settings=mock_settings)
+
+    assert exc_info.value.status_code == HTTPStatus.UNAUTHORIZED
+    assert exc_info.value.detail == "Token from Auth0 expired."
 
 
 def test_mark_user_aaf_only():
@@ -423,3 +480,91 @@ def test_check_link_already_linked_is_idempotent(test_client, test_db_session, p
     get_user.assert_called_once_with(user_id=aaf_user_id)
     link_identity.assert_not_called()
     update_user.assert_not_called()
+
+
+def test_register_aaf_returns_registration_error_when_auth0_update_fails(
+    test_client,
+    test_db_session,
+    mock_auth0_client,
+    mocker,
+):
+    aaf_user_id = random_auth0_id()
+    email = "new-aaf-user@example.edu.au"
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        purpose="aaf_registration",
+    )
+    action_token_payload.update(
+        {
+            "given_name": "New",
+            "family_name": "User",
+            "name": "New User",
+        }
+    )
+    mocker.patch("routers.biocommons_register.verify_action_token", return_value=action_token_payload)
+    mocker.patch("routers.biocommons_register.validate_recaptcha", return_value=True)
+    mocker.patch("routers.biocommons_register.is_aaf_email", return_value=True)
+    mock_auth0_client.update_user.side_effect = ValueError("Failed to update user auth0|123: {'message': 'bad request'}")
+
+    response = test_client.post(
+        "/biocommons/register-aaf",
+        json={
+            "session_token": "valid_token",
+            "username": "new_aaf_user",
+            "recaptcha_token": "valid_recaptcha",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "message": "AAF registration failed - couldn't update app_metadata: Failed to update user auth0|123: {'message': 'bad request'}",
+        "field_errors": [],
+    }
+    mock_auth0_client.update_user.assert_called_once()
+
+
+def test_register_aaf_sbp_disabled_rejects_before_creating_user(
+    test_client,
+    mock_settings,
+    mock_auth0_client,
+    mocker,
+):
+    mock_settings.sbp_enabled = False
+    aaf_user_id = random_auth0_id()
+    email = "researcher@unimelb.edu.au"
+    action_token_payload = _action_token_payload(
+        aaf_user_id,
+        email,
+        purpose="aaf_registration",
+    )
+    action_token_payload.update(
+        {
+            "given_name": "SBP",
+            "family_name": "Disabled",
+            "name": "SBP Disabled",
+        }
+    )
+    mocker.patch("routers.biocommons_register.verify_action_token", return_value=action_token_payload)
+    mocker.patch("routers.biocommons_register.validate_recaptcha", return_value=True)
+    is_aaf_email = mocker.patch("routers.biocommons_register.is_aaf_email", return_value=True)
+    institution_check = mocker.patch("register.utils.is_australian_research_institution_email")
+
+    response = test_client.post(
+        "/biocommons/register-aaf",
+        json={
+            "session_token": "valid_token",
+            "username": "sbp_disabled_user",
+            "bundles": [{"bundle_id": "sbp_workflow_execution", "reason": "SBP access"}],
+            "recaptcha_token": "valid_recaptcha",
+        },
+    )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json() == {
+        "message": "SBP workflow execution is currently unavailable.",
+        "field_errors": [],
+    }
+    is_aaf_email.assert_not_called()
+    institution_check.assert_not_called()
+    mock_auth0_client.update_user.assert_not_called()

@@ -21,3 +21,14 @@ class BiocommonsRegistrationRequest(BaseModel):
     recaptcha_token: Optional[str] = None
 
     model_config = ConfigDict(extra="forbid")
+
+
+class AafRegistrationRequest(BaseModel):
+    """
+    email and name come from AAF and are encoded in the session_token,
+    which needs to be verified.
+    """
+    session_token: str
+    username: BiocommonsUsername
+    bundles: Optional[list[BundleRequest]] = None
+    recaptcha_token: Optional[str] = None

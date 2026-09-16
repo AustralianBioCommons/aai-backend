@@ -189,6 +189,7 @@ class BiocommonsAppMetadata(BaseModel):
     Note we expect all app_metadata from Auth0 to match this format
     (if not empty).
     """
+    username: Optional[str] = None
     registration_from: Optional[AppId] = None
     old_emails: Optional[list[OldEmailRecord]] = None
     user_needs_migration: Optional[bool] = None
@@ -218,6 +219,7 @@ class BiocommonsAppMetadataUpdate(BaseModel):
     Auth0 merges app_metadata fields when updating, so updates should not
     need to repeat fields that are not changing.
     """
+    username: Optional[str] = None
     registration_from: Optional[AppId] = None
     old_emails: Optional[list[OldEmailRecord]] = None
     user_needs_migration: Optional[bool] = None
