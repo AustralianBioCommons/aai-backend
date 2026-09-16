@@ -413,7 +413,10 @@ def test_register_aaf_endpoint_success_no_bundles(
     mock_auth0_client.update_user.assert_called_once()
     update_call = mock_auth0_client.update_user.call_args
     assert update_call.kwargs["user_id"] == aaf_user_id
-    assert update_call.kwargs["update_data"].app_metadata.username == username
+    app_metadata = update_call.kwargs["update_data"].app_metadata
+    assert app_metadata.username == username
+    assert app_metadata.account_type == BiocommonsUserAccountType.AAF
+    assert app_metadata.aaf_only is True
 
     db_user = test_db_session.get(BiocommonsUser, aaf_user_id)
     assert db_user is not None
@@ -476,6 +479,11 @@ def test_register_aaf_endpoint_success_with_bundles(
 
     assert response.status_code == 200
     assert response.json()["message"] == "User registered successfully"
+    update_call = mock_auth0_client.update_user.call_args
+    app_metadata = update_call.kwargs["update_data"].app_metadata
+    assert app_metadata.username == username
+    assert app_metadata.account_type == BiocommonsUserAccountType.AAF
+    assert app_metadata.aaf_only is True
 
     db_user = test_db_session.get(BiocommonsUser, aaf_user_id)
     assert db_user is not None

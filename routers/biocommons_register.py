@@ -267,7 +267,13 @@ async def register_aaf(
 
     try:
         logger.info("Setting username in app_metadata")
-        update_data = UpdateUserData(app_metadata=BiocommonsAppMetadataUpdate(username=register_data.username))
+        update_data = UpdateUserData(
+            app_metadata=BiocommonsAppMetadataUpdate(
+                username=register_data.username,
+                account_type=BiocommonsUserAccountType.AAF,
+                aaf_only=True,
+            )
+        )
         try:
             auth0_user_data = auth0_client.update_user(user_id=validated_token.user_id, update_data=update_data)
         except ValueError as e:
