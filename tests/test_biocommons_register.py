@@ -417,6 +417,7 @@ def test_register_aaf_endpoint_success_no_bundles(
     assert app_metadata.username == username
     assert app_metadata.account_type == BiocommonsUserAccountType.AAF
     assert app_metadata.aaf_only is True
+    assert app_metadata.aaf_registration_complete is True
 
     db_user = test_db_session.get(BiocommonsUser, aaf_user_id)
     assert db_user is not None
@@ -484,6 +485,7 @@ def test_register_aaf_endpoint_success_with_bundles(
     assert app_metadata.username == username
     assert app_metadata.account_type == BiocommonsUserAccountType.AAF
     assert app_metadata.aaf_only is True
+    assert app_metadata.aaf_registration_complete is True
 
     db_user = test_db_session.get(BiocommonsUser, aaf_user_id)
     assert db_user is not None
