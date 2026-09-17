@@ -272,6 +272,7 @@ async def register_aaf(
                 username=register_data.username,
                 account_type=BiocommonsUserAccountType.AAF,
                 aaf_only=True,
+                aaf_registration_complete=True,
             )
         )
         try:

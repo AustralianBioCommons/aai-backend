@@ -195,6 +195,7 @@ class BiocommonsAppMetadata(BaseModel):
     user_needs_migration: Optional[bool] = None
     account_type: BiocommonsUserAccountType
     aaf_only: Optional[bool] = None
+    aaf_registration_complete: Optional[bool] = None
     checked_email: Optional[EmailStr] = None
     linking_completed: Optional[bool] = None
     linking_completed_at: Optional[AwareDatetime] = None
@@ -225,6 +226,7 @@ class BiocommonsAppMetadataUpdate(BaseModel):
     user_needs_migration: Optional[bool] = None
     account_type: Optional[BiocommonsUserAccountType] = None
     aaf_only: Optional[bool] = None
+    aaf_registration_complete: Optional[bool] = None
     checked_email: Optional[EmailStr] = None
     linking_completed: Optional[bool] = None
     linking_completed_at: Optional[AwareDatetime] = None
