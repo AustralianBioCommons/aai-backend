@@ -396,7 +396,7 @@ class UserProfileData(BaseModel):
     user_id: str
     name: str
     email: str
-    email_verified: bool
+    email_verified: Optional[bool] = None
     username: BiocommonsUsername
     picture: str
     given_name: str | None = None

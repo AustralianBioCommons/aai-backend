@@ -66,7 +66,7 @@ def test_invalid_password(password: str, expected_error: str):
 
 
 def test_user_profile_data_with_memberships(test_db_session, persistent_factories):
-    auth0_user = UserInfoFactory.build()
+    auth0_user = UserInfoFactory.build(email_verified=True)
     db_user = BiocommonsUserFactory.create_sync(
         id=auth0_user.sub,
         email=auth0_user.email,

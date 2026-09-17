@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Optional
 
 import httpx2
 from fastapi.params import Depends
@@ -13,7 +13,8 @@ class UserInfo(BaseModel):
     name: str
     email: str
     picture: str
-    email_verified: bool
+    # email_verified may be missing for external OIDC users (e.g. AAF)
+    email_verified: Optional[bool] = None
     given_name: str | None = None
     family_name: str | None = None
     show_welcome_message: bool | None = Field(None, alias="https://biocommons.org.au/show_migration_welcome")
