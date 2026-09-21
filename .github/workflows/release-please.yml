@@ -2,7 +2,9 @@ name: release-please-build-publish
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - release/**
   workflow_dispatch:
 
 jobs:
@@ -29,6 +31,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: ${{ github.ref_name }}
 
   publish-release-image:
     name: Build And Push Backend Release Image
