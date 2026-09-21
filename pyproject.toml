@@ -23,7 +23,9 @@ dependencies = [
     "loguru>=0.7.3",
     "cachetools~=7.1",
     "typer>=0.26.8",
-    "starlette-admin>=0.17.1",
+    # Pin below 1.0: the 1.x line removed the HasMany(identity=...) API that
+    # db/st_admin.py relies on. Bump + migrate st_admin.py to move to 1.x.
+    "starlette-admin>=0.17.1,<1.0",
     # Security floor for CVE-2026-27199 (safe_join Windows device names)
     "werkzeug>=3.1.8",
 ]
@@ -45,12 +47,6 @@ dev = [
     "moto>=5.0.5",
     "faker>=40.4.0",
 ]
-
-[tool.uv]
-# Exclude packages newer than 7 days - may help
-# prevent security issues, since hijacked packages are generally
-# fixed quickly
-exclude-newer = "7 days"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

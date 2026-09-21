@@ -3,12 +3,13 @@ from http import HTTPStatus
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from httpx2 import HTTPStatusError
+from httpx2 import URL, HTTPStatusError
 from sqlmodel import Session
 from starlette import status
 from starlette.responses import Response
 
-from auth.validator import verify_action_token
+from auth.validator import create_action_token, verify_action_token
+from routers.aaf import get_auth0_continue_base_url
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser
@@ -302,10 +303,34 @@ async def register_aaf(
 
         session.commit()
         logger.info("Successfully added user to database.")
-        return {
+        result = {
             "message": "User registered successfully",
-            "user": auth0_user_data
+            "user": auth0_user_data,
         }
+        # When the Auth0 redirect state is present, sign a registration_complete
+        # token and return the /continue URL so the aaf-require-registration
+        # action resumes login instead of denying.
+        if register_data.state:
+            signed_token = create_action_token(
+                payload={
+                    "registration_complete": True,
+                    "sub": validated_token.sub or validated_token.user_id,
+                    "iss": validated_token.iss or settings.auth0_domain,
+                    "state": register_data.state,
+                },
+                settings=settings,
+            )
+            continue_base_url = get_auth0_continue_base_url(validated_token, settings)
+            result["redirect_url"] = str(
+                URL(
+                    f"{continue_base_url}/continue",
+                    params={
+                        "state": register_data.state,
+                        "session_token": signed_token,
+                    },
+                )
+            )
+        return result
     except HTTPStatusError as e:
         logger.error(f"AAF registration failed: {e}")
         # NOTE: don't think the checks of specific Auth0 issues are relevant here as we

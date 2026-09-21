@@ -29,6 +29,10 @@ class AafRegistrationRequest(BaseModel):
     which needs to be verified.
     """
     session_token: str
+    # Auth0 redirect state; when present the endpoint returns a redirect_url that
+    # resumes the post-login action at Auth0 /continue. Optional so non-redirect
+    # callers (and existing tests) still work.
+    state: Optional[str] = None
     username: BiocommonsUsername
     bundles: Optional[list[BundleRequest]] = None
     recaptcha_token: Optional[str] = None
