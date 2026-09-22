@@ -9,14 +9,12 @@ from starlette import status
 from starlette.responses import Response
 
 from auth.validator import create_action_token, verify_action_token
-from biocommons.emails import compose_welcome_email, format_first_name
-from routers.aaf import get_auth0_continue_base_url
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
+from biocommons.emails import compose_welcome_email, format_first_name
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
 from register.tokens import validate_recaptcha
-from services.email_queue import enqueue_email
 from register.utils import (
     check_is_username_used,
     check_sbp_email_allowed,
@@ -24,6 +22,7 @@ from register.utils import (
     create_platform_memberships,
     process_bundle_request_notifications,
 )
+from routers.aaf import get_auth0_continue_base_url
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
 from schemas.auth0 import AafRegistrationActionToken
@@ -43,6 +42,7 @@ from schemas.responses import (
     RegistrationErrorResponse,
     RegistrationResponse,
 )
+from services.email_queue import enqueue_email
 from services.institutions import is_aaf_email
 
 logger = logging.getLogger("uvicorn.error")
