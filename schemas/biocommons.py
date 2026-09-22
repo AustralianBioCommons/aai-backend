@@ -397,6 +397,9 @@ class UserProfileData(BaseModel):
     name: str
     email: str
     email_verified: Optional[bool] = None
+    # Account type (AAF vs Auth0) so the portal can lock IdP-managed fields
+    # (name/password) and treat AAF users as email-verified.
+    account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
     username: BiocommonsUsername
     picture: str
     given_name: str | None = None
@@ -419,11 +422,23 @@ class UserProfileData(BaseModel):
         group_memberships = [UserProfileGroupData.from_group_membership(membership)
                              for membership in user.group_memberships
                              if membership.approval_status != ApprovalStatusEnum.REVOKED]
+        # AAF detection. The DB account_type is the durable signal, but fall back
+        # to the login itself: AAF-only users have an enterprise sub of the form
+        # "oidc|AAF|..." (linked users keep their DB account_type instead). This
+        # makes the profile resolve correctly even if the DB record predates the
+        # account_type logic.
+        is_aaf = (
+            user.account_type == BiocommonsUserAccountType.AAF
+            or "|AAF|" in (auth0_user_info.sub or "")
+        )
         return cls(
             user_id=user.id,
             name=auth0_user_info.name,
             email=user.email,
-            email_verified=auth0_user_info.email_verified,
+            # AAF emails are federation-verified; the Auth0/DB flag is unreliable
+            # for enterprise users (can't be set via Management API), so trust AAF.
+            email_verified=True if is_aaf else auth0_user_info.email_verified,
+            account_type=BiocommonsUserAccountType.AAF if is_aaf else user.account_type,
             username=user.username,
             picture=auth0_user_info.picture,
             given_name=auth0_user_info.given_name,

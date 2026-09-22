@@ -9,12 +9,14 @@ from starlette import status
 from starlette.responses import Response
 
 from auth.validator import create_action_token, verify_action_token
+from biocommons.emails import compose_welcome_email, format_first_name
 from routers.aaf import get_auth0_continue_base_url
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
 from db.models import BiocommonsUser
 from db.setup import get_db_session
 from register.tokens import validate_recaptcha
+from services.email_queue import enqueue_email
 from register.utils import (
     check_is_username_used,
     check_sbp_email_allowed,
@@ -303,6 +305,33 @@ async def register_aaf(
 
         session.commit()
         logger.info("Successfully added user to database.")
+
+        # AAF users skip Auth0 email verification (their email is asserted by the
+        # federation), so the welcome email that normally fires after verification
+        # would never be sent. Enqueue it here instead. Best-effort: a mail failure
+        # must not fail the registration that already committed above.
+        try:
+            first_name = format_first_name(
+                full_name=validated_token.name,
+                given_name=validated_token.given_name,
+                fallback=str(validated_token.email),
+            )
+            subject, body_html = compose_welcome_email(
+                first_name=first_name,
+                portal_url=settings.aai_portal_url,
+            )
+            enqueue_email(
+                session,
+                to_address=str(validated_token.email),
+                subject=subject,
+                body_html=body_html,
+                settings=settings,
+            )
+            session.commit()
+        except Exception as e:
+            logger.error(f"Failed to enqueue AAF welcome email for {validated_token.email}: {e}")
+            session.rollback()
+
         result = {
             "message": "User registered successfully",
             "user": auth0_user_data,

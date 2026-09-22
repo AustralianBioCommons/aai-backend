@@ -429,7 +429,13 @@ def test_register_aaf_endpoint_success_no_bundles(
 
     platform_ids = {membership.platform_id for membership in db_user.platform_memberships}
     assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
-    assert test_db_session.exec(select(EmailNotification)).all() == []
+    # AAF users skip Auth0 verification, so the welcome email is enqueued at
+    # registration time (no bundle emails since none were requested).
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == email
+    assert queued_emails[0].subject == "Welcome to BioCommons Access"
+    assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
 def test_register_aaf_endpoint_success_with_bundles(
@@ -498,13 +504,18 @@ def test_register_aaf_endpoint_success_with_bundles(
     platform_ids = {membership.platform_id for membership in db_user.platform_memberships}
     assert platform_ids == {PlatformEnum.BPA_DATA_PORTAL, PlatformEnum.GALAXY, PlatformEnum.SBP}
 
+    # 2 bundle emails (admin notification + requester acknowledgement) plus the
+    # AAF welcome email. The welcome email and the requester ack both go to the
+    # user, so key by (address, subject) rather than address alone.
     queued_emails = test_db_session.exec(select(EmailNotification)).all()
-    assert len(queued_emails) == 2
-    emails_by_address = {email_notification.to_address: email_notification for email_notification in queued_emails}
-    assert emails_by_address[admin_stub.email].subject == "Threatened Species Initiative Service Bundle request"
-    assert emails_by_address[email].subject == (
-        "Your Threatened Species Initiative Service Bundle request has been received"
-    )
+    assert len(queued_emails) == 3
+    emails = {(e.to_address, e.subject) for e in queued_emails}
+    assert (admin_stub.email, "Threatened Species Initiative Service Bundle request") in emails
+    assert (
+        email,
+        "Your Threatened Species Initiative Service Bundle request has been received",
+    ) in emails
+    assert (email, "Welcome to BioCommons Access") in emails
     assert all(email_notification.status == EmailStatusEnum.PENDING for email_notification in queued_emails)
 
 

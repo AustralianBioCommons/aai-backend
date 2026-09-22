@@ -11,6 +11,7 @@ from schemas.biocommons import (
     PASSWORD_FORMAT_MESSAGE,
     BiocommonsEmail,
     BiocommonsPassword,
+    BiocommonsUserAccountType,
     BiocommonsUsername,
     UserProfileData,
 )
@@ -140,6 +141,67 @@ def test_user_profile_data_with_memberships(test_db_session, persistent_factorie
     assert tsi_membership.group_short_name == "TSI"
     assert tsi_membership.approval_status == ApprovalStatusEnum.APPROVED
 
+
+def test_user_profile_data_aaf_by_account_type(test_db_session, persistent_factories):
+    """A linked AAF user (DB account_type=AAF) is reported AAF and email-verified,
+    even though the Auth0 flag says unverified."""
+    auth0_user = UserInfoFactory.build(sub="auth0|linked-user", email_verified=False)
+    db_user = BiocommonsUserFactory.create_sync(
+        id="auth0|linked-user",
+        email="linked@example.edu.au",
+        username="linked-user",
+        account_type=BiocommonsUserAccountType.AAF,
+        platform_memberships=[],
+        group_memberships=[],
+    )
+    test_db_session.flush()
+    test_db_session.refresh(db_user)
+
+    profile = UserProfileData.from_db_user(db_user, auth0_user)
+
+    assert profile.account_type == BiocommonsUserAccountType.AAF
+    assert profile.email_verified is True
+
+
+def test_user_profile_data_aaf_by_sub_fallback(test_db_session, persistent_factories):
+    """An AAF-only login (sub 'oidc|AAF|...') resolves as AAF even if the DB record
+    still says auth0, and is reported as email-verified."""
+    auth0_user = UserInfoFactory.build(sub="oidc|AAF|abc123", email_verified=False)
+    db_user = BiocommonsUserFactory.create_sync(
+        id="oidc|AAF|abc123",
+        email="aaf@example.edu.au",
+        username="aaf-user",
+        account_type=BiocommonsUserAccountType.AUTH0,
+        platform_memberships=[],
+        group_memberships=[],
+    )
+    test_db_session.flush()
+    test_db_session.refresh(db_user)
+
+    profile = UserProfileData.from_db_user(db_user, auth0_user)
+
+    assert profile.account_type == BiocommonsUserAccountType.AAF
+    assert profile.email_verified is True
+
+
+def test_user_profile_data_non_aaf_keeps_real_verified_status(test_db_session, persistent_factories):
+    """A regular Auth0 user keeps their real (unverified) email status."""
+    auth0_user = UserInfoFactory.build(sub="auth0|regular", email_verified=False)
+    db_user = BiocommonsUserFactory.create_sync(
+        id="auth0|regular",
+        email="regular@example.com",
+        username="regular-user",
+        account_type=BiocommonsUserAccountType.AUTH0,
+        platform_memberships=[],
+        group_memberships=[],
+    )
+    test_db_session.flush()
+    test_db_session.refresh(db_user)
+
+    profile = UserProfileData.from_db_user(db_user, auth0_user)
+
+    assert profile.account_type == BiocommonsUserAccountType.AUTH0
+    assert profile.email_verified is False
 
 
 @pytest.mark.parametrize("username", [
