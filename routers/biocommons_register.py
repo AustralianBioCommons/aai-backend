@@ -263,6 +263,23 @@ async def register_aaf(
         response.status_code = status.HTTP_400_BAD_REQUEST
         return sbp_email_error
 
+    # Reject if the email already belongs to another account. The AAF user's own
+    # Auth0 record exists (they just logged in via AAF), so exclude it and check
+    # our DB - this catches an existing account and avoids the email unique
+    # constraint raising an IntegrityError (surfaced as a 500) further down.
+    existing_email_user = BiocommonsUser.get_by_email(
+        email=validated_token.email,
+        session=session,
+        case_insensitive=True,
+        exclude_user_id=validated_token.user_id,
+    )
+    if existing_email_user is not None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(
+            message="An account with this email already exists. Please log in instead.",
+            field_errors=[FieldError(field="email", message="Email is already registered")],
+        )
+
     duplicate_username_error = check_is_username_used(username=register_data.username, session=session)
     if duplicate_username_error:
         response.status_code = status.HTTP_400_BAD_REQUEST

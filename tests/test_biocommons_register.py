@@ -519,6 +519,55 @@ def test_register_aaf_endpoint_success_with_bundles(
     assert all(email_notification.status == EmailStatusEnum.PENDING for email_notification in queued_emails)
 
 
+def test_register_aaf_endpoint_rejects_existing_email(
+    test_client,
+    mock_settings,
+    mock_auth0_client,
+    galaxy_platform,
+    bpa_platform,
+    sbp_platform,
+    test_db_session,
+    mock_recaptcha_verify,
+    persistent_factories,
+    mocker,
+):
+    """AAF registration is rejected with a 400 when the email already belongs to
+    another account, instead of hitting the email unique constraint (500)."""
+    mock_settings.sbp_enabled = True
+    aaf_user_id = random_auth0_id()
+    email = "already-registered@example.edu.au"
+    # Pre-existing account with the same email but a different id.
+    BiocommonsUserFactory.create_sync(
+        id="auth0|existing-user",
+        email=email,
+        username="existing_user",
+        platform_memberships=[],
+        group_memberships=[],
+    )
+    mocker.patch(
+        "routers.biocommons_register.verify_action_token",
+        return_value=_aaf_registration_token_payload(aaf_user_id, email),
+    )
+    mocker.patch("routers.biocommons_register.is_aaf_email", return_value=True)
+
+    response = test_client.post(
+        "/biocommons/register-aaf",
+        json={
+            "session_token": "valid_token",
+            "username": "new_aaf_user",
+            "recaptcha_token": "mock-token",
+        },
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert "already exists" in body["message"].lower()
+    assert any(fe["field"] == "email" for fe in body["field_errors"])
+    # The AAF user must not be created, and Auth0 must not be updated.
+    assert test_db_session.get(BiocommonsUser, aaf_user_id) is None
+    mock_auth0_client.update_user.assert_not_called()
+
+
 def test_biocommons_registration_endpoint_multiple_bundles(
     test_client_with_email,
     mock_settings,
