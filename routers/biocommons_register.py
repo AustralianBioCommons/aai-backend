@@ -1,35 +1,49 @@
 import logging
-from typing import Optional
+from http import HTTPStatus
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response
-from httpx import HTTPStatusError
+from fastapi import APIRouter, Depends, HTTPException
+from httpx2 import URL, HTTPStatusError
 from sqlmodel import Session
+from starlette import status
+from starlette.responses import Response
 
-from auth0.client import Auth0Client, get_auth0_client
-from biocommons.bundles import BUNDLES, BiocommonsBundle
-from biocommons.default import get_default_platforms
-from biocommons.emails import (
-    compose_bundle_request_confirmation_email,
-    compose_group_approval_email,
-    format_first_name,
-    get_group_admin_contacts,
-    get_requester_identity,
-)
+from auth.validator import create_action_token, verify_action_token
+from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
+from biocommons.emails import compose_welcome_email, format_first_name
 from config import Settings, get_settings
-from db.models import BiocommonsUser, BiocommonsUserHistory, GroupMembership
+from db.models import BiocommonsUser
 from db.setup import get_db_session
 from register.tokens import validate_recaptcha
+from register.utils import (
+    check_is_username_used,
+    check_sbp_email_allowed,
+    create_bundle_requests,
+    create_platform_memberships,
+    process_bundle_request_notifications,
+)
+from routers.aaf import get_auth0_continue_base_url
 from routers.errors import RegistrationRoute
 from routers.utils import check_existing_user
-from schemas.biocommons import Auth0UserData, BiocommonsRegisterData
-from schemas.biocommons_register import BiocommonsRegistrationRequest, BundleRequest
+from schemas.auth0 import AafRegistrationActionToken
+from schemas.biocommons import (
+    Auth0UserData,
+    BiocommonsAppMetadataUpdate,
+    BiocommonsRegisterData,
+    BiocommonsUserAccountType,
+)
+from schemas.biocommons_register import (
+    AafRegistrationRequest,
+    BiocommonsRegistrationRequest,
+    BundleRequest,
+)
 from schemas.responses import (
     FieldError,
     RegistrationErrorResponse,
     RegistrationResponse,
 )
 from services.email_queue import enqueue_email
-from services.institutions import is_australian_research_institution_email
+from services.institutions import is_aaf_email
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -50,166 +64,20 @@ def create_user_in_db(user_data: Auth0UserData,
     db_user = BiocommonsUser.from_auth0_data(data=user_data)
     session.add(db_user)
     session.flush()
-    for platform in get_default_platforms(sbp_enabled=sbp_enabled):
-        db_user.add_platform_membership(
-            platform=platform,
-            db_session=session,
-            auth0_client=auth0_client,
-            auto_approve=True
-        )
-
-    if bundles is not None:
-        for bundle_request in bundles:
-            bundle = BUNDLES[bundle_request.bundle_id]
-            logger.info(f"Adding group/platform memberships for bundle: {bundle}")
-            bundle.create_memberships(
-                user=db_user,
-                auth0_client=auth0_client,
-                db_session=session,
-                commit=False,
-                request_reason=bundle_request.reason,
-            )
-
+    # Add default platform memberships
+    create_platform_memberships(db_user=db_user, auth0_client=auth0_client, session=session, sbp_enabled=sbp_enabled)
+    # Create requests for selected bundles (if any)
+    create_bundle_requests(bundles=bundles, db_user=db_user, session=session, auth0_client=auth0_client)
     session.flush()
     if commit:
         session.commit()
     return db_user
 
 
-def _notify_bundle_group_admins(
-    *,
-    bundle: BiocommonsBundle,
-    user: BiocommonsUser,
-    auth0_client: Auth0Client,
-    db_session: Session,
-    settings: Settings,
-) -> None:
-    """
-    Queue approval emails for bundle group admins when memberships require review.
-    """
-    if bundle.group_auto_approve:
-        return
-
-    membership = GroupMembership.get_by_user_id_and_group_id(
-        user_id=user.id,
-        group_id=bundle.group_id.value,
-        session=db_session,
-    )
-    if membership is None:
-        logger.warning(
-            "Unable to find group membership for user %s and bundle %s",
-            user.id,
-            bundle.id,
-        )
-        return
-
-    db_session.refresh(membership, attribute_names=["group", "user"])
-
-    admin_contacts = get_group_admin_contacts(group=membership.group, auth0_client=auth0_client)
-    if not admin_contacts:
-        logger.info("No admins found for group %s; skipping notification", membership.group_id)
-        return
-
-    try:
-        requester_email, requester_full_name = get_requester_identity(
-            auth0_client=auth0_client,
-            user_id=membership.user_id,
-            fallback_email=membership.user.email,
-        )
-    except Exception as exc:
-        logger.warning(
-            "Failed to fetch Auth0 user data for %s; using fallback values: %s",
-            membership.user_id,
-            exc,
-        )
-        requester_email = membership.user.email
-        requester_full_name = requester_email or "Unknown user"
-    for email, admin_first_name in admin_contacts:
-        subject, body_html = compose_group_approval_email(
-            admin_first_name=admin_first_name,
-            bundle_name=membership.group.name,
-            requester_full_name=requester_full_name,
-            requester_email=requester_email,
-            request_reason=membership.request_reason,
-            settings=settings,
-        )
-        enqueue_email(
-            db_session,
-            to_address=email,
-            subject=subject,
-            body_html=body_html,
-            settings=settings,
-        )
-
-
-def _notify_bundle_requester(
-    *,
-    bundle: BiocommonsBundle,
-    user: BiocommonsUser,
-    auth0_user_data: Auth0UserData,
-    db_session: Session,
-    settings: Settings,
-    request_reason: Optional[str],
-) -> None:
-    """
-    Queue a confirmation email to the user after they request bundle access.
-    """
-    if bundle.group_auto_approve:
-        return
-
-    membership = GroupMembership.get_by_user_id_and_group_id(
-        user_id=user.id,
-        group_id=bundle.group_id.value,
-        session=db_session,
-    )
-    if membership is None:
-        logger.warning(
-            "Unable to find group membership for user %s and bundle %s",
-            user.id,
-            bundle.id,
-        )
-        return
-
-    db_session.refresh(membership, attribute_names=["group"])
-
-    first_name = format_first_name(
-        full_name=auth0_user_data.name,
-        given_name=auth0_user_data.given_name,
-        fallback="there",
-    )
-    subject, body_html = compose_bundle_request_confirmation_email(
-        first_name=first_name,
-        bundle_name=membership.group.name,
-        request_reason=request_reason,
-        settings=settings,
-    )
-    enqueue_email(
-        db_session,
-        to_address=str(auth0_user_data.email),
-        subject=subject,
-        body_html=body_html,
-        settings=settings,
-    )
-
-
-async def check_sbp_email_domain(registration: BiocommonsRegistrationRequest) -> bool:
-    """
-    If user requests SBP access, check if the email domain is allowed.
-
-    Return false if the email domain is not allowed.
-    """
-    if registration.bundles is not None:
-        has_sbp_bundle = any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
-        if has_sbp_bundle:
-            is_institute = await is_australian_research_institution_email(registration.email)
-            return is_institute
-    return True
-
-
-def _requests_sbp_bundle(registration: BiocommonsRegistrationRequest) -> bool:
-    if registration.bundles is None:
+def _requests_sbp_bundle(bundles: list[BundleRequest] | None) -> bool:
+    if bundles is None:
         return False
-    return any(bundle.bundle_id == "sbp_workflow_execution" for bundle in registration.bundles)
+    return any(bundle.bundle_id == "sbp_workflow_execution" for bundle in bundles)
 
 @router.post(
     "/register",
@@ -235,36 +103,23 @@ async def register_biocommons_user(
         response.status_code = 400
         return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
 
-    if _requests_sbp_bundle(registration) and not settings.sbp_enabled:
+    if _requests_sbp_bundle(registration.bundles) and not settings.sbp_enabled:
         response.status_code = 400
         return RegistrationErrorResponse(message="SBP workflow execution is currently unavailable.")
 
     # Pre-registration checks
-    email_ok = await check_sbp_email_domain(registration)
-    if not email_ok:
+    sbp_email_error = await check_sbp_email_allowed(email=registration.email, bundles=registration.bundles)
+    if sbp_email_error is not None:
         response.status_code = 400
-        return RegistrationErrorResponse(
-            message="SBP workflow execution requires an Australian institutional email address.",
-            field_errors=[
-                FieldError(
-                    field="email",
-                    message="Please use an Australian institutional email address if applying for SBP workflow execution access."
-                )
-            ]
-        )
+        return sbp_email_error
 
     # Create Auth0 user data
     user_data = BiocommonsRegisterData.from_biocommons_registration(registration)
     # Check if username has already been used previously
-    username_used = BiocommonsUserHistory.is_username_used(user_data.username, session=db_session)
-    if username_used:
-        field_errors = [FieldError(field="username", message="Username is already taken")]
-        error_response = RegistrationErrorResponse(
-            message="Username is already taken",
-            field_errors=field_errors
-        )
+    duplicate_username_error = check_is_username_used(username=user_data.username, session=db_session)
+    if duplicate_username_error:
         response.status_code = 400
-        return error_response
+        return duplicate_username_error
 
     try:
         logger.info("Registering user with Auth0")
@@ -280,25 +135,14 @@ async def register_biocommons_user(
         )
 
         if registration.bundles is not None:
-            for bundle_request in registration.bundles:
-                bundle = BUNDLES[bundle_request.bundle_id]
-                if bundle.group_auto_approve:
-                    continue
-                _notify_bundle_group_admins(
-                    bundle=bundle,
-                    user=db_user,
-                    auth0_client=auth0_client,
-                    db_session=db_session,
-                    settings=settings,
-                )
-                _notify_bundle_requester(
-                    bundle=bundle,
-                    user=db_user,
-                    auth0_user_data=auth0_user_data,
-                    db_session=db_session,
-                    settings=settings,
-                    request_reason=bundle_request.reason,
-                )
+            process_bundle_request_notifications(
+                bundles=registration.bundles,
+                db_user=db_user,
+                auth0_user_data=auth0_user_data,
+                auth0_client=auth0_client,
+                db_session=db_session,
+                settings=settings,
+            )
 
         db_session.commit()
 
@@ -344,3 +188,201 @@ async def register_biocommons_user(
     except Exception as e:
         logger.error(f"Unexpected error during registration: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+def create_aaf_user_in_db(register_data: AafRegistrationRequest,
+                          *,
+                          auth0_token: AafRegistrationActionToken,
+                          auth0_client: Auth0Client,
+                          session: Session,
+                          settings: Settings,
+                          commit: bool = False):
+    db_user = BiocommonsUser(
+        id=auth0_token.user_id,
+        email=auth0_token.email,
+        username=register_data.username,
+        # AAF users are considered email_verified by default
+        email_verified=True,
+        account_type=BiocommonsUserAccountType.AAF.value,
+    )
+    session.add(db_user)
+    session.flush()
+    # Add default platform memberships
+    create_platform_memberships(db_user=db_user, auth0_client=auth0_client, session=session, sbp_enabled=settings.sbp_enabled)
+    # Create requests for selected bundles (if any)
+    create_bundle_requests(bundles=register_data.bundles, db_user=db_user, auth0_client=auth0_client, session=session)
+    session.flush()
+    if commit:
+        session.commit()
+    return db_user
+
+
+def verify_registration_token(token: str, settings: Settings):
+    """
+    Verify the token sent through from the original Auth0 action - we use this to provide
+    id, name + email so want to make sure it's verified
+    """
+    payload = verify_action_token(token, settings)
+    if payload.get("purpose", None) != "aaf_registration":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token from Auth0 expired.")
+    return AafRegistrationActionToken(**payload)
+
+
+@router.post("/register-aaf")
+async def register_aaf(
+    register_data: AafRegistrationRequest,
+    response: Response,
+    session: Annotated[Session, Depends(get_db_session)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """
+    Register an AAF user. Because we want to ensure we use the email and name provided by
+    the AAF, using a signed token passed through from Auth0
+    """
+    if not register_data.recaptcha_token:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(message="Recaptcha token is required")
+    recaptcha_check = validate_recaptcha(register_data.recaptcha_token, settings=settings)
+    if not recaptcha_check:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(message="Invalid recaptcha token, please try again")
+
+    validated_token = verify_registration_token(register_data.session_token, settings=settings)
+
+    if _requests_sbp_bundle(register_data.bundles) and not settings.sbp_enabled:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(message="SBP workflow execution is currently unavailable.")
+
+    is_aaf = is_aaf_email(validated_token.email, settings=settings)
+    if not is_aaf:
+        raise HTTPException(status_code=HTTPStatus.UNPROCESSABLE_CONTENT, detail=f"{validated_token.email} is not an AAF-associated email.")
+
+    sbp_email_error = await check_sbp_email_allowed(email=validated_token.email, bundles=register_data.bundles)
+    if sbp_email_error is not None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return sbp_email_error
+
+    # Reject if the email already belongs to another account. The AAF user's own
+    # Auth0 record exists (they just logged in via AAF), so exclude it and check
+    # our DB - this catches an existing account and avoids the email unique
+    # constraint raising an IntegrityError (surfaced as a 500) further down.
+    existing_email_user = BiocommonsUser.get_by_email(
+        email=validated_token.email,
+        session=session,
+        case_insensitive=True,
+        exclude_user_id=validated_token.user_id,
+    )
+    if existing_email_user is not None:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(
+            message="An account with this email already exists. Please log in instead.",
+            field_errors=[FieldError(field="email", message="Email is already registered")],
+        )
+
+    duplicate_username_error = check_is_username_used(username=register_data.username, session=session)
+    if duplicate_username_error:
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return duplicate_username_error
+
+    try:
+        logger.info("Setting username in app_metadata")
+        update_data = UpdateUserData(
+            app_metadata=BiocommonsAppMetadataUpdate(
+                username=register_data.username,
+                account_type=BiocommonsUserAccountType.AAF,
+                aaf_only=True,
+                aaf_registration_complete=True,
+            )
+        )
+        try:
+            auth0_user_data = auth0_client.update_user(user_id=validated_token.user_id, update_data=update_data)
+        except ValueError as e:
+            logger.error(f"AAF registration failed: {e}")
+            response.status_code = status.HTTP_400_BAD_REQUEST
+            return RegistrationErrorResponse(message=f"AAF registration failed - couldn't update app_metadata: {e}")
+        logger.info("Adding user to database...")
+        db_user = create_aaf_user_in_db(
+            register_data=register_data,
+            auth0_token=validated_token,
+            auth0_client=auth0_client,
+            session=session,
+            settings=settings,
+            commit=False,
+        )
+        if register_data.bundles is not None:
+            process_bundle_request_notifications(
+                bundles=register_data.bundles,
+                db_user=db_user,
+                auth0_user_data=auth0_user_data,
+                auth0_client=auth0_client,
+                db_session=session,
+                settings=settings
+            )
+
+        session.commit()
+        logger.info("Successfully added user to database.")
+
+        # AAF users skip Auth0 email verification (their email is asserted by the
+        # federation), so the welcome email that normally fires after verification
+        # would never be sent. Enqueue it here instead. Best-effort: a mail failure
+        # must not fail the registration that already committed above.
+        try:
+            first_name = format_first_name(
+                full_name=validated_token.name,
+                given_name=validated_token.given_name,
+                fallback=str(validated_token.email),
+            )
+            subject, body_html = compose_welcome_email(
+                first_name=first_name,
+                portal_url=settings.aai_portal_url,
+            )
+            enqueue_email(
+                session,
+                to_address=str(validated_token.email),
+                subject=subject,
+                body_html=body_html,
+                settings=settings,
+            )
+            session.commit()
+        except Exception as e:
+            logger.error(f"Failed to enqueue AAF welcome email for {validated_token.email}: {e}")
+            session.rollback()
+
+        result = {
+            "message": "User registered successfully",
+            "user": auth0_user_data,
+        }
+        # When the Auth0 redirect state is present, sign a registration_complete
+        # token and return the /continue URL so the aaf-require-registration
+        # action resumes login instead of denying.
+        if register_data.state:
+            signed_token = create_action_token(
+                payload={
+                    "registration_complete": True,
+                    "sub": validated_token.sub or validated_token.user_id,
+                    "iss": validated_token.iss or settings.auth0_domain,
+                    "state": register_data.state,
+                },
+                settings=settings,
+            )
+            continue_base_url = get_auth0_continue_base_url(validated_token, settings)
+            result["redirect_url"] = str(
+                URL(
+                    f"{continue_base_url}/continue",
+                    params={
+                        "state": register_data.state,
+                        "session_token": signed_token,
+                    },
+                )
+            )
+        return result
+    except HTTPStatusError as e:
+        logger.error(f"AAF registration failed: {e}")
+        # NOTE: don't think the checks of specific Auth0 issues are relevant here as we
+        #   aren't registering in Auth0
+        response.status_code = status.HTTP_400_BAD_REQUEST
+        return RegistrationErrorResponse(message=f"AAF registration failed: {e.response.text}")
+    except Exception as e:
+        logger.error(f"Unexpected error during registration: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")

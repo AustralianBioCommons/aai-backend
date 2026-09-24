@@ -4,21 +4,42 @@ import pathlib
 import time
 from typing import Iterator, Optional, Type, TypeVar
 
-import httpx
+import httpx2
 from fastapi import Depends
-from httpx import HTTPStatusError
-from pydantic import BaseModel, EmailStr, HttpUrl, model_validator
+from httpx2 import HTTPStatusError
+from pydantic import BaseModel, EmailStr, Field, HttpUrl, model_validator
 
 from auth.management import get_management_token
 from config import Settings, get_settings
 from schemas.biocommons import (
     Auth0UserData,
-    BiocommonsAppMetadata,
+    BiocommonsAppMetadataUpdate,
     BiocommonsPassword,
     BiocommonsRegisterData,
 )
 
 logger = logging.getLogger("uvicorn.error")
+
+
+class Auth0Connection(BaseModel):
+    name: str
+    display_name: str | None = None
+    options: dict = Field(default_factory=dict)
+    id: str
+    strategy: str
+    realms: list[str]
+    is_domain_connection: bool
+    show_as_button: bool | None = None
+    metadata: dict[str, str] | None = None
+    authentication: dict[str, bool]
+    connected_accounts: dict[str, bool]
+    cross_app_access_requesting_app: dict[str, bool] | None = None
+    cross_app_access_resource_app: dict[str, str] | None = None
+
+
+class ConnectionsWithCheckpoint(BaseModel):
+    connections: list[Auth0Connection]
+    next: str | None = None
 
 
 class RoleData(BaseModel):
@@ -100,6 +121,18 @@ class IdentityData(BaseModel):
     provider: str
 
 
+class LinkIdentityRequest(BaseModel):
+    """
+    POST data sent when linking identities.
+
+    Note: user_id is the secondary ID here. Primary ID goes in the
+    URL
+    """
+    provider: str
+    connection_id: str | None = None
+    user_id: str
+
+
 class EmailVerificationRequest(BaseModel):
     user_id: str
     client_id: Optional[str] = None
@@ -114,7 +147,7 @@ class UpdateUserData(BaseModel):
     """
     _connection_required_fields = ["email", "email_verified", "password", "username"]
     # NOTE: app_metadata will be merged instead of replaced when updating
-    app_metadata: Optional[BiocommonsAppMetadata] = None
+    app_metadata: Optional[BiocommonsAppMetadataUpdate] = None
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None
@@ -157,8 +190,9 @@ class Auth0Client:
 
     def __init__(self, domain: str, management_token: str):
         self.domain = domain
+        self.api_base = f"https://{domain}/api/v2"
         self.management_token = management_token
-        self._client = httpx.Client(headers={"Authorization": f"Bearer {management_token}"})
+        self._client = httpx2.Client(headers={"Authorization": f"Bearer {management_token}"})
 
     def close(self) -> None:
         self._client.close()
@@ -172,16 +206,16 @@ class Auth0Client:
     T = TypeVar('T', bound=BaseModel)
 
     @staticmethod
-    def _convert_list(resp: httpx.Response, model: Type[T]) -> list[T]:
+    def _convert_list(resp: httpx2.Response, model: Type[T]) -> list[T]:
         """Convert a list of data to the given pydantic model."""
         return [model(**item) for item in resp.json()]
 
     @staticmethod
-    def _convert_users(resp: httpx.Response):
+    def _convert_users(resp: httpx2.Response):
         return Auth0Client._convert_list(resp, Auth0UserData)
 
     @staticmethod
-    def _convert_roles(resp: httpx.Response):
+    def _convert_roles(resp: httpx2.Response):
         return Auth0Client._convert_list(resp, RoleData)
 
     def get_users(self, page: Optional[int] = None, per_page: Optional[int] = None, include_totals: Optional[bool] = None,  q: Optional[str] = None) -> list[Auth0UserData] | UsersWithTotals:
@@ -197,7 +231,7 @@ class Auth0Client:
         if q is not None:
             params["q"] = q
             params["search_engine"] = "v3"
-        url = f"https://{self.domain}/api/v2/users"
+        url = f"{self.api_base}/users"
         resp = self._client.get(url, params=params)
         resp.raise_for_status()
         if include_totals:
@@ -205,13 +239,13 @@ class Auth0Client:
         return self._convert_users(resp)
 
     def get_user(self, user_id: str) -> Auth0UserData:
-        url = f"https://{self.domain}/api/v2/users/{user_id}"
+        url = f"{self.api_base}/users/{user_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
     def create_user(self, user: BiocommonsRegisterData) -> Auth0UserData:
-        url = f"https://{self.domain}/api/v2/users"
+        url = f"{self.api_base}/users"
         # Exclude None values to avoid validation errors.
         resp = self._client.post(url, json=user.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
@@ -221,7 +255,7 @@ class Auth0Client:
         """
         Send a PATCH request to the /users/{user_id} endpoint to update the included fields.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}"
+        url = f"{self.api_base}/users/{user_id}"
         # Make sure we exclude None to not update fields with null values.
         data = update_data.model_dump(mode="json", exclude_none=True)
         try:
@@ -231,34 +265,48 @@ class Auth0Client:
             raise ValueError(f"Failed to update user {user_id}: {exc.response.json()}") from exc
         return Auth0UserData(**resp.json())
 
-    def start_user_export(self, format: str = "csv", fields: Optional[list[dict]] = None, ) -> str:
+    def start_user_export(
+        self,
+        format: str = "csv",
+        fields: Optional[list[dict]] = None,
+        connection_id: str | None = None,
+    ) -> str:
         """
         Start a user export job, return the job ID.
         """
-        url = f"https://{self.domain}/api/v2/jobs/users-exports"
+        url = f"{self.api_base}/jobs/users-exports"
         if fields is None:
             fields = [
                 {"name": "user_id"},
                 {"name": "email"},
                 {"name": "username"}
             ]
-        resp = self._client.post(url, json={"format": format, "fields": fields})
+        payload = {"format": format, "fields": fields}
+        if connection_id is not None:
+            payload["connection_id"] = connection_id
+        resp = self._client.post(url, json=payload)
         resp.raise_for_status()
         return resp.json()["id"]
 
     def get_job_status(self, job_id: str) -> JobStatus:
-        url = f"https://{self.domain}/api/v2/jobs/{job_id}"
+        url = f"{self.api_base}/jobs/{job_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return JobStatus(**resp.json())
 
-    def export_and_download_users(self, download_path: pathlib.Path, fields: Optional[list[dict]] = None, timeout: int = 300):
+    def export_and_download_users(
+        self,
+        download_path: pathlib.Path,
+        fields: Optional[list[dict]] = None,
+        timeout: int = 300,
+        connection_id: str | None = None,
+    ):
         """
         Export Auth0 users to a CSV file and download it.
 
         NOTE: the Auth0 export has some quirks, e.g. string fields are preceded by '.
         """
-        job_id = self.start_user_export(fields=fields)
+        job_id = self.start_user_export(fields=fields, connection_id=connection_id)
 
         location = None
         start_time = time.time()
@@ -284,7 +332,7 @@ class Auth0Client:
 
         logger.info(f"User export job {job_id} completed successfully. Downloading from {location}...")
         # Don't use client for this, we don't want the auth header here
-        download = httpx.get(location)
+        download = httpx2.get(location)
         download.raise_for_status()
 
         content = download.content
@@ -297,9 +345,6 @@ class Auth0Client:
 
         download_path.write_text(csv_data, encoding="utf-8")
         return download_path
-
-
-
 
     def check_user_password(self, email: str, password: str, settings: Settings) -> bool:
         """
@@ -320,7 +365,7 @@ class Auth0Client:
             "scope": "openid",
         }
         # We don't want the management token here so not using self._client
-        resp = httpx.post(url, data=data)
+        resp = httpx2.post(url, data=data)
         if resp.status_code in {400, 403}:
             error = resp.json().get("error")
             if error == "invalid_grant":
@@ -328,11 +373,19 @@ class Auth0Client:
         resp.raise_for_status()
         return True
 
+    def delete_user(self, user_id: str) -> None:
+        """
+        Permanently delete a user from Auth0.
+        """
+        url = f"{self.api_base}/users/{user_id}"
+        resp = self._client.delete(url)
+        resp.raise_for_status()
+
     def delete_user_refresh_tokens(self, user_id: str) -> bool:
         """
         Delete all refresh tokens for a user.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}/refresh-tokens"
+        url = f"{self.api_base}/users/{user_id}/refresh-tokens"
         resp = self._client.delete(url)
         resp.raise_for_status()
         return True
@@ -341,7 +394,7 @@ class Auth0Client:
         """
         Add one or more roles to a user. The role(s) must already exist.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
+        url = f"{self.api_base}/users/{user_id}/roles"
         if isinstance(role_id, str):
             role_id = [role_id]
         resp = self._client.post(url, json={"roles": role_id})
@@ -352,18 +405,31 @@ class Auth0Client:
         """
         Remove one or more roles from a user.
         """
-        url = f"https://{self.domain}/api/v2/users/{user_id}/roles"
+        url = f"{self.api_base}/users/{user_id}/roles"
         if isinstance(role_id, str):
             role_id = [role_id]
-        # httpx.Client.delete() no longer accepts json payloads (0.28+), so use request()
+        # httpx2.Client.delete() no longer accepts json payloads (0.28+), so use request()
         resp = self._client.request("DELETE", url, json={"roles": role_id})
         resp.raise_for_status()
         return True
 
-    def search_users_by_email(self, email: str) -> list[Auth0UserData]:
-        url = f"https://{self.domain}/api/v2/users-by-email"
+    def search_users_by_email(self, email: str, connection: str | None = None) -> list[Auth0UserData]:
+        """
+        Search users by email, optionally filtering by connection name.
+        """
+        url = f"{self.api_base}/users-by-email"
         resp = self._client.get(url, params={"email": email})
-        return self._convert_users(resp)
+        resp.raise_for_status()
+        users = self._convert_users(resp)
+        if connection is not None:
+            filtered_users = []
+            for user in users:
+                in_connection = any(ident.connection == connection for ident in user.identities)
+                if in_connection:
+                    filtered_users.append(user)
+            return filtered_users
+        else:
+            return users
 
     def _search_users(self, query: str, page: Optional[int] = None, per_page: Optional[int] = None) -> list[Auth0UserData]:
         params = {"q": query, "search_engine": "v3"}
@@ -373,7 +439,7 @@ class Auth0Client:
             params["page"] = page
         if per_page is not None:
             params["per_page"] = per_page
-        url = f"https://{self.domain}/api/v2/users"
+        url = f"{self.api_base}/users"
         # TODO: set primary_order=false for faster search?
         #   https://auth0.com/docs/manage-users/user-search/user-search-best-practices
         resp = self._client.get(
@@ -386,6 +452,28 @@ class Auth0Client:
             }
         )
         return self._convert_users(resp)
+
+    def get_connections(self) -> list[Auth0Connection]:
+        url = f"{self.api_base}/connections"
+        resp = self._client.get(url, params={"take": 10})
+        resp.raise_for_status()
+        converted = ConnectionsWithCheckpoint(**resp.json())
+        if converted.next is not None:
+            logger.warning("More connections than expected - not all will be returned")
+        return converted.connections
+
+    def get_connection_by_name(self, name: str) -> Auth0Connection | None:
+        # Filter server-side rather than paginating get_connections(), which caps at 10.
+        url = f"{self.api_base}/connections"
+        resp = self._client.get(url, params={"name": name})
+        resp.raise_for_status()
+        connections = self._convert_list(resp, Auth0Connection)
+        # Ensure an exact match
+        if connections:
+            for connection in connections:
+                if connection.name == name:
+                    return connection
+        return None
 
     def get_roles(self,
                   name_filter: Optional[str] = None,
@@ -401,7 +489,7 @@ class Auth0Client:
             params["page"] = page
         if per_page is not None:
             params["per_page"] = per_page
-        url = f"https://{self.domain}/api/v2/roles"
+        url = f"{self.api_base}/roles"
         resp = self._client.get(url, params=params)
         resp.raise_for_status()
         if include_totals:
@@ -437,7 +525,7 @@ class Auth0Client:
         return roles[0]
 
     def get_role_by_id(self, role_id: str) -> RoleData:
-        url = f"https://{self.domain}/api/v2/roles/{role_id}"
+        url = f"{self.api_base}/roles/{role_id}"
         resp = self._client.get(url)
         resp.raise_for_status()
         return RoleData(**resp.json())
@@ -449,7 +537,7 @@ class Auth0Client:
                        include_totals: Optional[bool] = False,
                        take: Optional[int] = None,
                        checkpoint: Optional[str] = None) -> list[RoleUserData] | RoleUsersWithTotals | RoleUsersWithCheckpoint:
-        url = f"https://{self.domain}/api/v2/roles/{role_id}/users"
+        url = f"{self.api_base}/roles/{role_id}/users"
         params = {}
         if page is not None:
             params["page"] = page
@@ -500,7 +588,7 @@ class Auth0Client:
             checkpoint = page_users.next
 
     def create_role(self, name: str, description: str) -> RoleData:
-        url = f"https://{self.domain}/api/v2/roles"
+        url = f"{self.api_base}/roles"
         resp = self._client.post(url, json={"name": name, "description": description})
         resp.raise_for_status()
         return RoleData(**resp.json())
@@ -513,7 +601,7 @@ class Auth0Client:
         return role
 
     def resend_verification_email(self, user_id: str) -> EmailVerificationResponse:
-        url = f"https://{self.domain}/api/v2/jobs/verification-email"
+        url = f"{self.api_base}/jobs/verification-email"
         request_body = EmailVerificationRequest(user_id=user_id)
         resp = self._client.post(url, json=request_body.model_dump(mode="json", exclude_none=True))
         resp.raise_for_status()
@@ -523,13 +611,37 @@ class Auth0Client:
         # NOTE: Authentication API, not management API
         url = f"https://{self.domain}/dbconnections/change_password"
         # Don't use _client here, since it's not a management API endpoint
-        resp = httpx.post(
+        resp = httpx2.post(
             url,
             json={"email": user_email,
                   "client_id": client_id,
                   "connection": settings.auth0_db_connection,}
         )
         resp.raise_for_status()
+        return True
+
+    def link_identity(self, primary_user_id: str, secondary_user_id: str, secondary_provider: str,
+                      secondary_connection_name: str) -> bool:
+        """
+        Link an identity to a primary account.
+
+        secondary_provider is the identity's strategy (e.g. "samlp"), secondary_connection_name
+        is the connection's name (e.g. "AAF") - these can differ, so both are needed.
+        """
+        url = f"{self.api_base}/users/{primary_user_id}/identities"
+        secondary_connection = self.get_connection_by_name(secondary_connection_name)
+        if secondary_connection is None:
+            raise ValueError(f"Could not find Auth0 connection named {secondary_connection_name!r}")
+        payload = LinkIdentityRequest(
+            provider=secondary_provider,
+            connection_id=secondary_connection.id,
+            user_id=secondary_user_id,
+        )
+        try:
+            resp = self._client.post(url, json=payload.model_dump(mode="json", exclude_none=True))
+            resp.raise_for_status()
+        except HTTPStatusError as exc:
+            raise ValueError(f"Failed to link identity for user {primary_user_id}: {exc.response.json()}") from exc
         return True
 
 

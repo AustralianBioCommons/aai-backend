@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import ANY, call
 
 import pytest
 import respx
 from freezegun import freeze_time
-from httpx import Response
+from httpx2 import Response
 from mimesis import Person
 from mimesis.locales import Locale
 from sqlalchemy.exc import IntegrityError
@@ -16,6 +16,7 @@ from db.models import (
     BiocommonsGroup,
     BiocommonsUser,
     BiocommonsUserHistory,
+    EmailChangeOtp,
     GroupMembership,
     GroupMembershipHistory,
     Platform,
@@ -23,9 +24,11 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
+from schemas.biocommons import BiocommonsUserAccountType
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
     AccessTokenPayloadFactory,
+    Auth0ReadAppMetadataFactory,
     Auth0UserDataFactory,
     RoleUserDataFactory,
     random_auth0_id,
@@ -58,7 +61,7 @@ def test_create_biocommons_user(test_db_session):
     user_data = Person(locale=Locale("en"))
     auth0_id = random_auth0_id()
     email = user_data.email()
-    user = BiocommonsUser(id=auth0_id, email=email, username="user_name")
+    user = BiocommonsUser(id=auth0_id, email=email, username="user_name", account_type="auth0")
     test_db_session.add(user)
     test_db_session.commit()
     test_db_session.refresh(user)
@@ -68,11 +71,24 @@ def test_create_biocommons_user(test_db_session):
     assert not user.email_verified
 
 
+def test_biocommons_user_account_type_db_enum_uses_enum_values():
+    """
+    Test that account_type uses the string values from the account type
+    enum, not the enum names
+    """
+    db_enum = BiocommonsUser.__table__.c.account_type.type
+
+    assert db_enum.enums == [account_type.value for account_type in BiocommonsUserAccountType]
+
+
 def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     """
     Test creating the BiocommonsUser model from Auth0 user data from the API
     """
-    user_data = Auth0UserDataFactory.build()
+    user_data = Auth0UserDataFactory.build(
+        email_verified=False,
+        app_metadata=Auth0ReadAppMetadataFactory.build(account_type=BiocommonsUserAccountType.AUTH0)
+    )
     mock_auth0_client.get_user.return_value = user_data
     user = BiocommonsUser.create_from_auth0(auth0_id=user_data.user_id, auth0_client=mock_auth0_client)
     test_db_session.add(user)
@@ -1502,6 +1518,7 @@ def test_soft_delete_recreate_revives_deleted(test_db_session, persistent_factor
     user = BiocommonsUserFactory.create_sync(
         email="user@example.com",
         username="soft_delete_user",
+        account_type=BiocommonsUserAccountType.AUTH0
     )
     test_db_session.commit()
 
@@ -1513,6 +1530,7 @@ def test_soft_delete_recreate_revives_deleted(test_db_session, persistent_factor
         email="new@example.com",
         username="soft_delete_user",
         email_verified=True,
+        account_type=BiocommonsUserAccountType.AUTH0
     )
     test_db_session.add(replacement)
     test_db_session.commit()
@@ -1629,6 +1647,74 @@ def test_biocommons_user_admin_restore_creates_history(test_db_session, mock_aut
     assert history.change == "user_restoration"
     assert history.reason == "Test restoration"
     assert history.updated_by_id == admin.id
+
+
+def test_hard_delete_removes_user_and_related_rows(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    platform = PlatformFactory.create_sync(id=PlatformEnum.GALAXY)
+    group = BiocommonsGroupFactory.create_sync()
+    platform_membership = PlatformMembershipFactory.create_sync(user=user, platform=platform)
+    group_membership = GroupMembershipFactory.create_sync(user=user, group=group)
+    test_db_session.commit()
+
+    platform_history = platform_membership.save_history(test_db_session)
+    group_history = group_membership.save_history(test_db_session)
+    user_history = user.save_history(test_db_session, change="test")
+    otp = EmailChangeOtp(
+        user_id=user.id,
+        target_email="new@example.com",
+        otp_hash="hash",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    test_db_session.add(otp)
+    test_db_session.commit()
+
+    user_id = user.id
+    platform_membership_id = platform_membership.id
+    group_membership_id = group_membership.id
+    platform_history_id = platform_history.id
+    group_history_id = group_history.id
+    user_history_id = user_history.id
+    otp_id = otp.id
+
+    user.hard_delete(test_db_session, auth0_client=mock_auth0_client)
+
+    mock_auth0_client.delete_user.assert_called_once_with(user_id=user_id)
+
+    test_db_session.expire_all()
+    assert test_db_session.get(BiocommonsUser, user_id) is None
+    assert BiocommonsUser.get_deleted_by_id(test_db_session, user_id) is None
+    assert test_db_session.get(PlatformMembership, platform_membership_id) is None
+    assert test_db_session.get(GroupMembership, group_membership_id) is None
+    assert test_db_session.get(PlatformMembershipHistory, platform_history_id) is None
+    assert test_db_session.get(GroupMembershipHistory, group_history_id) is None
+    assert test_db_session.get(BiocommonsUserHistory, user_history_id) is None
+    assert test_db_session.get(EmailChangeOtp, otp_id) is None
+
+
+def test_hard_delete_refuses_if_user_acted_as_admin_for_another_user(test_db_session, mock_auth0_client, persistent_factories):
+    admin = BiocommonsUserFactory.create_sync()
+    other_user = BiocommonsUserFactory.create_sync()
+    other_user.delete(test_db_session, deleted_by=admin, commit=True)
+
+    with pytest.raises(ValueError):
+        admin.hard_delete(test_db_session, auth0_client=mock_auth0_client)
+
+    mock_auth0_client.delete_user.assert_not_called()
+    assert test_db_session.get(BiocommonsUser, admin.id) is not None
+
+
+def test_hard_delete_allows_user_who_only_admined_themselves(test_db_session, mock_auth0_client, persistent_factories):
+    user = BiocommonsUserFactory.create_sync()
+    user_id = user.id
+    user.delete(test_db_session, deleted_by=user, commit=True)
+    user = BiocommonsUser.get_deleted_by_id(test_db_session, user_id)
+
+    user.hard_delete(test_db_session, auth0_client=mock_auth0_client)
+
+    mock_auth0_client.delete_user.assert_called_once_with(user_id=user_id)
+    test_db_session.expire_all()
+    assert test_db_session.get(BiocommonsUser, user_id) is None
 
 
 def test_admin_delete_preserves_memberships(test_db_session, persistent_factories, mock_auth0_client):

@@ -1,15 +1,22 @@
-import httpx
+import httpx2
 import pytest
 import respx
-from httpx import Response
+from httpx2 import Response
 from sqlmodel import select
 
 from auth0.client import get_auth0_client
 from db.models import EmailNotification
 from main import app
 from routers import utils
-from services.institutions import GALAXY_AU_VALIDATE_URL
-from tests.datagen import AppMetadataFactory, Auth0UserDataFactory
+from services.institutions import (
+    GALAXY_AU_VALIDATE_URL,
+    AafCheckEmailResponse,
+    is_aaf_email,
+)
+from tests.datagen import (
+    Auth0ReadAppMetadataFactory,
+    Auth0UserDataFactory,
+)
 
 
 @pytest.fixture
@@ -28,7 +35,7 @@ def test_get_registration_info(override_auth0_client, test_client):
     Test we can look up a user by email, and return their
     app_metadata.registration_from value, if available.
     """
-    app_metadata = AppMetadataFactory.build(registration_from="galaxy")
+    app_metadata = Auth0ReadAppMetadataFactory.build(registration_from="galaxy")
     user = Auth0UserDataFactory.build(email="user@example.com",
                                       app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
@@ -42,7 +49,7 @@ def test_get_registration_info_no_registration_from(override_auth0_client, test_
     """
     Test the default of 'biocommons' is returned if registration_from isn't set.
     """
-    app_metadata = AppMetadataFactory.build(registration_from=None)
+    app_metadata = Auth0ReadAppMetadataFactory.build(registration_from=None)
     user = Auth0UserDataFactory.build(email="user@example.com",
                                       app_metadata=app_metadata)
     override_auth0_client.search_users_by_email.return_value = [user]
@@ -104,6 +111,40 @@ def test_check_email_availability_endpoint(override_auth0_client, test_client):
     data = resp.json()
     assert data["available"] is True
     assert data["field_errors"] == []
+
+
+def test_check_email_availability_ignores_incomplete_aaf_user(
+    override_auth0_client, test_client
+):
+    """An AAF login that never finished registration must not make the email
+    unavailable - the user still needs to complete or restart registration."""
+    incomplete = Auth0UserDataFactory.build(
+        email="aaf@example.edu.au",
+        app_metadata=Auth0ReadAppMetadataFactory.build(
+            aaf_only=True, aaf_registration_complete=None
+        ),
+    )
+    override_auth0_client.search_users_by_email.return_value = [incomplete]
+    resp = test_client.get(
+        "/utils/register/check-email-availability",
+        params={"email": "aaf@example.edu.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["available"] is True
+
+    # A completed AAF user (aaf_registration_complete=True) is still taken.
+    completed = Auth0UserDataFactory.build(
+        email="aaf@example.edu.au",
+        app_metadata=Auth0ReadAppMetadataFactory.build(
+            aaf_only=True, aaf_registration_complete=True
+        ),
+    )
+    override_auth0_client.search_users_by_email.return_value = [completed]
+    resp = test_client.get(
+        "/utils/register/check-email-availability",
+        params={"email": "aaf@example.edu.au"},
+    )
+    assert resp.json()["available"] is False
 
 
 def test_check_username_exists_handles_exceptions(mocker):
@@ -213,7 +254,7 @@ def test_check_australian_research_institution_upstream_error_returns_false(test
 
 @respx.mock
 def test_check_australian_research_institution_upstream_timeout_returns_false(test_client):
-    respx.get(GALAXY_AU_VALIDATE_URL).mock(side_effect=httpx.TimeoutException("timeout"))
+    respx.get(GALAXY_AU_VALIDATE_URL).mock(side_effect=httpx2.TimeoutException("timeout"))
     resp = test_client.get(
         "/utils/register/check-australian-research-institution",
         params={"email": "researcher@sydney.edu.au"},
@@ -239,3 +280,14 @@ def test_send_welcome_email_suppresses_duplicate(override_auth0_client, test_cli
     assert resp.json()["message"] == "Welcome email already queued or sent."
     queued = test_db_session.exec(select(EmailNotification)).all()
     assert len(queued) == 1
+
+
+@respx.mock
+def test_is_aaf_email(mock_settings):
+    mock_resp = AafCheckEmailResponse(email="user@example.com", is_aaf=True)
+    url = f"{mock_settings.aai_login_proxy_url}/aaf/email-check"
+    route = respx.get(url, params={"email": "user@example.com"}).respond(200, json=mock_resp.model_dump(mode="json"))
+
+    result = is_aaf_email(email="user@example.com", settings=mock_settings)
+    assert result is True
+    assert route.called

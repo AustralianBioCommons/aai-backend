@@ -1,3 +1,13 @@
+import httpx2
+
+# respx only patches the real `httpx`/`httpcore`; alias them to httpx2 so it
+# intercepts requests made through our httpx2-based clients. Must run before
+# anything else imports httpx or httpcore, so its pytest11 entry point plugin
+# is disabled (see `-p no:respx` in pyproject.toml) and loaded manually here.
+httpx2.alias_httpx()
+
+pytest_plugins = ["respx.plugin"]
+
 import os
 import warnings
 from datetime import datetime
@@ -181,6 +191,7 @@ def mock_settings():
         auth0_db_connection="Username-Password-Authentication",
         jwt_secret_key="mock-secret-key",
         cors_allowed_origins="https://test",
+        aai_login_proxy_url="https://mock-proxy-url",
         admin_roles=["Admin"],
         auth0_algorithms=["RS256"],
         recaptcha_secret="mock-secret",

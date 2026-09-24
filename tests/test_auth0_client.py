@@ -4,7 +4,7 @@ import time
 
 import pytest
 import respx
-from httpx import Response
+from httpx2 import Response
 from pydantic import ValidationError
 
 from auth0.client import (
@@ -13,8 +13,10 @@ from auth0.client import (
     UpdateUserData,
 )
 from tests.datagen import (
+    Auth0ConnectionFactory,
     Auth0UserDataFactory,
     BiocommonsRegisterDataFactory,
+    ConnectionsWithCheckpointFactory,
     EmailVerificationResponseFactory,
     random_auth0_id,
     random_auth0_role_id,
@@ -63,6 +65,118 @@ def test_get_user_by_id(test_auth0_client):
 
     assert route.called
     assert result.model_dump(mode="json") == user.model_dump(mode="json")
+
+
+@respx.mock
+def test_get_connections(test_auth0_client):
+    connections = Auth0ConnectionFactory.batch(3)
+    resp = ConnectionsWithCheckpointFactory.build(connections=connections, next=None)
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=resp.model_dump(mode="json"))
+
+    result = test_auth0_client.get_connections()
+
+    assert route.called
+    assert result == connections
+
+
+@respx.mock
+def test_get_connection_by_name(test_auth0_client):
+    db_connection = Auth0ConnectionFactory.build(name="db_connection")
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[db_connection.model_dump(mode="json")]
+    )
+
+    result = test_auth0_client.get_connection_by_name(db_connection.name)
+
+    assert route.called
+    assert route.calls.last.request.url.params["name"] == db_connection.name
+    assert result == db_connection
+
+
+@respx.mock
+def test_get_connection_by_name_not_found(test_auth0_client):
+    route = respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=[])
+
+    result = test_auth0_client.get_connection_by_name("db_connection")
+
+    assert route.called
+    assert result is None
+
+
+@respx.mock
+def test_link_identity(test_auth0_client):
+    """
+    Test linking a secondary identity to a primary account.
+
+    Per https://auth0.com/docs/api/management/v2/users/post-identities,
+    when linking with an API v2 token the request body has provider/user_id/
+    connection_id, and the response is a list of identity objects.
+
+    Uses a connection name ("AAF") that differs from its provider/strategy
+    ("samlp") to make sure the two aren't confused with each other.
+    """
+    primary_user_id = random_auth0_id()
+    secondary_user_id = random_auth0_id()
+    connection = Auth0ConnectionFactory.build(name="AAF", strategy="samlp")
+    respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[connection.model_dump(mode="json")]
+    )
+    route = respx.post(f"https://auth0.example.com/api/v2/users/{primary_user_id}/identities").respond(
+        201,
+        json=[
+            {
+                "connection": connection.name,
+                "provider": "samlp",
+                "user_id": secondary_user_id,
+                "isSocial": False,
+            }
+        ],
+    )
+
+    result = test_auth0_client.link_identity(
+        primary_user_id, secondary_user_id, secondary_provider="samlp", secondary_connection_name="AAF"
+    )
+
+    assert route.called
+    assert result is True
+    call_data = json.loads(route.calls.last.request.content)
+    assert call_data == {
+        "provider": "samlp",
+        "connection_id": connection.id,
+        "user_id": secondary_user_id,
+    }
+
+
+@respx.mock
+def test_link_identity_connection_not_found(test_auth0_client):
+    respx.get("https://auth0.example.com/api/v2/connections").respond(200, json=[])
+
+    with pytest.raises(ValueError):
+        test_auth0_client.link_identity(
+            random_auth0_id(), random_auth0_id(), secondary_provider="samlp", secondary_connection_name="AAF"
+        )
+
+
+@respx.mock
+def test_link_identity_already_linked(test_auth0_client):
+    """
+    Auth0 rejects linking an identity that's already linked (e.g. a retried
+    request) - this should surface as a clean ValueError, not a raw HTTPStatusError.
+    """
+    primary_user_id = random_auth0_id()
+    secondary_user_id = random_auth0_id()
+    connection = Auth0ConnectionFactory.build(name="AAF", strategy="samlp")
+    respx.get("https://auth0.example.com/api/v2/connections").respond(
+        200, json=[connection.model_dump(mode="json")]
+    )
+    respx.post(f"https://auth0.example.com/api/v2/users/{primary_user_id}/identities").respond(
+        400, json={"statusCode": 400, "error": "Bad Request", "message": "Identity already linked"}
+    )
+
+    with pytest.raises(ValueError):
+        test_auth0_client.link_identity(
+            primary_user_id, secondary_user_id, secondary_provider="samlp", secondary_connection_name="AAF"
+        )
 
 
 @respx.mock
@@ -324,6 +438,41 @@ def test_export_and_download_users_starts_job_waits_and_downloads(test_auth0_cli
         {"name": "email"},
         {"name": "username"},
     ]
+    assert "connection_id" not in start_payload
+
+
+@respx.mock
+def test_export_and_download_users_passes_connection_id(test_auth0_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    export_job_id = "job_123"
+    download_url = "https://downloads.example.com/users.csv"
+    csv_text = "user_id,email,username\nauth0|1,test@example.com,test\n"
+
+    start_route = respx.post("https://auth0.example.com/api/v2/jobs/users-exports").respond(
+        200,
+        json={"id": export_job_id},
+    )
+    respx.get(f"https://auth0.example.com/api/v2/jobs/{export_job_id}").respond(
+        200,
+        json={
+            "id": export_job_id,
+            "status": "completed",
+            "type": "users_export",
+            "created_at": "2020-01-01T00:00:00Z",
+            "location": download_url,
+        },
+    )
+    respx.get(download_url).respond(200, text=csv_text)
+
+    out_path = tmp_path / "auth0_users.csv"
+    test_auth0_client.export_and_download_users(
+        out_path,
+        connection_id="con_aaf",
+    )
+
+    start_payload = json.loads(start_route.calls[0].request.content)
+    assert start_payload["connection_id"] == "con_aaf"
 
 
 @respx.mock

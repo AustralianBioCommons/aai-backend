@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlmodel import Session, create_engine
 
 from db.models import BiocommonsGroup
+from schemas.biocommons import BiocommonsUserAccountType
 
 
 def test_sbp_group_migration_creates_expected_group(tmp_path, mocker):
@@ -108,5 +109,64 @@ def test_sbp_cleanup_migration_removes_legacy_group_and_recreates_current_group(
             assert group.name == "Structural Biology Platform Bundle"
             assert group.short_name == "SBP"
             assert group.is_deleted is False
+    finally:
+        engine.dispose()
+
+
+def test_user_account_type_migration_backfills_existing_users(tmp_path, mocker):
+    db_path = tmp_path / "user_account_type_migration.sqlite"
+    db_url = f"sqlite:///{db_path}"
+
+    mocker.patch("db.setup.get_db_config", return_value=(db_url, {"check_same_thread": False}))
+
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(repo_root / "alembic.ini"))
+
+    command.upgrade(alembic_config, "39caad32922e")
+
+    engine = create_engine(
+        db_url,
+        connect_args={"check_same_thread": False},
+    )
+    try:
+        with Session(engine) as session:
+            session.exec(
+                text(
+                    """
+                    INSERT INTO biocommons_user (
+                        id,
+                        email,
+                        email_verified,
+                        username,
+                        created_at,
+                        is_deleted
+                    )
+                    VALUES (
+                        'auth0|existing-user',
+                        'existing@example.com',
+                        FALSE,
+                        'existing_user',
+                        '2026-08-06 00:00:00',
+                        FALSE
+                    )
+                    """
+                )
+            )
+            session.commit()
+
+        command.upgrade(alembic_config, "0c91366532ae")
+
+        with Session(engine) as session:
+            account_type = session.exec(
+                text(
+                    """
+                    SELECT account_type
+                    FROM biocommons_user
+                    WHERE id = 'auth0|existing-user'
+                    """
+                )
+            ).one()[0]
+
+            assert account_type == BiocommonsUserAccountType.AUTH0.value
     finally:
         engine.dispose()

@@ -23,6 +23,7 @@ from db.st_admin import (
     GroupMembershipView,
     PlatformMembershipHistoryView,
     PlatformMembershipView,
+    UserView,
 )
 from db.types import ApprovalStatusEnum, PlatformEnum
 from tests.db.datagen import (
@@ -485,3 +486,67 @@ def test_platform_membership_history_view_list_query_includes_deleted_users(
     # Verify the related deleted user can be resolved from the history row
     matching_history = next(row for row in results if row.id == history.id)
     assert matching_history.user.id == deleted_user.id
+
+
+@pytest.mark.asyncio
+async def test_is_row_action_allowed_hard_delete_requires_dev_aaf(mocker, mock_settings):
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    view = UserView(BiocommonsUser)
+
+    mock_settings.environment = "dev-aaf"
+    assert await view.is_row_action_allowed(MagicMock(), "hard_delete_user") is True
+
+    mock_settings.environment = "dev"
+    assert await view.is_row_action_allowed(MagicMock(), "hard_delete_user") is False
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_row_action_calls_hard_delete(mocker, mock_settings):
+    mock_settings.environment = "dev-aaf"
+    mock_auth0_client = MagicMock()
+    mock_db_session = MagicMock()
+    target_user_id = "auth0|user456"
+    mock_user = MagicMock(spec=BiocommonsUser)
+
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(mock_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
+    mocker.patch("db.st_admin.get_management_token")
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch.object(BiocommonsUser, "get_by_id", return_value=mock_user)
+
+    view = UserView(BiocommonsUser)
+    response = await view.hard_delete_row_action(MagicMock(), target_user_id)
+
+    assert response == "User permanently deleted"
+    mock_user.hard_delete.assert_called_once_with(mock_db_session, auth0_client=mock_auth0_client)
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_row_action_blocked_outside_dev_aaf(mocker, mock_settings):
+    mock_settings.environment = "dev"
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    view = UserView(BiocommonsUser)
+
+    with pytest.raises(HTTPException) as exc:
+        await view.hard_delete_row_action(MagicMock(), "auth0|user456")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_row_action_returns_400_on_value_error(mocker, mock_settings):
+    mock_settings.environment = "dev-aaf"
+    mock_auth0_client = MagicMock()
+    mock_db_session = MagicMock()
+    mock_user = MagicMock(spec=BiocommonsUser)
+    mock_user.hard_delete.side_effect = ValueError("nope")
+
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(mock_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
+    mocker.patch("db.st_admin.get_management_token")
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch.object(BiocommonsUser, "get_by_id", return_value=mock_user)
+
+    view = UserView(BiocommonsUser)
+    with pytest.raises(HTTPException) as exc:
+        await view.hard_delete_row_action(MagicMock(), "auth0|user456")
+    assert exc.value.status_code == 400

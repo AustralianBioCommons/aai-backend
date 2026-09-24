@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-import httpx
+import httpx2
 import jwt
 from fastapi import HTTPException
 from jwt.exceptions import InvalidTokenError
@@ -35,7 +35,7 @@ def verify_registration_token(token: str, settings: Settings):
 
 
 def validate_recaptcha(token: str, settings: Settings):
-    response = httpx.post(
+    response = httpx2.post(
         url="https://www.google.com/recaptcha/api/siteverify",
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         data={"secret": settings.recaptcha_secret, "response": token},

@@ -8,16 +8,19 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from enum import StrEnum
 from typing import TYPE_CHECKING, Annotated, List, Literal, Optional, Self
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import Path
 from pydantic import (
     AfterValidator,
+    AwareDatetime,
     BaseModel,
     EmailStr,
     Field,
     HttpUrl,
+    field_validator,
 )
 from pydantic_core import PydanticCustomError
 
@@ -160,6 +163,11 @@ class SBPMetadata(BaseModel):
     registration_reason: str
 
 
+class BiocommonsUserAccountType(StrEnum):
+    AUTH0 = "auth0"
+    AAF = "aaf"
+
+
 class BiocommonsUserMetadata(BaseModel):
     """
     User metadata we use for user-changeable data
@@ -181,9 +189,47 @@ class BiocommonsAppMetadata(BaseModel):
     Note we expect all app_metadata from Auth0 to match this format
     (if not empty).
     """
+    username: Optional[str] = None
     registration_from: Optional[AppId] = None
     old_emails: Optional[list[OldEmailRecord]] = None
     user_needs_migration: Optional[bool] = None
+    account_type: BiocommonsUserAccountType
+    aaf_only: Optional[bool] = None
+    aaf_registration_complete: Optional[bool] = None
+    checked_email: Optional[EmailStr] = None
+    linking_completed: Optional[bool] = None
+    linking_completed_at: Optional[AwareDatetime] = None
+
+    model_config = {
+        "extra": "ignore"
+    }
+
+
+class Auth0ReadAppMetadata(BiocommonsAppMetadata):
+    """
+    Schema for data we get from Auth0 - older data might not
+    contain account_type so make this less strict than the core schema
+    """
+    account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
+
+
+class BiocommonsAppMetadataUpdate(BaseModel):
+    """
+    Partial app_metadata patch sent to Auth0.
+
+    Auth0 merges app_metadata fields when updating, so updates should not
+    need to repeat fields that are not changing.
+    """
+    username: Optional[str] = None
+    registration_from: Optional[AppId] = None
+    old_emails: Optional[list[OldEmailRecord]] = None
+    user_needs_migration: Optional[bool] = None
+    account_type: Optional[BiocommonsUserAccountType] = None
+    aaf_only: Optional[bool] = None
+    aaf_registration_complete: Optional[bool] = None
+    checked_email: Optional[EmailStr] = None
+    linking_completed: Optional[bool] = None
+    linking_completed_at: Optional[AwareDatetime] = None
 
     model_config = {
         "extra": "ignore"
@@ -229,6 +275,9 @@ class BiocommonsRegisterData(BaseModel):
             connection="Username-Password-Authentication",
             app_metadata=BiocommonsAppMetadata(
                 registration_from="biocommons",
+                # NOTE: users we register should always have account_type: Auth0,
+                # since we don't register AAF users this way
+                account_type=BiocommonsUserAccountType.AUTH0,
             ),
         )
 
@@ -258,7 +307,7 @@ class Auth0UserData(BaseModel):
     created_at: datetime
     email: EmailStr
     username: Optional[BiocommonsUsername] = None
-    email_verified: bool
+    email_verified: Optional[bool] = None
     identities: List[Auth0Identity]
     name: str
     given_name: Optional[str] = None
@@ -268,13 +317,17 @@ class Auth0UserData(BaseModel):
     updated_at: datetime
     user_id: str
     blocked: Optional[bool] = None
-    # Auth0 will not include user/app metadata in the response when
-    #   empty, so make it optional
+    # Auth0 will not include user_metadata in the response when empty.
     user_metadata: Optional[BiocommonsUserMetadata] = None
-    app_metadata: Optional[BiocommonsAppMetadata] = None
+    app_metadata: Auth0ReadAppMetadata = Field(default_factory=Auth0ReadAppMetadata)
     last_ip: Optional[str] = None
     last_login: Optional[datetime] = None
     logins_count: Optional[int] = None
+
+    @field_validator("app_metadata", mode="before")
+    @classmethod
+    def _default_app_metadata(cls, value):
+        return {} if value is None else value
 
 
 class Auth0UserDataWithMemberships(Auth0UserData):
@@ -343,7 +396,10 @@ class UserProfileData(BaseModel):
     user_id: str
     name: str
     email: str
-    email_verified: bool
+    email_verified: Optional[bool] = None
+    # Account type (AAF vs Auth0) so the portal can lock IdP-managed fields
+    # (name/password) and treat AAF users as email-verified.
+    account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
     username: BiocommonsUsername
     picture: str
     given_name: str | None = None
@@ -366,11 +422,23 @@ class UserProfileData(BaseModel):
         group_memberships = [UserProfileGroupData.from_group_membership(membership)
                              for membership in user.group_memberships
                              if membership.approval_status != ApprovalStatusEnum.REVOKED]
+        # AAF detection. The DB account_type is the durable signal, but fall back
+        # to the login itself: AAF-only users have an enterprise sub of the form
+        # "oidc|AAF|..." (linked users keep their DB account_type instead). This
+        # makes the profile resolve correctly even if the DB record predates the
+        # account_type logic.
+        is_aaf = (
+            user.account_type == BiocommonsUserAccountType.AAF
+            or "|AAF|" in (auth0_user_info.sub or "")
+        )
         return cls(
             user_id=user.id,
             name=auth0_user_info.name,
             email=user.email,
-            email_verified=auth0_user_info.email_verified,
+            # AAF emails are federation-verified; the Auth0/DB flag is unreliable
+            # for enterprise users (can't be set via Management API), so trust AAF.
+            email_verified=True if is_aaf else auth0_user_info.email_verified,
+            account_type=BiocommonsUserAccountType.AAF if is_aaf else user.account_type,
             username=user.username,
             picture=auth0_user_info.picture,
             given_name=auth0_user_info.given_name,

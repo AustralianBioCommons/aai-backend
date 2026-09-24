@@ -15,7 +15,7 @@ from config import Settings, get_settings
 from db.models import EmailNotification
 from db.setup import get_db_session
 from db.types import EmailStatusEnum
-from schemas.biocommons import AppId
+from schemas.biocommons import AppId, Auth0UserData
 from schemas.responses import FieldError
 from services.email_queue import enqueue_email
 from services.institutions import is_australian_research_institution_email
@@ -49,6 +49,28 @@ def _check_email_exists(email: str, auth0_client: Auth0Client) -> bool:
     try:
         email_results = auth0_client.search_users_by_email(email)
         return len(email_results) > 0
+    except Exception as e:
+        logger.warning(f"Error checking email existence: {e}")
+        return False
+
+
+def _is_incomplete_aaf_user(user: Auth0UserData) -> bool:
+    """
+    An AAF login creates an Auth0 user *before* registration is completed
+    (check-aaf-account marks it aaf_only, register-aaf later sets
+    aaf_registration_complete). Such a user has no completed account, so it must
+    not count as "registered" - otherwise a user who abandons the AAF
+    registration form can never register with that email again.
+    """
+    meta = user.app_metadata
+    return bool(meta.aaf_only) and not bool(meta.aaf_registration_complete)
+
+
+def _check_registered_email_exists(email: str, auth0_client: Auth0Client) -> bool:
+    """Like _check_email_exists, but ignores incomplete AAF logins."""
+    try:
+        matches = auth0_client.search_users_by_email(email)
+        return any(not _is_incomplete_aaf_user(u) for u in matches)
     except Exception as e:
         logger.warning(f"Error checking email existence: {e}")
         return False
@@ -113,8 +135,10 @@ async def check_email_availability(
     Check if an email is available for registration.
 
     Returns availability status with field errors if already registered.
+    Incomplete AAF logins (an Auth0 user that never finished registration) do
+    not count as taken, so the user can still complete or restart registration.
     """
-    exists = _check_email_exists(email, auth0_client)
+    exists = _check_registered_email_exists(email, auth0_client)
     if exists:
         return AvailabilityResponse(
             available=False,

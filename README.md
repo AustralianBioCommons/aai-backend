@@ -205,3 +205,42 @@ When the database models are changed, the database schema diagram in [`db_diagra
 ## Documents to be updated
 Please update the following documents if there are changes to the database schema:
 - [AAI User Database Technical Design Document](https://docs.google.com/document/d/1xECcTqXH9ykXBCEESBSg43SOMncXT6Zayi5FwqvCT4Y/edit?tab=t.0#heading=h.sj9060dgy5fu)
+
+## AAF integration — `dev-aaf` deployment
+
+The `aaf-dev` branch runs against the **`biocloud-dev-aaf`** Auth0 tenant
+(`dev-aaf` environment), isolated from `dev-bc`. Deploys are **manual** for now.
+
+Run locally against the tenant:
+
+```bash
+uv venv && uv sync --extra dev
+# .env pointed at the new tenant:
+#   AUTH0_DOMAIN=biocloud-dev-aaf.au.auth0.com
+#   AUTH0_ISSUER=https://biocloud-dev-aaf.au.auth0.com/
+#   AUTH0_AUDIENCE=https://dev-aaf.api.aai.test.biocommons.org.au
+#   AUTH0_MANAGEMENT_ID / AUTH0_MANAGEMENT_SECRET=<M2M in biocloud-dev-aaf>
+#   AUTH0_DB_CONNECTION=Username-Password-Authentication
+uv run uvicorn main:app --reload --port 8000
+```
+
+Hosted dev-aaf backend (deployed via CDK from `aai-infrastructure`):
+
+The dev-aaf ECS service currently runs the **stock `aai-backend:dev` image** with
+`ENVIRONMENT=dev`. The published `:dev` image doesn't accept `dev-aaf` as an
+environment, so the CDK passes `ENVIRONMENT=dev`; auth still targets the dev-aaf
+tenant via the `dev-aaf/backend/secrets` values. The service is created by
+`cdk deploy -c env=dev-aaf AaiBackendDevAaf` in `aai-infrastructure` — no image
+build needed to stand it up.
+
+To ship **backend AAF code changes**, you need a `dev-aaf`-aware image in the
+**shared ECR (account `331315009666`)**. A manual `docker push` is **not** possible
+— that repo's push role is GitHub-OIDC-only (no human/SSO principal can assume it).
+So build it through CI on the `aaf-dev` branch (this branch's `config.py` already
+adds `dev-aaf` to the accepted environments). Once the `:dev-aaf` image exists, set
+`backend.image_tag: 'dev-aaf'` and drop `backend.app_environment` in
+`config/environments/dev-aaf.yaml`, then redeploy `AaiBackendDevAaf`.
+
+> Side effect of `ENVIRONMENT=dev`: admin email links default to `dev.portal…`.
+> Set `AAI_PORTAL_URL=https://dev-aaf.portal.aai.test.biocommons.org.au` in the
+> backend secret if that matters.

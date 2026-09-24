@@ -19,6 +19,7 @@ from starlette_admin import (
     HasMany,
     HasOne,
     StringField,
+    action,
     row_action,
 )
 from starlette_admin.auth import AdminUser, AuthProvider, login_not_required
@@ -43,6 +44,7 @@ from db.models import (
 )
 from db.setup import get_db_session, get_engine
 from db.types import PlatformEnum
+from scheduled_tasks.tasks import sync_auth0_users
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -78,12 +80,74 @@ class IncludeDeletedUserMixin(ModelView):
 
 
 class UserView(DefaultView):
-    fields = ["email", "email_verified", "username", "created_at", "id"]
+    fields = [
+        "email",
+        "account_type",
+        "email_verified",
+        "username",
+        "created_at",
+        "id",
+        "other_user_id",
+        HasMany("platform_memberships", identity="platform_membership"),
+        HasMany("group_memberships", identity="group_membership")
+    ]
+    actions = ["sync_auth0_users"]
+    exclude_fields_from_list = ["platform_memberships", "group_memberships"]
 
     async def repr(self, obj: Any, request: Request) -> str:
         if getattr(obj, "is_deleted", False):
             return f"❌ {obj.email} (deleted)"
         return obj.email
+
+    @action(
+        name="sync_auth0_users",
+        text="Sync Auth0 Users",
+        confirmation="This runs the Auth0 → DB user sync immediately, "
+                     "instead of waiting for the hourly scheduled job. Continue?",
+        submit_btn_text="Sync Now",
+        icon_class="fa fa-rotate",
+    )
+    async def sync_auth0_users_action(self, request: Request, pks: list) -> str:
+        await sync_auth0_users()
+        return "Auth0 user sync completed"
+
+    async def is_row_action_allowed(self, request: Request, name: str) -> bool:
+        if name == "hard_delete_user":
+            return get_settings().environment == "dev-aaf"
+        return await super().is_row_action_allowed(request, name)
+
+    @row_action(
+        name="hard_delete_user",
+        text="Hard Delete (permanent)",
+        confirmation="This permanently deletes the user and ALL related data from the database and Auth0. This cannot be undone. Continue?",
+        icon_class="fa fa-skull-crossbones",
+        submit_btn_text="Delete Permanently",
+        submit_btn_class="btn btn-danger",
+        action_btn_class="btn btn-danger",
+    )
+    async def hard_delete_row_action(self, request: Request, pk: Any) -> Any:
+        settings = get_settings()
+        if settings.environment != "dev-aaf":
+            raise HTTPException(status_code=403, detail="Hard delete is only available in the dev-aaf environment")
+        management_token = get_management_token(settings=settings)
+        auth0_client_gen = get_auth0_client(settings=settings, management_token=management_token)
+        auth0_client = next(auth0_client_gen)
+        db_session_gen = get_db_session()
+        db_session = next(db_session_gen)
+        try:
+            user = BiocommonsUser.get_by_id(pk, db_session, include_deleted=True)
+            if user is None:
+                raise HTTPException(status_code=404, detail=f"User {pk} not found")
+            logger.info(f"Hard deleting user {pk}")
+            try:
+                user.hard_delete(db_session, auth0_client=auth0_client)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+            return "User permanently deleted"
+        finally:
+            auth0_client_gen.close()
+            db_session_gen.close()
+            db_session.close()
 
 
 class DeletedUserView(UserView):
