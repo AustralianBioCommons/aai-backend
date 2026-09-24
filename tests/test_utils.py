@@ -113,6 +113,40 @@ def test_check_email_availability_endpoint(override_auth0_client, test_client):
     assert data["field_errors"] == []
 
 
+def test_check_email_availability_ignores_incomplete_aaf_user(
+    override_auth0_client, test_client
+):
+    """An AAF login that never finished registration must not make the email
+    unavailable - the user still needs to complete or restart registration."""
+    incomplete = Auth0UserDataFactory.build(
+        email="aaf@example.edu.au",
+        app_metadata=Auth0ReadAppMetadataFactory.build(
+            aaf_only=True, aaf_registration_complete=None
+        ),
+    )
+    override_auth0_client.search_users_by_email.return_value = [incomplete]
+    resp = test_client.get(
+        "/utils/register/check-email-availability",
+        params={"email": "aaf@example.edu.au"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["available"] is True
+
+    # A completed AAF user (aaf_registration_complete=True) is still taken.
+    completed = Auth0UserDataFactory.build(
+        email="aaf@example.edu.au",
+        app_metadata=Auth0ReadAppMetadataFactory.build(
+            aaf_only=True, aaf_registration_complete=True
+        ),
+    )
+    override_auth0_client.search_users_by_email.return_value = [completed]
+    resp = test_client.get(
+        "/utils/register/check-email-availability",
+        params={"email": "aaf@example.edu.au"},
+    )
+    assert resp.json()["available"] is False
+
+
 def test_check_username_exists_handles_exceptions(mocker):
     auth0_client = mocker.Mock()
     auth0_client.get_users.side_effect = RuntimeError("boom")
