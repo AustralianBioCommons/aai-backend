@@ -69,9 +69,14 @@ class ExportedUser(BaseModel):
     email: str
     email_verified: bool
     username: str | None
+    metadata_username: str | None = None
     blocked: bool
     updated_at: datetime
     account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
+    aaf_only: bool | None = None
+    aaf_registration_complete: bool | None = None
+    linking_completed: bool | None = None
+    linking_completed_at: datetime | None = None
 
     @field_validator("email_verified", "blocked", mode="before")
     @classmethod
@@ -79,6 +84,20 @@ class ExportedUser(BaseModel):
         if isinstance(value, str):
             if value == "":
                 return False
+        return value
+
+    @field_validator(
+        "aaf_only",
+        "aaf_registration_complete",
+        "linking_completed",
+        "linking_completed_at",
+        "metadata_username",
+        mode="before",
+    )
+    @classmethod
+    def _empty_to_none(cls, value: Any) -> Any:
+        if isinstance(value, str) and value == "":
+            return None
         return value
 
 
@@ -409,9 +428,20 @@ async def export_auth0_users(
         {"name": "email"},
         {"name": "email_verified"},
         {"name": "username"},
+        {"name": "app_metadata.username", "export_as": "metadata_username"},
         {"name": "blocked"},
         {"name": "updated_at"},
         {"name": "app_metadata.account_type", "export_as": "account_type"},
+        {"name": "app_metadata.aaf_only", "export_as": "aaf_only"},
+        {
+            "name": "app_metadata.aaf_registration_complete",
+            "export_as": "aaf_registration_complete",
+        },
+        {"name": "app_metadata.linking_completed", "export_as": "linking_completed"},
+        {
+            "name": "app_metadata.linking_completed_at",
+            "export_as": "linking_completed_at",
+        },
     ]
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir) / "auth0_users.csv"
