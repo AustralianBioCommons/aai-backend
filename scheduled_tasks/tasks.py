@@ -419,9 +419,13 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
 async def export_auth0_users(
     auth0_client: Auth0Client,
     connection_id: str | None = None,
+    filename: str | None = None,
 ) -> list[ExportedUser]:
     """
-    Export all users to CSV and return a list
+    Export all users to CSV and return a list.
+
+    Normally saves to a temp file that is immediately deleted. Specify
+    filename to save instead.
     """
     fields = [
         {"name": "user_id"},
@@ -443,13 +447,11 @@ async def export_auth0_users(
             "export_as": "linking_completed_at",
         },
     ]
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_path = Path(temp_dir) / "auth0_users.csv"
-
-        logger.info(f"Exporting Auth0 users to {temp_path}")
+    if filename is not None:
+        path = Path(filename)
         try:
             auth0_client.export_and_download_users(
-                download_path=temp_path,
+                download_path=path,
                 fields=fields,
                 connection_id=connection_id,
             )
@@ -457,9 +459,25 @@ async def export_auth0_users(
             logger.error(f"Failed to export Auth0 users: {exc}")
             logger.error(f"Response: {exc.response.content}")
             raise exc
-        users = parse_auth0_export(temp_path)
-        # Delete export
-        temp_path.unlink()
+        users = parse_auth0_export(path)
+    else:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir) / "auth0_users.csv"
+
+            logger.info(f"Exporting Auth0 users to {temp_path}")
+            try:
+                auth0_client.export_and_download_users(
+                    download_path=temp_path,
+                    fields=fields,
+                    connection_id=connection_id,
+                )
+            except HTTPStatusError as exc:
+                logger.error(f"Failed to export Auth0 users: {exc}")
+                logger.error(f"Response: {exc.response.content}")
+                raise exc
+            users = parse_auth0_export(temp_path)
+            # Delete export
+            temp_path.unlink()
     return users
 
 
