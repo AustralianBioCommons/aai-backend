@@ -476,6 +476,40 @@ def test_export_and_download_users_passes_connection_id(test_auth0_client, tmp_p
 
 
 @respx.mock
+def test_export_and_download_users_passes_json_format(test_auth0_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda *_args, **_kwargs: None)
+
+    export_job_id = "job_123"
+    download_url = "https://downloads.example.com/users.json"
+    json_text = '{"user_id":"auth0|1","email":"test@example.com"}\n'
+
+    start_route = respx.post("https://auth0.example.com/api/v2/jobs/users-exports").respond(
+        200,
+        json={"id": export_job_id},
+    )
+    respx.get(f"https://auth0.example.com/api/v2/jobs/{export_job_id}").respond(
+        200,
+        json={
+            "id": export_job_id,
+            "status": "completed",
+            "type": "users_export",
+            "created_at": "2020-01-01T00:00:00Z",
+            "location": download_url,
+        },
+    )
+    respx.get(download_url).respond(200, text=json_text)
+
+    out_path = tmp_path / "auth0_users.json"
+    test_auth0_client.export_and_download_users(
+        out_path,
+        format="json",
+    )
+
+    start_payload = json.loads(start_route.calls[0].request.content)
+    assert start_payload["format"] == "json"
+
+
+@respx.mock
 def test_export_and_download_users_handles_gzipped_csv(test_auth0_client, tmp_path, monkeypatch):
     """
     If Auth0 (or the download URL) returns gzipped bytes, we should decompress
