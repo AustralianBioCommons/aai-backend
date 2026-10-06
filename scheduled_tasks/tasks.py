@@ -419,8 +419,18 @@ def parse_auth0_json_export(path: Path) -> list[ExportedUser]:
     return parsed
 
 
-def _auth0_user_export_fields() -> list[dict[str, str]]:
-    return [
+async def export_auth0_users(
+    auth0_client: Auth0Client,
+    connection_id: str | None = None,
+    filename: str | None = None,
+) -> list[ExportedUser]:
+    """
+    Export all users and return a parsed list.
+
+    Normally saves to a temp file that is immediately deleted. Specify
+    filename to save instead.
+    """
+    fields =  [
         {"name": "user_id"},
         {"name": "email"},
         {"name": "email_verified"},
@@ -441,20 +451,6 @@ def _auth0_user_export_fields() -> list[dict[str, str]]:
         },
         {"name": "identities"},
     ]
-
-
-async def export_auth0_users(
-    auth0_client: Auth0Client,
-    connection_id: str | None = None,
-    filename: str | None = None,
-) -> list[ExportedUser]:
-    """
-    Export all users and return a parsed list.
-
-    Normally saves to a temp file that is immediately deleted. Specify
-    filename to save instead.
-    """
-    fields = _auth0_user_export_fields()
     if filename is not None:
         path = Path(filename)
         try:
