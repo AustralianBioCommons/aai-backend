@@ -1,5 +1,5 @@
 import asyncio
-import csv
+import json
 import math
 import re
 import tempfile
@@ -11,7 +11,7 @@ from uuid import UUID
 
 from httpx2 import HTTPStatusError
 from loguru import logger
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
@@ -54,7 +54,7 @@ from schemas.auth0 import (
     PLATFORM_ROLE_PATTERN,
     get_platform_id_from_role_name,
 )
-from schemas.biocommons import Auth0UserData, BiocommonsUserAccountType
+from schemas.biocommons import Auth0Identity, Auth0UserData, BiocommonsUserAccountType
 
 
 def chunked[T](items: list[T], size: int) -> list[list[T]]:
@@ -67,16 +67,17 @@ def chunked[T](items: list[T], size: int) -> list[list[T]]:
 class ExportedUser(BaseModel):
     user_id: str
     email: str
-    email_verified: bool
-    username: str | None
+    email_verified: bool | None = None
+    username: str | None = None
     metadata_username: str | None = None
-    blocked: bool
+    blocked: bool = False
     updated_at: datetime
     account_type: BiocommonsUserAccountType = BiocommonsUserAccountType.AUTH0
     aaf_only: bool | None = None
     aaf_registration_complete: bool | None = None
     linking_completed: bool | None = None
     linking_completed_at: datetime | None = None
+    identities: list[Auth0Identity] = Field(default_factory=list)
 
     @field_validator("email_verified", "blocked", mode="before")
     @classmethod
@@ -403,60 +404,23 @@ async def send_email_notification(
         session.close()
 
 
-def parse_auth0_export(path: Path) -> list[ExportedUser]:
+def parse_auth0_json_export(path: Path) -> list[ExportedUser]:
     """
-    Parse Auth0 export csv into a list of ExportedUser objects.
+    Parse Auth0 JSON-compatible export data.
 
-    Auth0 export prepends string fields with ' so these need to be stripped
+    Auth0 JSON-compatible exports are NDJSON: one JSON object per line.
     """
     parsed = []
     with open(path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            parsed.append(ExportedUser(**_normalize_auth0_export_row(row)))
+        for line in f:
+            if not line.strip():
+                continue
+            parsed.append(ExportedUser(**json.loads(line)))
     return parsed
 
 
-def _normalize_auth0_export_row(row: dict[str, str]) -> dict[str, str | None]:
-    """
-    Strip Auth0 export quoting and convert empty optional fields to None.
-
-    Pydantic handles bool/datetime/enum coercion after this lightweight CSV
-    cleanup, so parsing rules stay in one place.
-    """
-    normalized = {
-        key: value.lstrip("'") if isinstance(value, str) else value
-        for key, value in row.items()
-    }
-    optional_fields = {
-        "username",
-        "metadata_username",
-        "account_type",
-        "aaf_only",
-        "aaf_registration_complete",
-        "linking_completed",
-        "linking_completed_at",
-    }
-    for field in optional_fields:
-        if normalized.get(field) == "":
-            normalized[field] = None
-    if normalized.get("account_type") is None:
-        normalized["account_type"] = BiocommonsUserAccountType.AUTH0
-    return normalized
-
-
-async def export_auth0_users(
-    auth0_client: Auth0Client,
-    connection_id: str | None = None,
-    filename: str | None = None,
-) -> list[ExportedUser]:
-    """
-    Export all users to CSV and return a list.
-
-    Normally saves to a temp file that is immediately deleted. Specify
-    filename to save instead.
-    """
-    fields = [
+def _auth0_user_export_fields() -> list[dict[str, str]]:
+    return [
         {"name": "user_id"},
         {"name": "email"},
         {"name": "email_verified"},
@@ -475,36 +439,53 @@ async def export_auth0_users(
             "name": "app_metadata.linking_completed_at",
             "export_as": "linking_completed_at",
         },
+        {"name": "identities"},
     ]
+
+
+async def export_auth0_users(
+    auth0_client: Auth0Client,
+    connection_id: str | None = None,
+    filename: str | None = None,
+) -> list[ExportedUser]:
+    """
+    Export all users and return a parsed list.
+
+    Normally saves to a temp file that is immediately deleted. Specify
+    filename to save instead.
+    """
+    fields = _auth0_user_export_fields()
     if filename is not None:
         path = Path(filename)
         try:
             auth0_client.export_and_download_users(
                 download_path=path,
                 fields=fields,
+                format="json",
                 connection_id=connection_id,
             )
         except HTTPStatusError as exc:
             logger.error(f"Failed to export Auth0 users: {exc}")
             logger.error(f"Response: {exc.response.content}")
             raise exc
-        users = parse_auth0_export(path)
+        users = parse_auth0_json_export(path)
     else:
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir) / "auth0_users.csv"
+            temp_path = Path(temp_dir) / "auth0_users.json"
 
             logger.info(f"Exporting Auth0 users to {temp_path}")
             try:
                 auth0_client.export_and_download_users(
                     download_path=temp_path,
                     fields=fields,
+                    format="json",
                     connection_id=connection_id,
                 )
             except HTTPStatusError as exc:
                 logger.error(f"Failed to export Auth0 users: {exc}")
                 logger.error(f"Response: {exc.response.content}")
                 raise exc
-            users = parse_auth0_export(temp_path)
+            users = parse_auth0_json_export(temp_path)
             # Delete export
             temp_path.unlink()
     return users
