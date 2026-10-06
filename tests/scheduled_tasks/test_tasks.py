@@ -32,7 +32,7 @@ from scheduled_tasks.tasks import (
     _get_group_membership_including_deleted,
     export_auth0_users,
     link_admin_roles,
-    parse_auth0_export,
+    parse_auth0_json_export,
     populate_db_groups,
     populate_platforms_from_auth0,
     process_email_queue,
@@ -1185,16 +1185,21 @@ async def test_process_email_queue_skips_when_retry_window_exceeded(test_db_sess
     assert updated.send_after is None
 
 
-def test_parse_auth0_export_parses_csv_file(tmp_path):
-    csv_path = tmp_path / "auth0_users.csv"
-    csv_path.write_text(
-        "user_id,email,email_verified,username,blocked,updated_at,account_type\n"
-        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00,'aaf\n"
-        "'auth0|u2,'u2@example.com,,,,2024-01-02T12:00:00+00:00,\n",
+def test_parse_auth0_json_export_parses_user_metadata(tmp_path):
+    json_path = tmp_path / "auth0_users.json"
+    json_path.write_text(
+        '{"user_id":"auth0|u1","email":"u1@example.com","email_verified":true,'
+        '"username":"u1","metadata_username":"metadata_u1","blocked":false,'
+        '"updated_at":"2024-01-01T12:00:00+00:00",'
+        '"aaf_only":true,"aaf_registration_complete":true}\n'
+        '{"user_id":"auth0|u2","email":"u2@example.com",'
+        '"updated_at":"2024-01-02T12:00:00+00:00",'
+        '"linking_completed":true,'
+        '"linking_completed_at":"2024-01-03T12:00:00+00:00"}\n',
         encoding="utf-8",
     )
 
-    users = parse_auth0_export(csv_path)
+    users = parse_auth0_json_export(json_path)
 
     assert len(users) == 2
     assert all(isinstance(u, ExportedUser) for u in users)
@@ -1203,59 +1208,108 @@ def test_parse_auth0_export_parses_csv_file(tmp_path):
     assert users[0].email == "u1@example.com"
     assert users[0].email_verified is True
     assert users[0].username == "u1"
+    assert users[0].metadata_username == "metadata_u1"
     assert users[0].blocked is False
     assert users[0].updated_at.isoformat() == "2024-01-01T12:00:00+00:00"
     assert users[0].account_type == BiocommonsUserAccountType.AAF
-
+    assert users[0].aaf_only is True
+    assert users[0].aaf_registration_complete is True
+    assert users[0].linking_completed is None
+    assert users[0].linking_completed_at is None
 
     assert users[1].user_id == "auth0|u2"
     assert users[1].email == "u2@example.com"
-    # Check empty bools parse as False
     assert users[1].blocked is False
-    assert users[1].email_verified is False
-    # Check empty username parses as None
+    assert users[1].email_verified is None
     assert users[1].username is None
+    assert users[1].metadata_username is None
     assert users[1].updated_at.isoformat() == "2024-01-02T12:00:00+00:00"
     assert users[1].account_type == BiocommonsUserAccountType.AUTH0
+    assert users[1].aaf_only is None
+    assert users[1].aaf_registration_complete is None
+    assert users[1].linking_completed is True
+    assert users[1].linking_completed_at.isoformat() == "2024-01-03T12:00:00+00:00"
 
 
-def test_parse_auth0_export_defaults_account_type_when_field_missing(tmp_path):
-    csv_path = tmp_path / "auth0_users.csv"
-    csv_path.write_text(
-        "user_id,email,email_verified,username,blocked,updated_at\n"
-        "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n",
+def test_parse_auth0_json_export_defaults_account_type_when_field_missing(tmp_path):
+    json_path = tmp_path / "auth0_users.json"
+    json_path.write_text(
+        '{"user_id":"auth0|u1","email":"u1@example.com",'
+        '"email_verified":true,"username":"u1","blocked":false,'
+        '"updated_at":"2024-01-01T12:00:00+00:00"}\n',
         encoding="utf-8",
     )
 
-    users = parse_auth0_export(csv_path)
+    users = parse_auth0_json_export(json_path)
 
     assert users[0].account_type == BiocommonsUserAccountType.AUTH0
 
 
+def test_parse_auth0_json_export_parses_nested_identities(tmp_path):
+    json_path = tmp_path / "auth0_users.json"
+    json_path.write_text(
+        '{"user_id":"auth0|u1","email":"u1@example.com","email_verified":true,'
+        '"username":"u1","metadata_username":"metadata_u1","blocked":false,'
+        '"updated_at":"2024-01-01T12:00:00+00:00","account_type":"aaf",'
+        '"aaf_only":false,"linking_completed":true,'
+        '"identities":[{"connection":"Username-Password-Authentication",'
+        '"provider":"auth0","user_id":"u1","isSocial":false},'
+        '{"connection":"AAF","provider":"oidc",'
+        '"user_id":"linked-aaf","isSocial":false}]}\n',
+        encoding="utf-8",
+    )
+
+    users = parse_auth0_json_export(json_path)
+
+    assert len(users) == 1
+    assert users[0].account_type == BiocommonsUserAccountType.AAF
+    assert users[0].metadata_username == "metadata_u1"
+    assert len(users[0].identities) == 2
+    assert users[0].identities[1].connection == "AAF"
+    assert users[0].identities[1].provider == "oidc"
+    assert users[0].identities[1].user_id == "linked-aaf"
+
+
+def test_parse_auth0_json_export_defaults_missing_blocked(tmp_path):
+    json_path = tmp_path / "auth0_users.json"
+    json_path.write_text(
+        '{"user_id":"auth0|u1","email":"u1@example.com",'
+        '"email_verified":true,"username":"u1",'
+        '"updated_at":"2024-01-01T12:00:00+00:00"}\n',
+        encoding="utf-8",
+    )
+
+    users = parse_auth0_json_export(json_path)
+
+    assert users[0].blocked is False
+
+
 @pytest.mark.asyncio
-async def test_export_auth0_users_writes_temp_csv_file(mocker):
+async def test_export_auth0_users_writes_temp_json_file(mocker):
     """
     Test that export_auth0_users() calls export_and_download_users with a path that exists,
-    and that the CSV file exists (was written) before parsing.
+    and that the JSON file exists (was written) before parsing.
     """
-    csv_existed_at_parse_time = False
-    csv_path: Path | None = None
+    json_existed_at_parse_time = False
+    json_path: Path | None = None
 
-    def _fake_export_and_download_users(*, download_path, fields, connection_id):
+    def _fake_export_and_download_users(*, download_path, fields, format, connection_id):
         assert connection_id is None
+        assert format == "json"
         # Simulate Auth0Client writing the file to the provided temp path
         download_path.write_text(
-            "user_id,email,email_verified,username,blocked,updated_at\n"
-            "'auth0|u1,'u1@example.com,True,'u1,False,2024-01-01T12:00:00+00:00\n",
+            '{"user_id":"auth0|u1","email":"u1@example.com",'
+            '"email_verified":true,"username":"u1","blocked":false,'
+            '"updated_at":"2024-01-01T12:00:00+00:00"}\n',
             encoding="utf-8",
         )
 
     def _parse_spy(path):
-        nonlocal csv_existed_at_parse_time
-        nonlocal csv_path
-        csv_path = path
-        csv_existed_at_parse_time = path.exists()
-        # Return a minimal valid parsed result (we test parse_auth0_export separately)
+        nonlocal json_existed_at_parse_time
+        nonlocal json_path
+        json_path = path
+        json_existed_at_parse_time = path.exists()
+        # Return a minimal valid parsed result (we test parse_auth0_json_export separately)
         return [
             ExportedUser(
                 user_id="auth0|u1",
@@ -1267,7 +1321,7 @@ async def test_export_auth0_users_writes_temp_csv_file(mocker):
             )
         ]
 
-    mocker.patch("scheduled_tasks.tasks.parse_auth0_export", side_effect=_parse_spy)
+    mocker.patch("scheduled_tasks.tasks.parse_auth0_json_export", side_effect=_parse_spy)
 
     auth0_client = MagicMock()
     auth0_client.export_and_download_users.side_effect = _fake_export_and_download_users
@@ -1275,28 +1329,41 @@ async def test_export_auth0_users_writes_temp_csv_file(mocker):
     users = await export_auth0_users(auth0_client)
 
     auth0_client.export_and_download_users.assert_called_once()
-    assert csv_existed_at_parse_time is True
+    assert json_existed_at_parse_time is True
     # Path should be deleted after parsing
-    assert not csv_path.exists()
+    assert not json_path.exists()
     assert len(users) == 1
     assert users[0].user_id == "auth0|u1"
 
 
 @pytest.mark.asyncio
 async def test_export_auth0_users_passes_connection_id(mocker):
-    def _fake_export_and_download_users(*, download_path, fields, connection_id):
+    def _fake_export_and_download_users(*, download_path, fields, format, connection_id):
+        assert format == "json"
         assert fields == [
             {"name": "user_id"},
             {"name": "email"},
             {"name": "email_verified"},
             {"name": "username"},
+            {"name": "app_metadata.username", "export_as": "metadata_username"},
             {"name": "blocked"},
             {"name": "updated_at"},
             {"name": "app_metadata.account_type", "export_as": "account_type"},
+            {"name": "app_metadata.aaf_only", "export_as": "aaf_only"},
+            {
+                "name": "app_metadata.aaf_registration_complete",
+                "export_as": "aaf_registration_complete",
+            },
+            {"name": "app_metadata.linking_completed", "export_as": "linking_completed"},
+            {
+                "name": "app_metadata.linking_completed_at",
+                "export_as": "linking_completed_at",
+            },
+            {"name": "identities"},
         ]
         assert connection_id == "con_aaf"
         download_path.write_text(
-            "user_id,email,email_verified,username,blocked,updated_at,account_type\n",
+            "",
             encoding="utf-8",
         )
 
