@@ -11,7 +11,7 @@ from uuid import UUID
 
 from httpx2 import HTTPStatusError
 from loguru import logger
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 
@@ -99,6 +99,15 @@ class ExportedUser(BaseModel):
         if isinstance(value, str) and value == "":
             return None
         return value
+
+    @model_validator(mode="after")
+    def _infer_aaf_account_type(self) -> "ExportedUser":
+        if (
+            self.account_type == BiocommonsUserAccountType.AUTH0
+            and (self.aaf_only is True or self.aaf_registration_complete is True)
+        ):
+            self.account_type = BiocommonsUserAccountType.AAF
+        return self
 
 
 class UserSyncConflictError(ValueError):
@@ -404,16 +413,36 @@ def parse_auth0_export(path: Path) -> list[ExportedUser]:
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            parsed.append(ExportedUser(
-                user_id=row["user_id"].lstrip("'"),
-                email=row["email"].lstrip("'"),
-                email_verified=row["email_verified"],
-                username=row["username"].lstrip("'") or None,
-                blocked=row["blocked"],
-                updated_at=row["updated_at"],
-                account_type=row.get("account_type", "").lstrip("'") or BiocommonsUserAccountType.AUTH0,
-            ))
+            parsed.append(ExportedUser(**_normalize_auth0_export_row(row)))
     return parsed
+
+
+def _normalize_auth0_export_row(row: dict[str, str]) -> dict[str, str | None]:
+    """
+    Strip Auth0 export quoting and convert empty optional fields to None.
+
+    Pydantic handles bool/datetime/enum coercion after this lightweight CSV
+    cleanup, so parsing rules stay in one place.
+    """
+    normalized = {
+        key: value.lstrip("'") if isinstance(value, str) else value
+        for key, value in row.items()
+    }
+    optional_fields = {
+        "username",
+        "metadata_username",
+        "account_type",
+        "aaf_only",
+        "aaf_registration_complete",
+        "linking_completed",
+        "linking_completed_at",
+    }
+    for field in optional_fields:
+        if normalized.get(field) == "":
+            normalized[field] = None
+    if normalized.get("account_type") is None:
+        normalized["account_type"] = BiocommonsUserAccountType.AUTH0
+    return normalized
 
 
 async def export_auth0_users(
