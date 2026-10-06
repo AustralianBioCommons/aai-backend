@@ -95,6 +95,7 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
 def mark_user_aaf_only(user_email: str, aaf_user_id: str, auth0_client: Auth0Client):
     update_data = UpdateUserData(
         app_metadata=BiocommonsAppMetadataUpdate(
+            account_type=BiocommonsUserAccountType.AAF,
             aaf_only=True,
             checked_email=user_email,
             linking_completed=True,
