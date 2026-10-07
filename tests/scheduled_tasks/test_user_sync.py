@@ -173,6 +173,7 @@ def test_soft_delete_users_missing_from_auth0_keeps_user_found_by_live_lookup(te
         email="late@example.com",
         username="late_user",
         account_type=BiocommonsUserAccountType.AUTH0,
+        other_user_id=None,
     )
     auth0_client = MagicMock()
     auth0_client.get_user.return_value = object()

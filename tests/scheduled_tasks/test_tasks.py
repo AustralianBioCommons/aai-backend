@@ -26,6 +26,7 @@ from scheduled_tasks.email_retry import (
 )
 from scheduled_tasks.sync.memberships import (
     MembershipSyncResult,
+    MembershipSyncSummary,
     sync_one_group_membership,
 )
 from scheduled_tasks.sync.memberships import (
@@ -38,6 +39,8 @@ from scheduled_tasks.sync.users import (
     Auth0ExportIdentityIndex,
     UserSyncAction,
     UserSyncConflictError,
+    UserSyncRecord,
+    UserSyncSummary,
     normalize_auth0_user,
     normalize_exported_user,
     soft_delete_users_missing_from_auth0,
@@ -55,6 +58,7 @@ from scheduled_tasks.tasks import (
     process_email_queue,
     send_email_notification,
     sync_auth0_roles,
+    sync_auth0_users,
     sync_group_user_roles,
     sync_platform_user_roles,
 )
@@ -299,6 +303,48 @@ def test_sync_one_user_creates_user(test_db_session):
     assert fetched.email == "ensure.create@example.com"
 
 
+@pytest.mark.asyncio
+async def test_sync_auth0_users_uses_new_sync_code(mocker, test_db_session, mock_settings):
+    exported_user = ExportedUserFactory.build(
+        email="exported.user@example.com",
+        username="exported_user",
+        blocked=False,
+    )
+    auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
+    auth0_client = auth0_client_cm.return_value.__enter__.return_value
+    auth0_client.get_connection_by_name.return_value = SimpleNamespace(id="con-db")
+    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
+    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
+    mocker.patch(
+        "scheduled_tasks.tasks.get_db_session",
+        return_value=_task_session_iter(test_db_session.get_bind()),
+    )
+    export = mocker.patch(
+        "scheduled_tasks.tasks.export_auth0_users",
+        return_value=[exported_user],
+    )
+    sync_export = mocker.patch(
+        "scheduled_tasks.tasks.sync_exported_users",
+        return_value=UserSyncSummary(created=1),
+    )
+    soft_delete = mocker.patch(
+        "scheduled_tasks.tasks.soft_delete_users_missing_from_auth0",
+        return_value=2,
+    )
+
+    summary = await sync_auth0_users(batch_size=123)
+
+    export.assert_awaited_once_with(auth0_client)
+    sync_export.assert_called_once()
+    assert sync_export.call_args.args[1] == [exported_user]
+    assert sync_export.call_args.kwargs["batch_size"] == 123
+    soft_delete.assert_called_once()
+    assert soft_delete.call_args.kwargs["auth0_client"] is auth0_client
+    assert soft_delete.call_args.kwargs["batch_size"] == 123
+    assert summary.created == 1
+    assert summary.soft_deleted == 2
+
+
 def test_link_admin_roles_links_platform_and_group(test_db_session):
     # Set up platform and group in DB
     platform = PlatformFactory.build(id=PlatformEnum.GALAXY)
@@ -458,16 +504,17 @@ def test_sync_one_user_raises_on_username_conflict(test_db_session, persistent_f
     test_db_session.flush()
     assert existing is not None
 
-    conflicting_user_data = Auth0UserDataFactory.build(
+    conflicting_user = UserSyncRecord(
         user_id="auth0|different-user",
         email="different.user@example.com",
         username="same_username",
         email_verified=True,
         blocked=False,
+        account_type=BiocommonsUserAccountType.AUTH0,
     )
 
     with pytest.raises(UserSyncConflictError, match="username 'same_username'"):
-        sync_one_user(test_db_session, normalize_auth0_user(conflicting_user_data))
+        sync_one_user(test_db_session, conflicting_user)
 
 
 def test_sync_one_group_membership_restores_soft_deleted(test_db_session, persistent_factories):
@@ -668,6 +715,7 @@ async def test_sync_auth0_group_roles_skips_sbp_when_disabled(mocker, test_db_se
         "scheduled_tasks.tasks.sync_group_memberships_for_role",
         new=AsyncMock(),
     )
+    sync_role.return_value = MembershipSyncSummary()
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
@@ -675,10 +723,11 @@ async def test_sync_auth0_group_roles_skips_sbp_when_disabled(mocker, test_db_se
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
 
-    await sync_group_user_roles()
+    await sync_group_user_roles(batch_size=123)
 
     sync_role.assert_awaited_once()
     assert sync_role.await_args.args[0] is tsi_role
+    assert sync_role.await_args.kwargs["batch_size"] == 123
 
 
 @pytest.mark.asyncio
@@ -859,18 +908,19 @@ async def test_sync_auth0_platform_roles_skips_sbp_when_disabled(mocker, test_db
         "scheduled_tasks.tasks.sync_platform_memberships_for_role",
         new=AsyncMock(),
     )
+    sync_role.return_value = MembershipSyncSummary()
     mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
     mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
     mocker.patch(
         "scheduled_tasks.tasks.get_db_session",
         return_value=_task_session_iter(test_db_session.get_bind()),
     )
-    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=[])
 
-    await sync_platform_user_roles()
+    await sync_platform_user_roles(batch_size=123)
 
     sync_role.assert_awaited_once()
     assert sync_role.await_args.args[0] is galaxy_role
+    assert sync_role.await_args.kwargs["batch_size"] == 123
 
 
 @pytest.mark.asyncio
