@@ -10,6 +10,7 @@ from scheduled_tasks.sync.users import (
     normalize_auth0_user,
     normalize_exported_user,
     soft_delete_users_missing_from_auth0,
+    user_exists_in_auth0,
 )
 from scheduled_tasks.tasks import ExportedUser
 from schemas.biocommons import (
@@ -180,12 +181,28 @@ def test_soft_delete_users_missing_from_auth0_keeps_user_found_by_live_lookup(te
         test_db_session,
         Auth0ExportIdentityIndex.from_user_list([_exported_user(user_id="auth0|other")]),
         auth0_client=auth0_client,
+        live_lookup_delay_seconds=0,
         commit=False,
     )
 
     assert deleted == 0
     assert user.is_deleted is False
     auth0_client.get_user.assert_called_once_with(user.id)
+
+
+def test_user_exists_in_auth0_sleeps_after_live_lookup(test_db_session, mocker):
+    user = _db_user(
+        test_db_session,
+        id="auth0|live",
+        email="live@example.com",
+        username="live_user",
+        account_type=BiocommonsUserAccountType.AUTH0,
+    )
+    auth0_client = MagicMock()
+    sleep = mocker.patch("scheduled_tasks.sync.users.time.sleep")
+
+    assert user_exists_in_auth0(auth0_client, user) is True
+    sleep.assert_called_once_with(0.5)
 
 
 def test_soft_delete_users_missing_from_auth0_keeps_linked_identity_found_by_live_lookup(
@@ -209,6 +226,7 @@ def test_soft_delete_users_missing_from_auth0_keeps_linked_identity_found_by_liv
         test_db_session,
         Auth0ExportIdentityIndex.from_user_list([_exported_user(user_id="auth0|other")]),
         auth0_client=auth0_client,
+        live_lookup_delay_seconds=0,
         commit=False,
     )
 
@@ -236,6 +254,7 @@ def test_soft_delete_users_missing_from_auth0_skips_delete_when_live_lookup_fail
         test_db_session,
         Auth0ExportIdentityIndex.from_user_list([_exported_user(user_id="auth0|other")]),
         auth0_client=auth0_client,
+        live_lookup_delay_seconds=0,
         commit=False,
     )
 

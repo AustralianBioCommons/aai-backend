@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
@@ -373,6 +374,7 @@ def soft_delete_users_missing_from_auth0(
     auth0_client: Auth0Client | None = None,
     batch_size: int = 500,
     commit: bool = True,
+    live_lookup_delay_seconds: float = 0.5,
 ) -> int:
     """
     Soft-delete active DB users whose IDs were absent from an Auth0 export.
@@ -387,7 +389,11 @@ def soft_delete_users_missing_from_auth0(
                 continue
             if auth0_client is not None:
                 try:
-                    if user_exists_in_auth0(auth0_client, user):
+                    if user_exists_in_auth0(
+                        auth0_client,
+                        user,
+                        delay_seconds=live_lookup_delay_seconds,
+                    ):
                         continue
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(
@@ -441,6 +447,8 @@ def user_seen_in_auth0_export(
 def user_exists_in_auth0(
     auth0_client: Auth0Client,
     user: BiocommonsUser,
+    *,
+    delay_seconds: float = 0.5,
 ) -> bool:
     """
     Check live Auth0 before soft-deleting a user that was missing from export.
@@ -452,10 +460,14 @@ def user_exists_in_auth0(
         try:
             auth0_client.get_user(user_id)
         except HTTPStatusError as exc:
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
             if exc.response.status_code == 404:
                 continue
             raise exc
         else:
+            if delay_seconds > 0:
+                time.sleep(delay_seconds)
             return True
     return False
 
@@ -494,7 +506,7 @@ def _user_auth0_lookup_ids(user: BiocommonsUser) -> list[str]:
     for user_id in (user.id, user.other_user_id):
         if user_id is not None:
             user_ids.add(user_id)
-    return list(user_ids)
+    return sorted(user_ids)
 
 
 def _sync_blocked_user(
