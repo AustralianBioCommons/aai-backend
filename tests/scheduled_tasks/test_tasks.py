@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
-from httpx2 import HTTPStatusError
 from sqlmodel import Session, select
 
 from db.models import (
@@ -25,11 +24,29 @@ from scheduled_tasks.email_retry import (
     EMAIL_MAX_ATTEMPTS,
     EMAIL_RETRY_WINDOW_SECONDS,
 )
+from scheduled_tasks.sync.memberships import (
+    MembershipSyncResult,
+    sync_one_group_membership,
+)
+from scheduled_tasks.sync.memberships import (
+    sync_group_memberships_for_role as sync_group_memberships_for_role_new,
+)
+from scheduled_tasks.sync.memberships import (
+    sync_platform_memberships_for_role as sync_platform_memberships_for_role_new,
+)
+from scheduled_tasks.sync.users import (
+    Auth0ExportIdentityIndex,
+    UserSyncAction,
+    UserSyncConflictError,
+    normalize_auth0_user,
+    normalize_exported_user,
+    soft_delete_users_missing_from_auth0,
+    sync_exported_users,
+    sync_one_user,
+    sync_users_from_records,
+)
 from scheduled_tasks.tasks import (
     ExportedUser,
-    UserSyncConflictError,
-    _ensure_user_from_auth0,
-    _get_group_membership_including_deleted,
     export_auth0_users,
     link_admin_roles,
     parse_auth0_json_export,
@@ -38,11 +55,8 @@ from scheduled_tasks.tasks import (
     process_email_queue,
     send_email_notification,
     sync_auth0_roles,
-    sync_auth0_users,
     sync_group_user_roles,
     sync_platform_user_roles,
-    update_auth0_user,
-    update_auth0_users_batch,
 )
 from schemas.biocommons import BiocommonsUserAccountType
 from tests.datagen import (
@@ -74,8 +88,7 @@ def _get_notification_fresh(test_db_session, notification_id):
         return fresh_session.get(EmailNotification, notification_id)
 
 
-@pytest.mark.asyncio
-async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session, persistent_factories):
+def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, persistent_factories):
     """
     Users present in Auth0 are created or updated, while missing users are soft deleted.
     """
@@ -109,38 +122,22 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
         blocked=False
     )
     users = [existing_user_data, new_user_data, extra_user_data]
-    mocker.patch("scheduled_tasks.tasks.get_settings")
-    mocker.patch("scheduled_tasks.tasks.get_management_token")
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
+
+    summary = sync_exported_users(test_db_session, users, batch_size=2, commit=False)
+    deleted = soft_delete_users_missing_from_auth0(
+        test_db_session,
+        Auth0ExportIdentityIndex.from_user_list(users),
+        commit=False,
     )
-    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=users)
-    auth0_client_cls = mocker.patch("scheduled_tasks.tasks.Auth0Client")
-    auth0_client = auth0_client_cls.return_value.__enter__.return_value
-
-    def _get_user(user_id):
-        if user_id == existing_user.id:
-            return existing_user_data
-        if user_id == new_user_data.user_id:
-            return new_user_data
-        if user_id == extra_user_data.user_id:
-            return extra_user_data
-        if user_id == user_not_in_auth0.id:
-            raise HTTPStatusError(
-                message="Not Found",
-                request=mocker.Mock(),
-                response=mocker.Mock(status_code=404),
-            )
-
-    auth0_client.get_user.side_effect = _get_user
-
-    await sync_auth0_users()
+    test_db_session.flush()
 
     test_db_session.refresh(existing_user)
     test_db_session.refresh(user_not_in_auth0)
     created_user = test_db_session.get(BiocommonsUser, new_user_data.user_id)
 
+    assert summary.updated == 1
+    assert summary.created == 2
+    assert deleted == 1
     assert existing_user.email_verified is True
     assert user_not_in_auth0.is_deleted is True
     assert created_user is not None and created_user.is_deleted is False
@@ -148,95 +145,83 @@ async def test_sync_auth0_users_creates_and_soft_deletes(mocker, test_db_session
     assert second_created is not None
 
 
-@pytest.mark.asyncio
-async def test_sync_auth0_users_skips_soft_delete_if_user_appears_after_export(
-    mocker, test_db_session, persistent_factories
+def test_soft_delete_users_missing_from_auth0_keeps_user_seen_by_linked_identity(
+    test_db_session, persistent_factories
 ):
     """
-    If a user is created in Auth0 after the export is fetched but before the soft-delete pass,
-    the user should not be soft deleted once the individual Auth0 lookup confirms they exist.
+    Linked AAF users may appear in Auth0 export identities rather than as the top-level ID.
     """
-    existing_user = BiocommonsUserFactory.create_sync(
-        email="stale.user@example.com",
-        username="stale_user",
-        email_verified=True,
-        blocked=False,
-    )
-    late_user = BiocommonsUserFactory.create_sync(
-        email="late.user@example.com",
-        username="late_user",
+    linked_user = BiocommonsUserFactory.create_sync(
+        id="auth0|primary",
+        other_user_id="oidc|AAF|linked-aaf",
+        email="linked.aaf@example.com",
+        username="linked_aaf",
+        account_type=BiocommonsUserAccountType.AAF,
     )
 
-    existing_user_export = ExportedUserFactory.build(
-        user_id=existing_user.id,
-        email=existing_user.email,
-        username=existing_user.username,
-        email_verified=True,
-        blocked=False,
+    exported = [
+        ExportedUser(
+            user_id="auth0|export-row",
+            email=linked_user.email,
+            username=linked_user.username,
+            email_verified=True,
+            blocked=False,
+            updated_at="2024-01-01T12:00:00+00:00",
+            identities=[
+                {
+                    "connection": "AAF",
+                    "provider": "oidc",
+                    "user_id": "linked-aaf",
+                    "isSocial": False,
+                }
+            ],
+        )
+    ]
+
+    deleted = soft_delete_users_missing_from_auth0(
+        test_db_session,
+        Auth0ExportIdentityIndex.from_user_list(exported),
+        commit=False,
     )
-    exported = [existing_user_export]
 
-    mocker.patch("scheduled_tasks.tasks.get_settings")
-    mocker.patch("scheduled_tasks.tasks.get_management_token")
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
-    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=exported)
-
-    auth0_client = mocker.patch("scheduled_tasks.tasks.Auth0Client")
-    auth0_instance = auth0_client.return_value.__enter__.return_value
-    auth0_instance.get_user.side_effect = lambda user_id: Auth0UserDataFactory.build(
-        user_id=user_id,
-        email=late_user.email,
-        username=late_user.username,
-        email_verified=True,
-        blocked=False,
-    ) if user_id == late_user.id else (_ for _ in ()).throw(AssertionError("Unexpected user lookup"))
-
-    await sync_auth0_users()
-
-    test_db_session.refresh(existing_user)
-    test_db_session.refresh(late_user)
-
-    assert existing_user.is_deleted is False
-    assert late_user.is_deleted is False
+    assert deleted == 0
+    assert linked_user.is_deleted is False
 
 
-@pytest.mark.asyncio
-async def test_sync_auth0_users_logs_and_skips_delete_when_auth0_lookup_raises(
-    mocker, test_db_session, persistent_factories
+def test_soft_delete_users_missing_from_auth0_skips_ambiguous_aaf_user(
+    test_db_session, persistent_factories, mocker
 ):
-    stale_user = BiocommonsUserFactory.create_sync(
-        email="stale.lookup@example.com",
-        username="stale_lookup",
+    user = BiocommonsUserFactory.create_sync(
+        id="auth0|aaf-without-link",
+        other_user_id=None,
+        email="aaf.without.link@example.com",
+        username="aaf_without_link",
+        account_type=BiocommonsUserAccountType.AAF,
+    )
+    warning = mocker.patch("scheduled_tasks.sync.users.logger.warning")
+    exported = [
+        ExportedUserFactory.build(
+            user_id="auth0|other",
+            email="other@example.com",
+            username="other_user",
+            blocked=False,
+        )
+    ]
+
+    deleted = soft_delete_users_missing_from_auth0(
+        test_db_session,
+        Auth0ExportIdentityIndex.from_user_list(exported),
+        commit=False,
     )
 
-    mocker.patch("scheduled_tasks.tasks.get_settings")
-    mocker.patch("scheduled_tasks.tasks.get_management_token")
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
-    mocker.patch("scheduled_tasks.tasks.export_auth0_users", return_value=[])
-    mocker.patch("scheduled_tasks.tasks.user_exists_in_auth0", side_effect=RuntimeError("lookup failed"))
-    warning = mocker.patch("scheduled_tasks.tasks.logger.warning")
-    auth0_client_cls = mocker.patch("scheduled_tasks.tasks.Auth0Client")
-
-    await sync_auth0_users()
-
-    test_db_session.refresh(stale_user)
-
-    assert stale_user.is_deleted is False
+    assert deleted == 0
+    assert user.is_deleted is False
     warning.assert_called_once()
-    assert stale_user.id in warning.call_args.args[0]
-    assert "lookup failed" in warning.call_args.args[0]
-    auth0_client_cls.return_value.__exit__.assert_called_once()
 
 
-def test_update_auth0_user_updates_existing(test_db_session, mocker, mock_auth0_client, persistent_factories):
+def test_sync_one_user_updates_existing(test_db_session, persistent_factories):
     """
-    Updating an existing user applies Auth0 data and commits changes.
+    Updating an existing user applies Auth0 data.
     """
     user_data = Auth0UserDataFactory.build(email_verified=True)
     db_user = BiocommonsUserFactory.create_sync(
@@ -245,57 +230,73 @@ def test_update_auth0_user_updates_existing(test_db_session, mocker, mock_auth0_
         username=user_data.username,
         email_verified=False,
     )
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
-    mock_auth0_client.get_user.return_value = user_data
 
-    update_auth0_user(user_data=user_data, session=test_db_session, auth0_client=mock_auth0_client)
-    test_db_session.commit()
+    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    test_db_session.flush()
 
     test_db_session.refresh(db_user)
+    assert result.action == UserSyncAction.UPDATED
     assert db_user.email_verified is True
 
 
-def test_update_auth0_user_creates_when_missing(test_db_session, mocker, mock_auth0_client):
+def test_sync_one_user_creates_when_missing(test_db_session):
     """
-    Missing users are created when encountered during the update.
+    Missing users are created by user sync.
     """
     user_data = Auth0UserDataFactory.build()
-    mock_auth0_client.get_user.return_value = user_data
 
-    result = update_auth0_user(user_data=user_data, session=test_db_session,
-                               auth0_client=mock_auth0_client)
-    test_db_session.commit()
+    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    test_db_session.flush()
 
     created = test_db_session.get(BiocommonsUser, user_data.user_id)
-    assert result is True
+    assert result.action == UserSyncAction.CREATED
     assert created is not None
 
 
-@pytest.mark.asyncio
-async def test_update_auth0_user_batch_closes_session(mocker, mock_auth0_client):
+def test_sync_users_from_records_commits_each_batch(test_db_session, mocker):
     """
-    Check that the session is closed after the update.
+    Batch sync commits after each batch.
     """
-    fake_session = mocker.Mock()
-    fake_session.is_modified.return_value = False
-    fake_session.commit.return_value = None
-    fake_session.close.return_value = None
-    fake_user = mocker.Mock()
+    records = [
+        normalize_exported_user(
+            ExportedUserFactory.build(
+                email=f"user{index}@example.com",
+                username=f"user_{index}",
+                blocked=False,
+            )
+        )
+        for index in range(3)
+    ]
+    commit_spy = mocker.spy(test_db_session, "commit")
 
-    mocker.patch("scheduled_tasks.tasks._ensure_user_from_auth0", return_value=(fake_user, False, False))
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=(fake_session for _ in range(1)),
+    summary = sync_users_from_records(
+        test_db_session,
+        records,
+        batch_size=2,
+        commit=True,
     )
 
-    # Empty user list (actual user list does nested transactions + hard to mock)
-    await update_auth0_users_batch(users=[], auth0_client=mock_auth0_client)
+    assert summary.created == 3
+    assert commit_spy.call_count == 2
 
-    fake_session.commit.assert_called_once()
-    fake_session.close.assert_called_once()
+
+def test_sync_one_user_creates_user(test_db_session):
+    user_data = Auth0UserDataFactory.build(
+        user_id="auth0|ensure_create",
+        email="ensure.create@example.com",
+        username="ensure_create",
+        email_verified=True,
+        blocked=False,
+    )
+
+    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+
+    test_db_session.flush()
+    fetched = test_db_session.get(BiocommonsUser, user_data.user_id)
+
+    assert result.action == UserSyncAction.CREATED
+    assert fetched is not None
+    assert fetched.email == "ensure.create@example.com"
 
 
 def test_link_admin_roles_links_platform_and_group(test_db_session):
@@ -393,27 +394,7 @@ def test_link_admin_roles_case_insensitive(test_db_session):
     assert group_role in group.admin_roles
 
 
-def test_ensure_user_from_auth0_creates_user(test_db_session):
-    user_data = Auth0UserDataFactory.build(
-        user_id="auth0|ensure_create",
-        email="ensure.create@example.com",
-        username="ensure_create",
-        email_verified=True,
-        blocked=False,
-    )
-
-    user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
-
-    test_db_session.flush()
-    fetched = test_db_session.get(BiocommonsUser, user_data.user_id)
-
-    assert created is True
-    assert restored is False
-    assert fetched is not None
-    assert fetched.email == "ensure.create@example.com"
-
-
-def test_ensure_user_from_auth0_restores_soft_deleted(test_db_session, persistent_factories):
+def test_sync_one_user_restores_soft_deleted(test_db_session, persistent_factories):
     existing_user = BiocommonsUserFactory.create_sync(
         id="auth0|restore_user",
         email="restore.user@example.com",
@@ -429,14 +410,14 @@ def test_ensure_user_from_auth0_restores_soft_deleted(test_db_session, persisten
         blocked=False,
     )
 
-    user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
+    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
 
-    assert created is False
-    assert restored is True
-    assert user.is_deleted is False
+    assert result.action == UserSyncAction.RESTORED
+    assert result.user is not None
+    assert result.user.is_deleted is False
 
 
-def test_ensure_user_no_restore_if_blocked(test_db_session, persistent_factories):
+def test_sync_one_user_no_restore_if_blocked(test_db_session, persistent_factories):
     """
     Test users are not restored if they are blocked in Auth0
     """
@@ -455,19 +436,26 @@ def test_ensure_user_no_restore_if_blocked(test_db_session, persistent_factories
         blocked=True,
     )
 
-    user, created, restored = _ensure_user_from_auth0(test_db_session, user_data)
+    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    fetched = BiocommonsUser.get_by_id(
+        existing_user_id,
+        test_db_session,
+        include_deleted=True,
+    )
 
-    assert created is False
-    assert restored is False
-    assert user.is_deleted is True
+    assert result.action == UserSyncAction.SKIPPED_UNCHANGED
+    assert fetched is not None
+    assert fetched.is_deleted is True
 
 
-def test_ensure_user_from_auth0_raises_on_username_conflict(test_db_session, persistent_factories):
-    existing = BiocommonsUserFactory.create_sync(
+def test_sync_one_user_raises_on_username_conflict(test_db_session, persistent_factories):
+    existing = BiocommonsUserFactory.build(
         id="auth0|existing-user",
         email="existing.user@example.com",
         username="same_username",
     )
+    test_db_session.add(existing)
+    test_db_session.flush()
     assert existing is not None
 
     conflicting_user_data = Auth0UserDataFactory.build(
@@ -479,10 +467,10 @@ def test_ensure_user_from_auth0_raises_on_username_conflict(test_db_session, per
     )
 
     with pytest.raises(UserSyncConflictError, match="username 'same_username'"):
-        _ensure_user_from_auth0(test_db_session, conflicting_user_data)
+        sync_one_user(test_db_session, normalize_auth0_user(conflicting_user_data))
 
 
-def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, persistent_factories):
+def test_sync_one_group_membership_restores_soft_deleted(test_db_session, persistent_factories):
     group = BiocommonsGroupFactory.create_sync(
         group_id="biocommons/group/deleted-check",
         name="Deleted Check",
@@ -494,14 +482,23 @@ def test_get_membership_including_deleted_returns_soft_deleted(test_db_session, 
         user=user,
         approval_status=ApprovalStatusEnum.PENDING,
     )
-    membership_user_id = membership.user_id
-    membership_group_id = membership.group_id
     membership.delete(test_db_session, commit=True)
 
-    retrieved = _get_group_membership_including_deleted(test_db_session, membership_user_id, membership_group_id)
+    result = sync_one_group_membership(
+        test_db_session,
+        user_id=user.id,
+        group_id=group.group_id,
+    )
+    restored_membership = GroupMembership.get_by_user_id_and_group_id(
+        user.id,
+        group.group_id,
+        test_db_session,
+        include_deleted=True,
+    )
 
-    assert retrieved is not None
-    assert retrieved.is_deleted is True
+    assert result == MembershipSyncResult.RESTORED
+    assert restored_membership is not None
+    assert restored_membership.is_deleted is False
 
 
 @pytest.mark.asyncio
@@ -544,7 +541,7 @@ async def test_sync_auth0_roles_updates_and_soft_deletes(mocker, test_db_session
 
 
 @pytest.mark.asyncio
-async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session, mock_settings, persistent_factories):
+async def test_sync_group_memberships_for_role_syncs_assignments(test_db_session, persistent_factories):
     """
     User-role assignments from Auth0 are mirrored in the database and stale assignments are soft deleted.
     """
@@ -580,48 +577,37 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
         email="keep.user@example.com",
         username="keep_user",
     )
-    auth0_user_keep = Auth0UserDataFactory.build(
-        user_id=user_keep.id,
-        email="keep.user@example.com",
-        username="keep_user",
+    GroupMembershipFactory.create_sync(
+        group=group,
+        user=user_keep,
+        approval_status=ApprovalStatusEnum.APPROVED,
     )
-    auth0_user_pending = Auth0UserDataFactory.build(
-        user_id=user_pending.id,
-        email="pending.user@example.com",
-        username="pending_user",
-    )
-    auth0_user_new = Auth0UserDataFactory.build(
+    user_new = BiocommonsUserFactory.create_sync(
         email="new.assignment@example.com",
         username="new_assignment",
     )
-    role_user_keep = RoleUserDataFactory.build(user_id=auth0_user_keep.user_id)
-    role_user_pending = RoleUserDataFactory.build(user_id=auth0_user_pending.user_id)
-    role_user_new = RoleUserDataFactory.build(user_id=auth0_user_new.user_id)
+    role_user_keep = RoleUserDataFactory.build(user_id=user_keep.id)
+    role_user_pending = RoleUserDataFactory.build(user_id=user_pending.id)
+    role_user_new = RoleUserDataFactory.build(user_id=user_new.id)
+    role_user_missing = RoleUserDataFactory.build(user_id="auth0|missing")
 
     mock_auth0_client = MagicMock()
-    mock_auth0_client.get_all_roles.return_value = [
-        SimpleNamespace(id=role.id, name=role.name, description=role.description)
+    mock_auth0_client.get_all_role_users_generator.return_value = [
+        [
+            role_user_keep,
+            role_user_pending,
+            role_user_new,
+            role_user_missing,
+        ]
     ]
-    mock_auth0_client.get_all_role_users.return_value = [
-        role_user_keep,
-        role_user_pending,
-        role_user_new,
-    ]
-    mock_auth0_client.get_user.side_effect = [
-        auth0_user_keep,
-        auth0_user_pending,
-        auth0_user_new,
-    ]
-    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
-    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
-    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
-    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
 
-    await sync_group_user_roles()
+    summary = await sync_group_memberships_for_role_new(
+        SimpleNamespace(id=role.id, name=role.name, description=role.description),
+        mock_auth0_client,
+        test_db_session,
+        batch_size=2,
+        commit=False,
+    )
 
     kept_membership = GroupMembership.get_by_user_id_and_group_id(
         user_id=user_keep.id,
@@ -629,7 +615,7 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
         session=test_db_session,
     )
     new_membership = GroupMembership.get_by_user_id_and_group_id(
-        user_id=auth0_user_new.user_id,
+        user_id=user_new.id,
         group_id=group.group_id,
         session=test_db_session,
     )
@@ -646,21 +632,26 @@ async def test_sync_auth0_group_roles_syncs_assignments(mocker, test_db_session,
             GroupMembership.group_id == group.group_id,
         )
     ).one()
-    created_user = test_db_session.get(BiocommonsUser, auth0_user_new.user_id)
     history_entries = test_db_session.exec(
         select(GroupMembershipHistory).where(
             GroupMembershipHistory.user_id == user_pending.id,
             GroupMembershipHistory.group_id == group.group_id,
         )
     ).all()
+    missing_user = test_db_session.get(BiocommonsUser, "auth0|missing")
 
+    assert summary.created == 1
+    assert summary.status_changed == 1
+    assert summary.soft_deleted == 1
+    assert summary.skipped_missing_user == 1
     assert kept_membership is not None
     assert new_membership is not None
     assert updated_pending_membership is not None
     assert updated_pending_membership.approval_status == ApprovalStatusEnum.APPROVED
     assert removed_membership.is_deleted is True
-    assert created_user is not None
+    assert missing_user is None
     assert len(history_entries) > len(history_before)
+    mock_auth0_client.get_user.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -732,7 +723,7 @@ async def test_populate_db_groups_adds_sbp_with_expected_metadata(
 
 
 @pytest.mark.asyncio
-async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings, persistent_factories):
+async def test_sync_platform_memberships_for_role_syncs_assignments(test_db_session, persistent_factories):
     """
     User-role assignments from Auth0 are mirrored in the database and stale assignments are soft deleted.
     """
@@ -769,48 +760,37 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         email="keep.user@example.com",
         username="keep_user",
     )
-    auth0_user_keep = Auth0UserDataFactory.build(
-        user_id=user_keep.id,
-        email="keep.user@example.com",
-        username="keep_user",
-        email_verified=True,
+    PlatformMembershipFactory.create_sync(
+        platform=platform,
+        user=user_keep,
+        approval_status=ApprovalStatusEnum.APPROVED,
     )
-    auth0_user_pending = Auth0UserDataFactory.build(
-        user_id=user_pending.id,
-        email="pending.user@example.com",
-        username="pending_user",
-        email_verified=True,
-    )
-    auth0_user_new = Auth0UserDataFactory.build(
+    user_new = BiocommonsUserFactory.create_sync(
         email="new.assignment@example.com",
         username="new_assignment",
-        email_verified=True,
     )
-    role_user_keep = RoleUserDataFactory.build(user_id=auth0_user_keep.user_id)
-    role_user_pending = RoleUserDataFactory.build(user_id=auth0_user_pending.user_id)
-    role_user_new = RoleUserDataFactory.build(user_id=auth0_user_new.user_id)
+    role_user_keep = RoleUserDataFactory.build(user_id=user_keep.id)
+    role_user_pending = RoleUserDataFactory.build(user_id=user_pending.id)
+    role_user_new = RoleUserDataFactory.build(user_id=user_new.id)
+    role_user_missing = RoleUserDataFactory.build(user_id="auth0|missing")
 
     mock_auth0_client = MagicMock()
-    mock_auth0_client.get_all_roles.return_value = [
-        SimpleNamespace(id=platform_role.id, name=platform_role.name, description=platform_role.description)
+    mock_auth0_client.get_all_role_users_generator.return_value = [
+        [role_user_keep, role_user_pending],
+        [role_user_new, role_user_missing],
     ]
-    mock_auth0_client.get_all_role_users_generator.return_value = (x for x in [[role_user_keep, role_user_pending], [role_user_new]])
-    mock_auth0_client_cm = mocker.patch("scheduled_tasks.tasks.Auth0Client")
-    mock_auth0_client_cm.return_value.__enter__.return_value = mock_auth0_client
-    mocker.patch("scheduled_tasks.tasks.get_settings", return_value=mock_settings)
-    mocker.patch("scheduled_tasks.tasks.get_management_token", return_value="token")
-    mocker.patch(
-        "scheduled_tasks.tasks.get_db_session",
-        return_value=_task_session_iter(test_db_session.get_bind()),
-    )
-    mocker.patch(
-        "scheduled_tasks.tasks.export_auth0_users",
-        return_value=[ExportedUser(user_id=u.user_id, email=u.email, email_verified=u.email_verified,
-                                   username=u.username, blocked=u.blocked, updated_at=u.updated_at)
-                      for u in [auth0_user_keep, auth0_user_pending, auth0_user_new]]
-    )
 
-    await sync_platform_user_roles()
+    summary = await sync_platform_memberships_for_role_new(
+        SimpleNamespace(
+            id=platform_role.id,
+            name=platform_role.name,
+            description=platform_role.description,
+        ),
+        mock_auth0_client,
+        test_db_session,
+        batch_size=2,
+        commit=False,
+    )
 
     kept_membership = PlatformMembership.get_by_user_id_and_platform_id(
         user_id=user_keep.id,
@@ -818,7 +798,7 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         session=test_db_session,
     )
     new_membership = PlatformMembership.get_by_user_id_and_platform_id(
-        user_id=auth0_user_new.user_id,
+        user_id=user_new.id,
         platform_id=platform.id,
         session=test_db_session,
     )
@@ -833,23 +813,28 @@ async def test_sync_auth0_platform_roles(mocker, test_db_session, mock_settings,
         .where(
             PlatformMembership.user_id == user_remove.id,
             PlatformMembership.platform_id == platform.id,
-            )
+        )
     ).one()
-    created_user = test_db_session.get(BiocommonsUser, auth0_user_new.user_id)
     history_entries = test_db_session.exec(
         select(PlatformMembershipHistory).where(
             PlatformMembershipHistory.user_id == user_pending.id,
             PlatformMembershipHistory.platform_id == platform.id,
             )
     ).all()
+    missing_user = test_db_session.get(BiocommonsUser, "auth0|missing")
 
+    assert summary.created == 1
+    assert summary.status_changed == 1
+    assert summary.soft_deleted == 1
+    assert summary.skipped_missing_user == 1
     assert kept_membership is not None
     assert new_membership is not None
     assert updated_pending_membership is not None
     assert updated_pending_membership.approval_status == ApprovalStatusEnum.APPROVED
     assert removed_membership.is_deleted is True
-    assert created_user is not None
+    assert missing_user is None
     assert len(history_entries) > len(history_before)
+    mock_auth0_client.get_user.assert_not_called()
 
 
 @pytest.mark.asyncio
