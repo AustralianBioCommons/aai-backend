@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from db.models import BiocommonsUser, BiocommonsUserHistory
+from scheduled_tasks.sync.summaries import SyncSummary
 from schemas.biocommons import Auth0Identity, Auth0UserData, BiocommonsUserAccountType
 
 
@@ -135,7 +136,7 @@ class UserSyncResult(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class UserSyncSummary(BaseModel):
+class UserSyncSummary(SyncSummary):
     total: int = 0
     created: int = 0
     updated: int = 0
@@ -169,17 +170,6 @@ class UserSyncSummary(BaseModel):
     def add_conflict(self) -> None:
         self.total += 1
         self.conflicted += 1
-
-    def merge(self, other: UserSyncSummary) -> None:
-        self.total += other.total
-        self.created += other.created
-        self.updated += other.updated
-        self.restored += other.restored
-        self.soft_deleted += other.soft_deleted
-        self.skipped_unchanged += other.skipped_unchanged
-        self.skipped_blocked_missing += other.skipped_blocked_missing
-        self.skipped_invalid += other.skipped_invalid
-        self.conflicted += other.conflicted
 
 
 def chunked[T](items: Iterable[T], size: int) -> Iterable[list[T]]:
