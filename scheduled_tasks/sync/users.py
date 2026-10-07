@@ -6,11 +6,13 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal, Protocol, Self
 
+from httpx2 import HTTPStatusError
 from loguru import logger
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from auth0.client import Auth0Client
 from db.models import BiocommonsUser, BiocommonsUserHistory
 from scheduled_tasks.sync.summaries import SyncSummary
 from schemas.biocommons import Auth0Identity, Auth0UserData, BiocommonsUserAccountType
@@ -368,6 +370,7 @@ def soft_delete_users_missing_from_auth0(
     session: Session,
     export_index: Auth0ExportIdentityIndex,
     *,
+    auth0_client: Auth0Client | None = None,
     batch_size: int = 500,
     commit: bool = True,
 ) -> int:
@@ -382,6 +385,17 @@ def soft_delete_users_missing_from_auth0(
         for user in batch:
             if not should_soft_delete_missing_user(user, export_index):
                 continue
+            if auth0_client is not None:
+                try:
+                    if user_exists_in_auth0(auth0_client, user):
+                        continue
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Failed to check if user {} exists in Auth0: {}",
+                        user.id,
+                        exc,
+                    )
+                    continue
             logger.info("Soft deleting user {} absent from Auth0", user.id)
             user.delete(session, reason="auth0_sync", commit=False)
             deleted += 1
@@ -424,6 +438,28 @@ def user_seen_in_auth0_export(
     )
 
 
+def user_exists_in_auth0(
+    auth0_client: Auth0Client,
+    user: BiocommonsUser,
+) -> bool:
+    """
+    Check live Auth0 before soft-deleting a user that was missing from export.
+
+    A user may appear after the export was generated. Linked AAF users may also
+    have either the primary DB ID or linked identity ID in Auth0.
+    """
+    for user_id in _user_auth0_lookup_ids(user):
+        try:
+            auth0_client.get_user(user_id)
+        except HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                continue
+            raise exc
+        else:
+            return True
+    return False
+
+
 def should_soft_delete_missing_user(
     user: BiocommonsUser,
     export_index: Auth0ExportIdentityIndex,
@@ -451,6 +487,14 @@ def should_soft_delete_missing_user(
         user.account_type,
     )
     return False
+
+
+def _user_auth0_lookup_ids(user: BiocommonsUser) -> list[str]:
+    user_ids = set()
+    for user_id in (user.id, user.other_user_id):
+        if user_id is not None:
+            user_ids.add(user_id)
+    return list(user_ids)
 
 
 def _sync_blocked_user(
