@@ -192,10 +192,10 @@ def test_get_users_includes_current_admin_user_sorted_by_created_at(
 ):
     """
     The current admin's own user entry should be included in the user list,
-    sorted by created_at like any other user (no longer pinned to the top).
+    sorted newest first by created_at like any other user.
     """
     admin_db_user = as_admin_user
-    admin_db_user.created_at = datetime(2024, 1, 4, tzinfo=timezone.utc)
+    admin_db_user.created_at = datetime(2024, 1, 2, tzinfo=timezone.utc)
     membership = PlatformMembershipFactory.create_sync(
         user_id=admin_db_user.id,
         platform_id=galaxy_platform.id,
@@ -213,15 +213,15 @@ def test_get_users_includes_current_admin_user_sorted_by_created_at(
             approval_status=ApprovalStatusEnum.APPROVED,
             created_at=datetime(2024, 1, day, tzinfo=timezone.utc),
         )
-        for day in (3, 1, 2)
+        for day in (4, 1, 3)
     ]
 
     resp = test_client.get("/admin/users")
     assert resp.status_code == 200
     data = resp.json()
     assert len(data) == 4
-    # Admin (day 4) sorts last; the rest follow created_at order
-    expected_order = [other_users[1].id, other_users[2].id, other_users[0].id, admin_db_user.id]
+    # The admin's entry belongs between the newer and older signups.
+    expected_order = [other_users[0].id, other_users[2].id, admin_db_user.id, other_users[1].id]
     assert [u["id"] for u in data] == expected_order
 
 
