@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
     aai_portal_url: str = ""
+    # SBP Platform URL for the "Go to Structural Biology Platform" email button
+    sbp_portal_url: str = ""
     # Sender override for emails that should come from a no-reply address
     no_reply_email_sender: EmailStr
     # SES resource ARN for sending emails
@@ -53,9 +55,9 @@ class Settings(BaseSettings):
             return None
         return value.rstrip("/")
 
-    @field_validator("aai_portal_url", mode="before")
+    @field_validator("aai_portal_url", "sbp_portal_url", mode="before")
     @classmethod
-    def strip_aai_portal_trailing_slash(cls, value: str | None) -> str:
+    def strip_portal_trailing_slash(cls, value: str | None) -> str:
         if value is None:
             return ""
         return value.rstrip("/")
@@ -75,6 +77,23 @@ class Settings(BaseSettings):
                 "Unknown ENVIRONMENT value and AAI_PORTAL_URL is not set."
             )
         self.aai_portal_url = default_url
+        return self
+
+    @model_validator(mode="after")
+    def set_default_sbp_portal_url(self) -> "Settings":
+        if self.sbp_portal_url:
+            return self
+        env_to_url = {
+            "dev": "https://dev.sbp.test.biocommons.org.au",
+            "staging": "https://staging.sbp.test.biocommons.org.au",
+            "production": "https://sbp.services.biocommons.org.au",
+        }
+        default_url = env_to_url.get(self.environment)
+        if not default_url:
+            raise ValueError(
+                "Unknown ENVIRONMENT value and SBP_PORTAL_URL is not set."
+            )
+        self.sbp_portal_url = default_url
         return self
 
 

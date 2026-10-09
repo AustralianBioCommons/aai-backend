@@ -214,6 +214,52 @@ def compose_group_membership_approved_email(
     return subject, email_html
 
 
+def compose_sbp_bundle_approval_email(
+        *,
+        first_name: str,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their SBP bundle access request was approved.
+    """
+    subject = "Structural Biology Platform bundle request"
+    body_html = render_html_template(
+        "emails/sbp_bundle_approved.html",
+        first_name=first_name,
+        sbp_portal_url=settings.sbp_portal_url,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=settings.aai_portal_url,
+    )
+    return subject, email_html
+
+
+def compose_sbp_bundle_rejection_email(
+        *,
+        first_name: str,
+        settings: Settings,
+) -> tuple[str, str]:
+    """
+    Notify a user that their SBP bundle access request was rejected, as
+    the SBP bundle is currently invite-only during its early access period.
+    """
+    subject = "Structural Biology Platform bundle request"
+    body_html = render_html_template(
+        "emails/sbp_bundle_rejected.html",
+        first_name=first_name,
+    )
+    email_html = render_default_email_html(
+        title=subject,
+        preheader=subject,
+        body_html=body_html,
+        portal_url=settings.aai_portal_url,
+    )
+    return subject, email_html
+
+
 def compose_email_change_notification(
         old_email: str,
         new_email: str,

@@ -91,6 +91,17 @@ def tsi_group(persistent_factories):
     )
 
 
+@pytest.fixture
+def sbp_group(persistent_factories):
+    admin_role = Auth0RoleFactory.create_sync(name="biocommons/role/sbp_bundle/admin")
+    return BiocommonsGroupFactory.create_sync(
+        group_id=GroupEnum.SBP.value,
+        name="Structural Biology Platform Bundle",
+        short_name="SBP",
+        admin_roles=[admin_role],
+    )
+
+
 
 @pytest.fixture
 def bpa_platform(persistent_factories):
@@ -1460,6 +1471,38 @@ def test_admin_group_approval_sends_email(
     assert queued_emails[0].status == EmailStatusEnum.PENDING
 
 
+def test_admin_sbp_group_approval_sends_sbp_specific_email(
+    test_client_with_email,
+    test_db_session,
+    as_admin_user,
+    sbp_group,
+    mock_auth0_client,
+    persistent_factories,
+    mocker,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=sbp_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    mock_role = mocker.Mock(id="role1")
+    mock_auth0_client.get_role_by_name.return_value = mock_role
+    mock_auth0_client.add_roles_to_user.return_value = True
+
+    group_url = quote(sbp_group.group_id, safe='')
+    resp = test_client_with_email.post(f"/admin/users/{user.id}/groups/{group_url}/approve")
+
+    assert resp.status_code == 200
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].subject == "Structural Biology Platform bundle request"
+    assert "Go to Structural Biology Platform" in queued_emails[0].body_html
+
+
 def test_admin_group_approval_no_email_when_already_approved(
     test_client_with_email,
     test_db_session,
@@ -1627,6 +1670,36 @@ def test_reject_group_membership_sends_email(
     assert queued_emails[0].to_address == user.email
     assert queued_emails[0].status == EmailStatusEnum.PENDING
 
+
+
+def test_reject_sbp_group_membership_sends_email(
+    test_client,
+    test_db_session,
+    as_admin_user,
+    sbp_group,
+    mock_auth0_client,
+    persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync(group_memberships=[])
+    GroupMembershipFactory.create_sync(
+        group=sbp_group,
+        user=user,
+        approval_status=ApprovalStatusEnum.PENDING.value,
+    )
+    test_db_session.commit()
+
+    group_url = quote(sbp_group.group_id, safe='')
+    resp = test_client.post(
+        f"/admin/users/{user.id}/groups/{group_url}/reject",
+        json={"reason": "Early access only"},
+    )
+
+    assert resp.status_code == 200
+    queued_emails = test_db_session.exec(select(EmailNotification)).all()
+    assert len(queued_emails) == 1
+    assert queued_emails[0].to_address == user.email
+    assert queued_emails[0].subject == "Structural Biology Platform bundle request"
+    assert "invited users" in queued_emails[0].body_html
 
 
 def test_reject_group_membership_forbidden_without_group_role(

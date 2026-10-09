@@ -265,6 +265,7 @@ def admin_user():
             "Admin",
             "biocommons/role/galaxy/admin",
             "biocommons/role/tsi/admin",
+            "biocommons/role/sbp_bundle/admin",
         ]
     )
     return SessionUserFactory.build(access_token=token)

@@ -40,6 +40,8 @@ from biocommons.emails import (
     compose_group_membership_approved_email,
     compose_group_membership_rejected_email,
     compose_incorrect_email_notification_email,
+    compose_sbp_bundle_approval_email,
+    compose_sbp_bundle_rejection_email,
     compose_username_change_notification,
     get_user_first_name,
 )
@@ -1283,12 +1285,18 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
             first_name = get_user_first_name(auth0_user, fallback="there")
         except Exception:
             pass
-        subject, body_html = compose_group_membership_approved_email(
-            group_name=group_record.name,
-            group_short_name=group_record.short_name,
-            first_name=first_name,
-            settings=settings,
-        )
+        if group_id == GroupEnum.SBP.value:
+            subject, body_html = compose_sbp_bundle_approval_email(
+                first_name=first_name,
+                settings=settings,
+            )
+        else:
+            subject, body_html = compose_group_membership_approved_email(
+                group_name=group_record.name,
+                group_short_name=group_record.short_name,
+                first_name=first_name,
+                settings=settings,
+            )
         enqueue_email(
             session=db_session,
             to_address=membership.user.email,
@@ -1306,6 +1314,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
 def reject_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RejectServiceRequest,
+                            client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                             db_session: Annotated[Session, Depends(get_db_session)],
                             settings: Annotated[Settings, Depends(get_settings)]):
@@ -1330,6 +1339,24 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         subject, body_html = compose_group_membership_rejected_email(
             group_name=group_record.name,
             username=membership.user.username,
+            settings=settings,
+        )
+        enqueue_email(
+            session=db_session,
+            to_address=membership.user.email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
+    elif membership.user and membership.user.email and group_id == GroupEnum.SBP.value:
+        first_name = "there"
+        try:
+            auth0_user = client.get_user(membership.user.id)
+            first_name = get_user_first_name(auth0_user, fallback="there")
+        except Exception:
+            pass
+        subject, body_html = compose_sbp_bundle_rejection_email(
+            first_name=first_name,
             settings=settings,
         )
         enqueue_email(
