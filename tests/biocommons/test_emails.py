@@ -8,6 +8,8 @@ from biocommons.emails import (
     compose_group_membership_approved_email,
     compose_group_membership_rejected_email,
     compose_incorrect_email_notification_email,
+    compose_sbp_bundle_approval_email,
+    compose_sbp_bundle_rejection_email,
     compose_username_change_notification,
     compose_welcome_email,
     format_first_name,
@@ -305,6 +307,40 @@ def test_compose_group_membership_rejected_email(mock_settings):
         "Request access to specialist tools",
         "help@bioplatforms.com",
         "BioCommons Access Team",
+    )
+
+
+def test_compose_sbp_bundle_approval_email(mock_settings):
+    subject, html = compose_sbp_bundle_approval_email(
+        first_name="Grace",
+        settings=mock_settings,
+    )
+
+    assert subject == "Structural Biology Platform bundle request"
+    assert_email_contains(
+        html,
+        "Dear Grace,",
+        "Your request to join the Structural Biology Platform (SBP) service bundle has been approved.",
+        "Go to Structural Biology Platform",
+        f'href="{mock_settings.sbp_portal_url}"',
+    )
+
+
+def test_compose_sbp_bundle_rejection_email(mock_settings):
+    subject, html = compose_sbp_bundle_rejection_email(
+        first_name="Grace",
+        settings=mock_settings,
+    )
+
+    assert subject == "Structural Biology Platform bundle request"
+    assert_email_contains(
+        html,
+        "Dear Grace,",
+        "Thank you for your interest in the Structural Biology Platform (SBP) service bundle.",
+        "currently only available to invited users",
+        "Q1 2027",
+        "SBP support",
+        'href="https://biocommons-sbp-help.freshdesk.com/support/tickets/new"',
     )
 
 
