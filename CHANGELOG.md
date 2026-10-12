@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.5.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.4.0...v1.5.0) (2026-10-09)
+
+
+### Features
+
+* add eDNA Explorer platform ([71ca9a3](https://github.com/AustralianBioCommons/aai-backend/commit/71ca9a30a8d5c75dfc13b4a0d7ea86d8a2d1b8ab))
+* add EDNA_EXPLORER to PlatformEnum via generated migration ([686003f](https://github.com/AustralianBioCommons/aai-backend/commit/686003f78e4e72a5b2cb1f20f9aca74b9dd74ebe))
+* add SBP bundle approval and rejection emails ([6e8b92e](https://github.com/AustralianBioCommons/aai-backend/commit/6e8b92e911779548386192a7f08a99dadf4c0028))
+* add SBP bundle emails ([433e4a6](https://github.com/AustralianBioCommons/aai-backend/commit/433e4a69945c5e3f62ecfcbf4c255c3a0b5c1f6f))
+* add sorting functionality to user queries and update related tests ([f46a4e9](https://github.com/AustralianBioCommons/aai-backend/commit/f46a4e9a9632d9f8a41a385a45f0d288298b8195))
+* add timestamp sorting functionality to user queries (AAI-887) ([38a0f8e](https://github.com/AustralianBioCommons/aai-backend/commit/38a0f8e8921440ea6ee7cbb89c89fdfb7eca8873))
+
+
+### Bug Fixes
+
+* use ALTER TYPE ADD VALUE for EDNA_EXPLORER, drop enum plugin ([d0d601e](https://github.com/AustralianBioCommons/aai-backend/commit/d0d601e1813826f8729ca5651a018b4a43fb0c8f))
+* vulnerable dependencies ([#289](https://github.com/AustralianBioCommons/aai-backend/issues/289)) ([360d61f](https://github.com/AustralianBioCommons/aai-backend/commit/360d61f510cab8bbcaa439abf412ccecca5a70c4))
+
 ## [1.4.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.3.0...v1.4.0) (2026-07-21)
 
 
