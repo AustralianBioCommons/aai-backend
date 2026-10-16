@@ -433,27 +433,28 @@ def soft_delete_users_missing_from_auth0(
 
     This stays in the user sync module because missing-user deletion is still a
     ``BiocommonsUser`` concern, not a membership concern.
+
+    Every deletion requires a live 404 for each recorded Auth0 ID.
     """
     deleted = 0
     for batch in chunked(BiocommonsUser.list_all(session), batch_size):
         for user in batch:
             if not should_soft_delete_missing_user(user, export_index):
                 continue
-            if auth0_client is not None:
-                try:
-                    if user_exists_in_auth0(
-                        auth0_client,
-                        user,
-                        delay_seconds=live_lookup_delay_seconds,
-                    ):
-                        continue
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Failed to check if user {} exists in Auth0: {}",
-                        user.id,
-                        exc,
-                    )
+            try:
+                if user_exists_in_auth0(
+                    auth0_client,
+                    user,
+                    delay_seconds=live_lookup_delay_seconds,
+                ):
                     continue
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to check if user {} exists in Auth0: {}",
+                    user.id,
+                    exc,
+                )
+                continue
             logger.info("Soft deleting user {} absent from Auth0", user.id)
             user.delete(session, reason="auth0_sync", commit=False)
             deleted += 1
@@ -535,7 +536,7 @@ def should_soft_delete_missing_user(
         return True
 
     if user.account_type == BiocommonsUserAccountType.AAF:
-        if user.other_user_id is None:
+        if user.other_user_id is None and not user.id.startswith("oidc|AAF|"):
             logger.warning(
                 "Skipping missing-user soft delete for AAF user {} because no "
                 "linked identity is recorded.",
