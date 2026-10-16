@@ -344,6 +344,7 @@ async def sync_auth0_users(batch_size: int = 500):
             summary = sync_exported_users(
                 db_session,
                 users,
+                auth0_client=auth0_client,
                 batch_size=batch_size,
                 commit=True,
             )
