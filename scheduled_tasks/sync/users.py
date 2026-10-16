@@ -254,13 +254,50 @@ def normalize_exported_user(user: ExportedUserLike) -> UserSyncRecord:
     )
 
 
-def sync_one_user(session: Session, record: UserSyncRecord) -> UserSyncResult:
+def needs_live_check(user: BiocommonsUser, record: UserSyncRecord) -> bool:
+    """Confirm restorations and account type changes against live Auth0 data."""
+    return (
+        (user.is_deleted and not record.blocked)
+        or user.account_type != record.account_type
+    )
+
+
+def sync_one_user(
+    session: Session,
+    record: UserSyncRecord,
+    *,
+    auth0_client: Auth0Client,
+    live_lookup_delay_seconds: float = 0.5,
+) -> UserSyncResult:
     """
     Create, update, restore, or soft-delete one DB user from normalized Auth0 data.
 
     This function owns only ``BiocommonsUser`` rows. It deliberately does not sync
     platform or group memberships.
+
+    Restoring users or changing account type requires live Auth0 data. These
+    changes are skipped by batch sync if the lookup fails.
     """
+    user = BiocommonsUser.get_by_id(
+        record.user_id,
+        session,
+        include_deleted=True,
+    )
+    if user is not None and needs_live_check(user, record):
+        try:
+            record = normalize_auth0_user(auth0_client.get_user(user.id))
+        except Exception as exc:  # noqa: BLE001
+            raise UserSyncValidationError(
+                f"Failed to refresh user {user.id!r} from Auth0: {exc}"
+            ) from exc
+        finally:
+            if live_lookup_delay_seconds > 0:
+                time.sleep(live_lookup_delay_seconds)
+        if record.user_id != user.id:
+            raise UserSyncValidationError(
+                f"Live Auth0 user ID {record.user_id!r} does not match {user.id!r}"
+            )
+
     policy = get_user_sync_policy(record.account_type)
 
     if record.blocked:
@@ -269,12 +306,6 @@ def sync_one_user(session: Session, record: UserSyncRecord) -> UserSyncResult:
     if record.username is None:
         raise UserSyncValidationError(f"No username found for user {record.user_id!r}")
     _check_user_conflicts(session, record)
-
-    user = BiocommonsUser.get_by_id(
-        record.user_id,
-        session,
-        include_deleted=True,
-    )
 
     if user is None:
         user = _create_user(session, record, policy)
