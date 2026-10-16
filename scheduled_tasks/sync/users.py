@@ -342,6 +342,9 @@ def sync_one_user(
 def sync_user_batch(
     session: Session,
     records: Iterable[UserSyncRecord],
+    *,
+    auth0_client: Auth0Client,
+    live_lookup_delay_seconds: float = 0.5,
 ) -> UserSyncSummary:
     """
     Sync a batch of users.
@@ -353,7 +356,12 @@ def sync_user_batch(
     for record in records:
         try:
             with session.begin_nested():
-                result = sync_one_user(session, record)
+                result = sync_one_user(
+                    session,
+                    record,
+                    auth0_client=auth0_client,
+                    live_lookup_delay_seconds=live_lookup_delay_seconds,
+                )
         except UserSyncValidationError as exc:
             logger.warning("Skipping invalid synced user {}: {}", record.user_id, exc)
             summary.add_invalid()
@@ -369,13 +377,22 @@ def sync_users_from_records(
     session: Session,
     records: Iterable[UserSyncRecord],
     *,
+    auth0_client: Auth0Client,
     batch_size: int = 500,
     commit: bool = True,
+    live_lookup_delay_seconds: float = 0.5,
 ) -> UserSyncSummary:
     """Sync normalized user records, committing after each batch by default."""
     summary = UserSyncSummary()
     for batch in chunked(records, batch_size):
-        summary.merge(sync_user_batch(session, batch))
+        summary.merge(
+            sync_user_batch(
+                session,
+                batch,
+                auth0_client=auth0_client,
+                live_lookup_delay_seconds=live_lookup_delay_seconds,
+            )
+        )
         if commit:
             session.commit()
     return summary
@@ -385,16 +402,20 @@ def sync_exported_users(
     session: Session,
     users: Iterable[ExportedUserLike],
     *,
+    auth0_client: Auth0Client,
     batch_size: int = 500,
     commit: bool = True,
+    live_lookup_delay_seconds: float = 0.5,
 ) -> UserSyncSummary:
     """Normalize and sync users from an Auth0 export."""
     records = (normalize_exported_user(user) for user in users)
     return sync_users_from_records(
         session,
         records,
+        auth0_client=auth0_client,
         batch_size=batch_size,
         commit=commit,
+        live_lookup_delay_seconds=live_lookup_delay_seconds,
     )
 
 
@@ -402,7 +423,7 @@ def soft_delete_users_missing_from_auth0(
     session: Session,
     export_index: Auth0ExportIdentityIndex,
     *,
-    auth0_client: Auth0Client | None = None,
+    auth0_client: Auth0Client,
     batch_size: int = 500,
     commit: bool = True,
     live_lookup_delay_seconds: float = 0.5,
