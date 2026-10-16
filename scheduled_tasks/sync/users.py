@@ -82,6 +82,8 @@ class UserSyncRecord(BaseModel):
     """Normalized Auth0 user data used by the user sync service."""
 
     user_id: str
+    other_user_id: str | None = None
+    aaf_identity_ambiguous: bool = False
     email: str
     username: str | None = None
     metadata_username: str | None = None
@@ -214,8 +216,11 @@ def normalize_auth0_user(user: Auth0UserData) -> UserSyncRecord:
         auth0_username=user.username,
         metadata_username=user.app_metadata.username,
     )
+    aaf_ids = _aaf_identity_ids(user.user_id, user.identities)
     return UserSyncRecord(
         user_id=user.user_id,
+        other_user_id=next(iter(aaf_ids)) if len(aaf_ids) == 1 else None,
+        aaf_identity_ambiguous=len(aaf_ids) > 1,
         email=str(user.email),
         username=username,
         metadata_username=user.app_metadata.username,
@@ -238,8 +243,11 @@ def normalize_exported_user(user: ExportedUserLike) -> UserSyncRecord:
         auth0_username=user.username,
         metadata_username=user.metadata_username,
     )
+    aaf_ids = _aaf_identity_ids(user.user_id, user.identities)
     return UserSyncRecord(
         user_id=user.user_id,
+        other_user_id=next(iter(aaf_ids)) if len(aaf_ids) == 1 else None,
+        aaf_identity_ambiguous=len(aaf_ids) > 1,
         email=str(user.email),
         username=username,
         metadata_username=user.metadata_username,
@@ -254,12 +262,69 @@ def normalize_exported_user(user: ExportedUserLike) -> UserSyncRecord:
     )
 
 
-def needs_live_check(user: BiocommonsUser, record: UserSyncRecord) -> bool:
-    """Confirm restorations and account type changes against live Auth0 data."""
+def _has_aaf_identity_conflict(
+    user: BiocommonsUser | None,
+    record: UserSyncRecord,
+) -> bool:
+    return record.aaf_identity_ambiguous or (
+        user is not None
+        and user.other_user_id is not None
+        and record.other_user_id is not None
+        and user.other_user_id != record.other_user_id
+    )
+
+
+def needs_live_check(user: BiocommonsUser | None, record: UserSyncRecord) -> bool:
+    """Confirm restorations, account type changes, and conflicting AAF identities."""
+    if _has_aaf_identity_conflict(user, record):
+        return True
+    if user is None:
+        return False
     return (
         (user.is_deleted and not record.blocked)
         or user.account_type != record.account_type
     )
+
+
+def refresh_user_record(
+    user: BiocommonsUser | None,
+    record: UserSyncRecord,
+    auth0_client: Auth0Client,
+    *,
+    live_lookup_delay_seconds: float = 0.5,
+) -> UserSyncRecord:
+    """Refresh and validate the live profile before applying sensitive changes."""
+    user_id = record.user_id
+    if _has_aaf_identity_conflict(user, record):
+        logger.warning(
+            "Conflicting AAF identities for user {}. Checking live Auth0 data.",
+            user_id,
+        )
+    try:
+        record = normalize_auth0_user(auth0_client.get_user(user_id))
+    except Exception as exc:  # noqa: BLE001
+        raise UserSyncValidationError(
+            f"Failed to refresh user {user_id!r} from Auth0: {exc}"
+        ) from exc
+    finally:
+        if live_lookup_delay_seconds > 0:
+            time.sleep(live_lookup_delay_seconds)
+    if record.user_id != user_id:
+        raise UserSyncValidationError(
+            f"Live Auth0 user ID {record.user_id!r} does not match {user_id!r}"
+        )
+    if record.aaf_identity_ambiguous:
+        raise UserSyncValidationError(
+            f"Multiple AAF identities found in live Auth0 data for {user_id!r}"
+        )
+    return record
+
+
+def validate_user_record(session: Session, record: UserSyncRecord) -> None:
+    """Validate the profile of an unblocked user before creating or updating it."""
+    if record.username is None:
+        raise UserSyncValidationError(f"No username found for user {record.user_id!r}")
+    _check_user_conflicts(session, record)
 
 
 def sync_one_user(
@@ -275,68 +340,66 @@ def sync_one_user(
     This function owns only ``BiocommonsUser`` rows. It deliberately does not sync
     platform or group memberships.
 
-    Restoring users or changing account type requires live Auth0 data. These
-    changes are skipped by batch sync if the lookup fails.
+    Restoring users, changing account type, or resolving conflicting AAF
+    identities requires live Auth0 data. Batch sync skips failed lookups.
     """
     user = BiocommonsUser.get_by_id(
         record.user_id,
         session,
         include_deleted=True,
     )
-    if user is not None and needs_live_check(user, record):
-        try:
-            record = normalize_auth0_user(auth0_client.get_user(user.id))
-        except Exception as exc:  # noqa: BLE001
-            raise UserSyncValidationError(
-                f"Failed to refresh user {user.id!r} from Auth0: {exc}"
-            ) from exc
-        finally:
-            if live_lookup_delay_seconds > 0:
-                time.sleep(live_lookup_delay_seconds)
-        if record.user_id != user.id:
-            raise UserSyncValidationError(
-                f"Live Auth0 user ID {record.user_id!r} does not match {user.id!r}"
-            )
+    if needs_live_check(user, record):
+        record = refresh_user_record(
+            user,
+            record,
+            auth0_client,
+            live_lookup_delay_seconds=live_lookup_delay_seconds,
+        )
 
     policy = get_user_sync_policy(record.account_type)
 
     if record.blocked:
-        return _sync_blocked_user(session, record, policy)
+        return _sync_blocked_user(session, user, record, policy)
 
-    if record.username is None:
-        raise UserSyncValidationError(f"No username found for user {record.user_id!r}")
-    _check_user_conflicts(session, record)
+    validate_user_record(session, record)
 
     if user is None:
         user = _create_user(session, record, policy)
         return UserSyncResult(action=UserSyncAction.CREATED, user=user)
 
-    if user.is_deleted:
-        user.restore(session, commit=False)
-        user.save_history(
-            session,
-            change="restored_from_auth0",
-            reason="User restored during Auth0 sync",
-            updated_by=None,
-            commit=False,
-        )
-        _apply_record_to_user(user, record, policy)
-        session.add(user)
-        return UserSyncResult(action=UserSyncAction.RESTORED, user=user)
+    return sync_existing_user(session, user, record, policy)
 
-    if not _user_needs_update(user, record, policy):
+
+def sync_existing_user(
+    session: Session,
+    user: BiocommonsUser,
+    record: UserSyncRecord,
+    policy: UserSyncPolicy,
+) -> UserSyncResult:
+    """Restore or update an existing user, recording the previous profile once."""
+    if not user.is_deleted and not _user_needs_update(user, record, policy):
         return UserSyncResult(action=UserSyncAction.SKIPPED_UNCHANGED, user=user)
+
+    if user.is_deleted:
+        action = UserSyncAction.RESTORED
+        change = "restored_from_auth0"
+        reason = "User restored during Auth0 sync"
+        user.restore(session, commit=False)
+    else:
+        action = UserSyncAction.UPDATED
+        change = "auth0_sync"
+        reason = "User data updated from Auth0"
 
     user.save_history(
         session,
-        change="auth0_sync",
-        reason="User data updated from Auth0",
+        change=change,
+        reason=reason,
         updated_by=None,
         commit=False,
     )
     _apply_record_to_user(user, record, policy)
     session.add(user)
-    return UserSyncResult(action=UserSyncAction.UPDATED, user=user)
+    return UserSyncResult(action=action, user=user)
 
 
 def sync_user_batch(
@@ -479,6 +542,14 @@ def format_auth0_identity_id(identity: Auth0Identity) -> str:
     return f"{identity.provider}|{identity.user_id}"
 
 
+def _aaf_identity_ids(user_id: str, identities: Iterable[Auth0Identity]) -> set[str]:
+    return {
+        format_auth0_identity_id(identity)
+        for identity in identities
+        if identity.connection == "AAF"
+    } - {user_id}
+
+
 def user_seen_in_auth0_export(
     user: BiocommonsUser,
     export_index: Auth0ExportIdentityIndex,
@@ -564,14 +635,10 @@ def _user_auth0_lookup_ids(user: BiocommonsUser) -> list[str]:
 
 def _sync_blocked_user(
     session: Session,
+    user: BiocommonsUser | None,
     record: UserSyncRecord,
     policy: UserSyncPolicy,
 ) -> UserSyncResult:
-    user = BiocommonsUser.get_by_id(
-        record.user_id,
-        session,
-        include_deleted=True,
-    )
     if user is None:
         return UserSyncResult(action=UserSyncAction.SKIPPED_BLOCKED_MISSING)
 
@@ -599,16 +666,11 @@ def _create_user(
     record: UserSyncRecord,
     policy: UserSyncPolicy,
 ) -> BiocommonsUser:
-    username = record.username
-    if username is None:
-        raise UserSyncValidationError(
-            f"User {record.user_id} requires a username"
-        )
-
     user = BiocommonsUser(
         id=record.user_id,
+        other_user_id=record.other_user_id,
         email=record.email,
-        username=username,
+        username=record.username,
         email_verified=_effective_email_verified(record, policy),
         account_type=record.account_type,
     )
@@ -727,6 +789,7 @@ def _user_needs_update(
             record.username is not None and user.username != record.username,
             user.email_verified != _effective_email_verified(record, policy),
             user.account_type != record.account_type,
+            record.other_user_id is not None and user.other_user_id != record.other_user_id,
         ]
     )
 
@@ -746,6 +809,16 @@ def _apply_record_to_user(
         )
 
     user.email = record.email
+    if record.other_user_id is not None:
+        if user.other_user_id is not None and user.other_user_id != record.other_user_id:
+            logger.warning(
+                "User sync changing linked AAF identity for {} from {} to {} "
+                "after live Auth0 confirmation.",
+                user.id,
+                user.other_user_id,
+                record.other_user_id,
+            )
+        user.other_user_id = record.other_user_id
     if record.username is not None:
         user.username = record.username
     user.email_verified = _effective_email_verified(record, policy)
