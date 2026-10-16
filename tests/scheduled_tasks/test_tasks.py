@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
+from httpx2 import HTTPStatusError
 from sqlmodel import Session, select
 
 from db.models import (
@@ -62,7 +63,7 @@ from scheduled_tasks.tasks import (
     sync_group_user_roles,
     sync_platform_user_roles,
 )
-from schemas.biocommons import BiocommonsUserAccountType
+from schemas.biocommons import Auth0ReadAppMetadata, BiocommonsUserAccountType
 from tests.datagen import (
     Auth0UserDataFactory,
     ExportedUserFactory,
@@ -92,7 +93,7 @@ def _get_notification_fresh(test_db_session, notification_id):
         return fresh_session.get(EmailNotification, notification_id)
 
 
-def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, persistent_factories):
+def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, persistent_factories, mocker):
     """
     Users present in Auth0 are created or updated, while missing users are soft deleted.
     """
@@ -107,6 +108,7 @@ def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, p
     user_not_in_auth0 = BiocommonsUserFactory.create_sync(
         email="stale.user@example.com",
         username="stale_user",
+        other_user_id=None,
     )
     existing_user_data = ExportedUserFactory.build(
         user_id=existing_user.id,
@@ -114,6 +116,9 @@ def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, p
         username=existing_username,
         email_verified=True,
         blocked=False,
+        account_type=BiocommonsUserAccountType.AUTH0,
+        aaf_only=False,
+        aaf_registration_complete=False,
     )
     new_user_data = ExportedUserFactory.build(
         email="new.user@example.com",
@@ -127,10 +132,18 @@ def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, p
     )
     users = [existing_user_data, new_user_data, extra_user_data]
 
-    summary = sync_exported_users(test_db_session, users, batch_size=2, commit=False)
+    auth0_client = MagicMock()
+    auth0_client.get_user.side_effect = HTTPStatusError(
+        "Not Found", request=mocker.Mock(), response=mocker.Mock(status_code=404)
+    )
+    summary = sync_exported_users(
+        test_db_session, users, auth0_client=auth0_client, batch_size=2, commit=False
+    )
     deleted = soft_delete_users_missing_from_auth0(
         test_db_session,
         Auth0ExportIdentityIndex.from_user_list(users),
+        auth0_client=auth0_client,
+        live_lookup_delay_seconds=0,
         commit=False,
     )
     test_db_session.flush()
@@ -144,6 +157,7 @@ def test_sync_exported_users_creates_updates_and_soft_deletes(test_db_session, p
     assert deleted == 1
     assert existing_user.email_verified is True
     assert user_not_in_auth0.is_deleted is True
+    auth0_client.get_user.assert_called_once_with(user_not_in_auth0.id)
     assert created_user is not None and created_user.is_deleted is False
     second_created = test_db_session.get(BiocommonsUser, extra_user_data.user_id)
     assert second_created is not None
@@ -182,14 +196,17 @@ def test_soft_delete_users_missing_from_auth0_keeps_user_seen_by_linked_identity
         )
     ]
 
+    auth0_client = MagicMock()
     deleted = soft_delete_users_missing_from_auth0(
         test_db_session,
         Auth0ExportIdentityIndex.from_user_list(exported),
+        auth0_client=auth0_client,
         commit=False,
     )
 
     assert deleted == 0
     assert linked_user.is_deleted is False
+    auth0_client.get_user.assert_not_called()
 
 
 def test_soft_delete_users_missing_from_auth0_skips_ambiguous_aaf_user(
@@ -215,6 +232,7 @@ def test_soft_delete_users_missing_from_auth0_skips_ambiguous_aaf_user(
     deleted = soft_delete_users_missing_from_auth0(
         test_db_session,
         Auth0ExportIdentityIndex.from_user_list(exported),
+        auth0_client=MagicMock(),
         commit=False,
     )
 
@@ -227,7 +245,10 @@ def test_sync_one_user_updates_existing(test_db_session, persistent_factories):
     """
     Updating an existing user applies Auth0 data.
     """
-    user_data = Auth0UserDataFactory.build(email_verified=True)
+    user_data = Auth0UserDataFactory.build(
+        email_verified=True,
+        app_metadata=Auth0ReadAppMetadata(),
+    )
     db_user = BiocommonsUserFactory.create_sync(
         id=user_data.user_id,
         email=user_data.email,
@@ -235,7 +256,9 @@ def test_sync_one_user_updates_existing(test_db_session, persistent_factories):
         email_verified=False,
     )
 
-    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    result = sync_one_user(
+        test_db_session, normalize_auth0_user(user_data), auth0_client=MagicMock()
+    )
     test_db_session.flush()
 
     test_db_session.refresh(db_user)
@@ -249,7 +272,9 @@ def test_sync_one_user_creates_when_missing(test_db_session):
     """
     user_data = Auth0UserDataFactory.build()
 
-    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    result = sync_one_user(
+        test_db_session, normalize_auth0_user(user_data), auth0_client=MagicMock()
+    )
     test_db_session.flush()
 
     created = test_db_session.get(BiocommonsUser, user_data.user_id)
@@ -276,6 +301,7 @@ def test_sync_users_from_records_commits_each_batch(test_db_session, mocker):
     summary = sync_users_from_records(
         test_db_session,
         records,
+        auth0_client=MagicMock(),
         batch_size=2,
         commit=True,
     )
@@ -293,7 +319,9 @@ def test_sync_one_user_creates_user(test_db_session):
         blocked=False,
     )
 
-    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    result = sync_one_user(
+        test_db_session, normalize_auth0_user(user_data), auth0_client=MagicMock()
+    )
 
     test_db_session.flush()
     fetched = test_db_session.get(BiocommonsUser, user_data.user_id)
@@ -337,6 +365,7 @@ async def test_sync_auth0_users_uses_new_sync_code(mocker, test_db_session, mock
     export.assert_awaited_once_with(auth0_client)
     sync_export.assert_called_once()
     assert sync_export.call_args.args[1] == [exported_user]
+    assert sync_export.call_args.kwargs["auth0_client"] is auth0_client
     assert sync_export.call_args.kwargs["batch_size"] == 123
     soft_delete.assert_called_once()
     assert soft_delete.call_args.kwargs["auth0_client"] is auth0_client
@@ -454,13 +483,22 @@ def test_sync_one_user_restores_soft_deleted(test_db_session, persistent_factori
         username="restore_user",
         email_verified=True,
         blocked=False,
+        app_metadata=Auth0ReadAppMetadata(),
     )
+    auth0_client = MagicMock()
+    auth0_client.get_user.return_value = user_data
 
-    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    result = sync_one_user(
+        test_db_session,
+        normalize_auth0_user(user_data),
+        auth0_client=auth0_client,
+        live_lookup_delay_seconds=0,
+    )
 
     assert result.action == UserSyncAction.RESTORED
     assert result.user is not None
     assert result.user.is_deleted is False
+    auth0_client.get_user.assert_called_once_with(existing_user_id)
 
 
 def test_sync_one_user_no_restore_if_blocked(test_db_session, persistent_factories):
@@ -480,9 +518,12 @@ def test_sync_one_user_no_restore_if_blocked(test_db_session, persistent_factori
         username="restore_user",
         email_verified=True,
         blocked=True,
+        app_metadata=Auth0ReadAppMetadata(),
     )
 
-    result = sync_one_user(test_db_session, normalize_auth0_user(user_data))
+    result = sync_one_user(
+        test_db_session, normalize_auth0_user(user_data), auth0_client=MagicMock()
+    )
     fetched = BiocommonsUser.get_by_id(
         existing_user_id,
         test_db_session,
@@ -514,7 +555,7 @@ def test_sync_one_user_raises_on_username_conflict(test_db_session, persistent_f
     )
 
     with pytest.raises(UserSyncConflictError, match="username 'same_username'"):
-        sync_one_user(test_db_session, conflicting_user)
+        sync_one_user(test_db_session, conflicting_user, auth0_client=MagicMock())
 
 
 def test_sync_one_group_membership_restores_soft_deleted(test_db_session, persistent_factories):
