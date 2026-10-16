@@ -4,10 +4,15 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import pytest
 from itsdangerous import URLSafeSerializer
 from sqlmodel import select
+from starlette.applications import Starlette
 from starlette.datastructures import FormData
 from starlette.exceptions import HTTPException
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+from starlette.testclient import TestClient
+from starlette_admin.contrib.sqlmodel import Admin
 
 from db.models import (
     BiocommonsUser,
@@ -18,6 +23,7 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from db.st_admin import (
+    Auth0AuthProvider,
     DeletedUserView,
     GroupMembershipHistoryView,
     GroupMembershipView,
@@ -51,6 +57,67 @@ def create_signed_session_cookie(data: dict, secret_key: str) -> str:
 
 def _yield_once(value):
     yield value
+
+
+@pytest.mark.parametrize("user", [None, {"name": "Admin", "picture": "https://example.com/admin.png"}])
+def test_get_admin_user(mocker, user):
+    mocker.patch("db.st_admin.setup_oauth")
+    provider = Auth0AuthProvider()
+    request = Request({"type": "http"})
+    request.state.user = user
+
+    admin_user = provider.get_admin_user(request)
+
+    if user is None:
+        assert admin_user is None
+    else:
+        assert admin_user.username == user["name"]
+        assert admin_user.photo_url == user["picture"]
+
+
+def test_get_admin_user_without_user_state(mocker):
+    mocker.patch("db.st_admin.setup_oauth")
+    provider = Auth0AuthProvider()
+    request = Request({"type": "http"})
+
+    assert provider.get_admin_user(request) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "validation_error", "status_code", "detail"),
+    [
+        ({}, None, 401, "Could not get access token."),
+        ({"access_token": "token"}, HTTPException(401, "Not authorized"), 401, "Not authorized"),
+        (
+            {"access_token": "token"},
+            HTTPException(403, "Missing required claim: https://biocommons.org.au/roles"),
+            403,
+            "Missing required claim: https://biocommons.org.au/roles",
+        ),
+    ],
+)
+def test_auth_callback_renders_error_without_user_state(
+    mocker, mock_settings, test_db_engine, token, validation_error, status_code, detail
+):
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    oauth = Mock()
+    oauth.create_client.return_value.authorize_access_token = AsyncMock(return_value=token)
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
+    mocker.patch("db.st_admin.verify_jwt", new=AsyncMock(side_effect=validation_error))
+    app = Starlette()
+    admin = Admin(
+        test_db_engine,
+        base_url="/db-admin",
+        auth_provider=Auth0AuthProvider(),
+        middlewares=[Middleware(SessionMiddleware, secret_key=mock_settings.jwt_secret_key)],
+    )
+    admin.mount_to(app)
+
+    with TestClient(app) as client:
+        response = client.get("/db-admin/auth/auth0")
+
+    assert response.status_code == status_code
+    assert detail in response.text
 
 
 def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine, mocker):
