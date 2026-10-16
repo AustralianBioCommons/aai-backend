@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 from httpx2 import HTTPStatusError
+from sqlmodel import select
 
+from db.models import BiocommonsUser, BiocommonsUserHistory
 from scheduled_tasks.sync.users import (
     Auth0ExportIdentityIndex,
     UserSyncRecord,
@@ -103,6 +105,7 @@ def test_normalize_exported_user_infers_aaf_type_from_aaf_only_metadata():
         aaf_registration_complete=None,
         linking_completed=True,
         linking_completed_at=None,
+        identities=[],
     )
 
     record = normalize_exported_user(exported)
@@ -110,6 +113,260 @@ def test_normalize_exported_user_infers_aaf_type_from_aaf_only_metadata():
     assert record.account_type == BiocommonsUserAccountType.AAF
     assert record.sync_type == UserSyncType.AAF_ONLY
     assert record.username == "aaf_only"
+
+
+@pytest.mark.parametrize("source", ["export", "live"])
+@pytest.mark.parametrize(
+    ("primary_id", "aaf_ids", "expected_id", "ambiguous"),
+    [
+        ("auth0|primary", ["linked-aaf"], "oidc|AAF|linked-aaf", False),
+        ("auth0|primary", ["oidc|AAF|linked-aaf"], "oidc|AAF|linked-aaf", False),
+        ("auth0|primary", ["linked-aaf", "linked-aaf"], "oidc|AAF|linked-aaf", False),
+        ("auth0|primary", [], None, False),
+        ("oidc|AAF|pure", ["pure"], None, False),
+        ("auth0|primary", ["first", "second"], None, True),
+    ],
+)
+def test_normalization_selects_secondary_aaf_identity(
+    linked_exported_user, linked_auth0_user, source, primary_id, aaf_ids, expected_id, ambiguous
+):
+    identities = [_aaf_identity(user_id) for user_id in aaf_ids]
+    if source == "export":
+        user = linked_exported_user.model_copy(
+            update={"user_id": primary_id, "identities": identities}
+        )
+        record = normalize_exported_user(user)
+    else:
+        user = linked_auth0_user.model_copy(
+            update={"user_id": primary_id, "identities": identities}
+        )
+        record = normalize_auth0_user(user)
+
+    assert record.other_user_id == expected_id
+    assert record.aaf_identity_ambiguous is ambiguous
+
+
+@pytest.mark.parametrize("second_lookup", ["not_found", "found", "error"])
+def test_imported_linked_aaf_user_can_be_cleaned_up(
+    test_db_session, mocker, linked_exported_user, second_lookup
+):
+    client = MagicMock()
+
+    summary = sync_exported_users(
+        test_db_session, [linked_exported_user], auth0_client=client, commit=False
+    )
+
+    user = BiocommonsUser.get_by_id(linked_exported_user.user_id, test_db_session)
+    assert summary.created == 1
+    assert user is not None
+    test_db_session.refresh(user)
+    assert user.other_user_id == "oidc|AAF|linked-aaf"
+    client.get_user.assert_not_called()
+
+    repeat = sync_exported_users(
+        test_db_session, [linked_exported_user], auth0_client=client, commit=False
+    )
+    assert repeat.skipped_unchanged == 1
+    client.get_user.assert_not_called()
+
+    second_result = {
+        "not_found": _auth0_not_found(mocker),
+        "found": object(),
+        "error": HTTPStatusError(
+            "Rate limited", request=mocker.Mock(), response=mocker.Mock(status_code=429)
+        ),
+    }[second_lookup]
+    client.get_user.side_effect = [_auth0_not_found(mocker), second_result]
+
+    deleted = soft_delete_users_missing_from_auth0(
+        test_db_session,
+        Auth0ExportIdentityIndex.from_user_list([]),
+        auth0_client=client,
+        live_lookup_delay_seconds=0,
+        commit=False,
+    )
+
+    assert deleted == int(second_lookup == "not_found")
+    assert user.is_deleted is (second_lookup == "not_found")
+    assert [call.args[0] for call in client.get_user.call_args_list] == [
+        user.id, "oidc|AAF|linked-aaf"
+    ]
+
+
+def test_sync_exported_users_backfills_missing_aaf_identity(test_db_session, linked_exported_user):
+    user = _db_user(
+        test_db_session,
+        id=linked_exported_user.user_id,
+        email=linked_exported_user.email,
+        username=linked_exported_user.username,
+        email_verified=True,
+        account_type=BiocommonsUserAccountType.AAF,
+        other_user_id=None,
+    )
+    client = MagicMock()
+
+    summary = sync_exported_users(
+        test_db_session, [linked_exported_user], auth0_client=client, commit=False
+    )
+
+    test_db_session.refresh(user)
+    assert summary.updated == 1
+    assert user.other_user_id == "oidc|AAF|linked-aaf"
+    client.get_user.assert_not_called()
+
+
+def test_sync_exported_users_keeps_known_aaf_identity_when_missing_from_export(
+    test_db_session, linked_exported_user
+):
+    user = _db_user(
+        test_db_session,
+        id=linked_exported_user.user_id,
+        email=linked_exported_user.email,
+        username=linked_exported_user.username,
+        email_verified=True,
+        account_type=BiocommonsUserAccountType.AAF,
+        other_user_id="oidc|AAF|known",
+    )
+    exported = linked_exported_user.model_copy(update={"identities": []})
+    client = MagicMock()
+
+    summary = sync_exported_users(
+        test_db_session, [exported], auth0_client=client, commit=False
+    )
+
+    assert summary.skipped_unchanged == 1
+    assert user.other_user_id == "oidc|AAF|known"
+    client.get_user.assert_not_called()
+
+
+@pytest.mark.parametrize("live_id", ["known", "linked-aaf", "current", None])
+def test_sync_exported_users_verifies_conflicting_aaf_identity(
+    test_db_session, mocker, linked_exported_user, linked_auth0_user, live_id
+):
+    user = _db_user(
+        test_db_session,
+        id=linked_exported_user.user_id,
+        email=linked_exported_user.email,
+        username=linked_exported_user.username,
+        email_verified=True,
+        account_type=BiocommonsUserAccountType.AAF,
+        other_user_id="oidc|AAF|known",
+    )
+    client = MagicMock()
+    client.get_user.return_value = linked_auth0_user.model_copy(
+        update={"identities": [_aaf_identity(live_id)] if live_id is not None else []}
+    )
+    warning = mocker.patch("scheduled_tasks.sync.users.logger.warning")
+
+    summary = sync_exported_users(
+        test_db_session,
+        [linked_exported_user],
+        auth0_client=client,
+        live_lookup_delay_seconds=0,
+        commit=False,
+    )
+
+    assert user.other_user_id == f"oidc|AAF|{live_id or 'known'}"
+    assert summary.updated == int(live_id not in (None, "known"))
+    assert summary.skipped_unchanged == int(live_id in (None, "known"))
+    client.get_user.assert_called_once_with(user.id)
+    assert warning.call_count == 1 + int(live_id not in (None, "known"))
+
+
+def test_sync_exported_users_uses_live_aaf_identity_during_account_type_change(
+    test_db_session, linked_exported_user, linked_auth0_user
+):
+    user = _db_user(
+        test_db_session,
+        id=linked_exported_user.user_id,
+        email=linked_exported_user.email,
+        username=linked_exported_user.username,
+        email_verified=True,
+        account_type=BiocommonsUserAccountType.AUTH0,
+        other_user_id=None,
+    )
+    client = MagicMock()
+    client.get_user.return_value = linked_auth0_user.model_copy(
+        update={"identities": [_aaf_identity("current")]}
+    )
+
+    summary = sync_exported_users(
+        test_db_session,
+        [linked_exported_user],
+        auth0_client=client,
+        live_lookup_delay_seconds=0,
+        commit=False,
+    )
+
+    assert summary.updated == 1
+    assert user.account_type == BiocommonsUserAccountType.AAF
+    assert user.other_user_id == "oidc|AAF|current"
+    client.get_user.assert_called_once_with(user.id)
+
+
+def test_sync_exported_users_resolves_multiple_aaf_identities_with_live_lookup(
+    test_db_session, mocker, linked_exported_user, linked_auth0_user
+):
+    exported = linked_exported_user.model_copy(
+        update={"identities": [_aaf_identity("first"), _aaf_identity("second")]}
+    )
+    client = MagicMock()
+    client.get_user.return_value = linked_auth0_user
+    warning = mocker.patch("scheduled_tasks.sync.users.logger.warning")
+
+    summary = sync_exported_users(
+        test_db_session,
+        [exported],
+        auth0_client=client,
+        live_lookup_delay_seconds=0,
+        commit=False,
+    )
+
+    user = BiocommonsUser.get_by_id(exported.user_id, test_db_session)
+    assert summary.created == 1
+    assert user is not None
+    assert user.other_user_id == "oidc|AAF|linked-aaf"
+    client.get_user.assert_called_once_with(user.id)
+    warning.assert_called_once()
+
+
+@pytest.mark.parametrize("existing", [False, True])
+def test_sync_exported_users_skips_unresolved_multiple_aaf_identities(
+    test_db_session, linked_exported_user, linked_auth0_user, existing
+):
+    if existing:
+        _db_user(
+            test_db_session,
+            id=linked_exported_user.user_id,
+            email=linked_exported_user.email,
+            username=linked_exported_user.username,
+            email_verified=True,
+            account_type=BiocommonsUserAccountType.AAF,
+            other_user_id="oidc|AAF|known",
+        )
+    identities = [_aaf_identity("first"), _aaf_identity("second")]
+    exported = linked_exported_user.model_copy(update={"identities": identities})
+    client = MagicMock()
+    client.get_user.return_value = linked_auth0_user.model_copy(update={"identities": identities})
+
+    summary = sync_exported_users(
+        test_db_session,
+        [exported],
+        auth0_client=client,
+        live_lookup_delay_seconds=0,
+        commit=False,
+    )
+
+    assert summary.skipped_invalid == 1
+    assert summary.created == 0
+    assert summary.updated == 0
+    user = BiocommonsUser.get_by_id(exported.user_id, test_db_session)
+    if existing:
+        assert user is not None
+        assert user.other_user_id == "oidc|AAF|known"
+    else:
+        assert user is None
+    client.get_user.assert_called_once_with(exported.user_id)
 
 
 @pytest.mark.parametrize(
@@ -353,6 +610,55 @@ def test_sync_users_from_records_ordinary_changes_do_not_need_live_lookup(test_d
     assert summary.created == 1
     assert user.username == "updated_username"
     client.get_user.assert_not_called()
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+def test_sync_exported_users_records_previous_profile_once(test_db_session, deleted):
+    user = _db_user(
+        test_db_session,
+        id="auth0|history",
+        email="old@example.com",
+        username="old_username",
+        email_verified=True,
+        account_type=BiocommonsUserAccountType.AUTH0,
+        other_user_id=None,
+    )
+    if deleted:
+        user.delete(test_db_session, commit=False)
+        test_db_session.flush()
+    exported = _exported_user(user_id=user.id)
+    client = MagicMock()
+    client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=user.id,
+        email=exported.email,
+        username=exported.username,
+        email_verified=True,
+        app_metadata=Auth0ReadAppMetadata(),
+    )
+
+    summary = sync_exported_users(
+        test_db_session,
+        [exported],
+        auth0_client=client,
+        live_lookup_delay_seconds=0,
+        commit=False,
+    )
+    change = "restored_from_auth0" if deleted else "auth0_sync"
+    history = test_db_session.exec(
+        select(BiocommonsUserHistory).where(
+            BiocommonsUserHistory.user_id == user.id,
+            BiocommonsUserHistory.change == change,
+        )
+    ).all()
+
+    assert len(history) == 1
+    assert history[0].email == "old@example.com"
+    assert history[0].username == "old_username"
+    assert user.email == exported.email
+    assert user.username == exported.username
+    assert user.is_deleted is False
+    assert summary.restored == int(deleted)
+    assert summary.updated == int(not deleted)
 
 
 def test_format_auth0_identity_id_reconstructs_provider_ids():
@@ -679,6 +985,42 @@ def test_soft_delete_users_missing_from_auth0_skips_ambiguous_aaf_user(test_db_s
     assert deleted == 0
     assert user.is_deleted is False
     client.get_user.assert_not_called()
+
+
+@pytest.fixture
+def linked_exported_user():
+    return _exported_user(
+        user_id="auth0|primary",
+        identities=[
+            Auth0Identity(
+                connection="Username-Password-Authentication",
+                provider="auth0",
+                user_id="primary",
+                isSocial=False,
+            ),
+            _aaf_identity("linked-aaf"),
+        ],
+    ).model_copy(update={"account_type": BiocommonsUserAccountType.AAF, "linking_completed": True})
+
+
+@pytest.fixture
+def linked_auth0_user(linked_exported_user):
+    return Auth0UserDataFactory.build(
+        user_id=linked_exported_user.user_id,
+        email=linked_exported_user.email,
+        username=linked_exported_user.username,
+        email_verified=True,
+        blocked=False,
+        identities=linked_exported_user.identities,
+        app_metadata=Auth0ReadAppMetadata(
+            account_type=BiocommonsUserAccountType.AAF,
+            linking_completed=True,
+        ),
+    )
+
+
+def _aaf_identity(user_id: str) -> Auth0Identity:
+    return Auth0Identity(connection="AAF", provider="oidc", user_id=user_id, isSocial=False)
 
 
 def _db_user(test_db_session, **kwargs):
