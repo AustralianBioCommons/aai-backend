@@ -2,7 +2,7 @@ import gzip
 import logging
 import pathlib
 import time
-from typing import Iterator, Optional, Type, TypeVar
+from typing import Iterator, Literal, Optional, Type, TypeVar
 
 import httpx2
 from fastapi import Depends
@@ -298,15 +298,20 @@ class Auth0Client:
         self,
         download_path: pathlib.Path,
         fields: Optional[list[dict]] = None,
+        format: Literal["csv", "json"] = "csv",
         timeout: int = 300,
         connection_id: str | None = None,
     ):
         """
-        Export Auth0 users to a CSV file and download it.
+        Export Auth0 users and download the generated file.
 
         NOTE: the Auth0 export has some quirks, e.g. string fields are preceded by '.
         """
-        job_id = self.start_user_export(fields=fields, connection_id=connection_id)
+        job_id = self.start_user_export(
+            format=format,
+            fields=fields,
+            connection_id=connection_id,
+        )
 
         location = None
         start_time = time.time()

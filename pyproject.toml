@@ -51,6 +51,9 @@ dev = [
     "faker>=40.4.0",
 ]
 
+[tool.fastapi]
+entrypoint = "main:app"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]

@@ -450,7 +450,7 @@ class Auth0AuthProvider(AuthProvider):
         )
 
     def get_admin_user(self, request: Request) -> Optional[AdminUser]:
-        user = request.state.user
+        user = getattr(request.state, "user", None)
         if not user:
             return None
         return AdminUser(

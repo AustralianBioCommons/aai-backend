@@ -180,6 +180,7 @@ def _assert_marked_aaf_only(update_user_mock, aaf_user_id: str, email: str):
     call_args, call_kwargs = update_user_mock.call_args
     assert call_kwargs["user_id"] == aaf_user_id
     app_metadata = call_kwargs["update_data"].app_metadata
+    assert app_metadata.account_type == BiocommonsUserAccountType.AAF
     assert app_metadata.aaf_only is True
     assert app_metadata.checked_email == email
     assert app_metadata.linking_completed is True
