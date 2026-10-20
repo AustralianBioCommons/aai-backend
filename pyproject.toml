@@ -3,7 +3,7 @@ name = "aai-backend"
 version = "1.4.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.18.5",
     "fastapi[standard]>=0.139.0",
