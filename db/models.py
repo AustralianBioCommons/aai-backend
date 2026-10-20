@@ -6,7 +6,17 @@ from typing import Optional, Self, Type
 
 from httpx2 import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint, delete, desc, func
+from sqlalchemy import (
+    Column,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    delete,
+    desc,
+    func,
+    text,
+)
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
@@ -23,6 +33,7 @@ from db.types import (
 )
 from schemas.auth0 import get_platform_id_from_role_name
 from schemas.biocommons import BiocommonsUserAccountType
+from schemas.migration import MigrationDirection, MigrationStatus
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
@@ -1452,6 +1463,42 @@ class EmailChangeOtp(BaseModel, table=True):
         return session.exec(
             select(cls).where((cls.expires_at <= now) | (cls.is_active.is_(False)))
         ).all()
+
+
+class AccountMigrationRequest(BaseModel, table=True):
+    __tablename__ = "account_migration_requests"
+    __table_args__ = (
+        # Only allow one pending migration per user
+        Index(
+            "uq_account_migration_requests_pending_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+            sqlite_where=text("status = 'PENDING'"),
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid7()), primary_key=True)
+    # Current user id: we want to maintain this as their primary ID after migration
+    user_id: str = Field(foreign_key="biocommons_user.id", index=True)
+    new_email: str = Field(nullable=False, max_length=254)
+    direction: MigrationDirection = Field(
+        sa_type=DbEnum(MigrationDirection, name="migration_direction_enum"),
+        nullable=False,
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+        nullable=False
+    )
+    expires_at: AwareDatetime = Field(sa_type=DateTime(timezone=True), nullable=False)
+    status: MigrationStatus = Field(
+        default=MigrationStatus.PENDING,
+        sa_type=DbEnum(MigrationStatus, name="migration_status_enum"),
+        nullable=False,
+    )
+
+
 
 
 # Update all model references
