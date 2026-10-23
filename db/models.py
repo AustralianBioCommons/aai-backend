@@ -1498,6 +1498,11 @@ class AccountMigrationRequest(BaseModel, table=True):
         nullable=False,
     )
 
+    @classmethod
+    def get_pending_by_user_id(self, user_id: str, session: Session) -> Self | None:
+        query = select(AccountMigrationRequest).where(AccountMigrationRequest.user_id == user_id, AccountMigrationRequest.status == MigrationStatus.PENDING)
+        return session.exec(query).one_or_none()
+
 
 
 

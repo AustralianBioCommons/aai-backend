@@ -1,21 +1,25 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from typing import Annotated
 from urllib.parse import urlparse
 
 import httpx2
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
+from starlette import status
 from starlette.responses import RedirectResponse
 
+from auth.user_permissions import get_db_user_or_404, get_session_user
 from auth.validator import create_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
-from db.models import BiocommonsUser
+from db.models import AccountMigrationRequest, BiocommonsUser
 from db.setup import get_db_session
 from dependencies.auth import require_action_token
+from dependencies.utils import request_time
 from schemas.auth0 import Auth0ActionToken
 from schemas.biocommons import (
     Auth0Identity,
@@ -23,11 +27,16 @@ from schemas.biocommons import (
     BiocommonsAppMetadataUpdate,
     BiocommonsUserAccountType,
 )
+from schemas.migration import MigrateToAafRequest, MigrationDirection, MigrationStatus
+from schemas.user import SessionUser
 
 router = APIRouter(
     prefix="/aaf", tags=["aaf"]
 )
 logger = logging.getLogger("uvicorn.error")
+
+
+MIGRATION_EXPIRY_MINUTES = 10
 
 
 class AccountLinkResponse(BaseModel):
@@ -211,3 +220,51 @@ def check_aaf_account_link(
         action_token=token,
         settings=settings,
     )
+
+
+class MigrateToAafResponse(BaseModel):
+    migration_id: str
+    expires_at: AwareDatetime
+
+
+@router.post("/migrate/auth0-to-aaf")
+def migrate_auth0_to_aaf(
+    migrate_data: MigrateToAafRequest,
+    user: Annotated[SessionUser, Depends(get_session_user)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user_or_404)],
+    session: Annotated[Session, Depends(get_db_session)],
+    now: Annotated[AwareDatetime, Depends(request_time)]
+):
+    if db_user.account_type != BiocommonsUserAccountType.AUTH0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account cannot be migrated to AAF."
+        )
+    user_id = user.access_token.sub
+    existing_request = AccountMigrationRequest.get_pending_by_user_id(user_id=user_id, session=session)
+    if existing_request is not None:
+        logger.warning(f"Found existing pending migration for user {user_id}, replacing")
+        session.delete(existing_request)
+        session.flush()
+    migration_request = AccountMigrationRequest(
+        user_id=user.access_token.sub,
+        new_email=migrate_data.new_email,
+        direction=MigrationDirection.AUTH0_TO_AAF,
+        expires_at=now + timedelta(minutes=MIGRATION_EXPIRY_MINUTES),
+        status=MigrationStatus.PENDING,
+    )
+    session.add(migration_request)
+    # Get migration request data before commit, which expires the object
+    response = MigrateToAafResponse(
+        migration_id=migration_request.id,
+        expires_at=migration_request.expires_at,
+    )
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A pending migration request already exists for this user. Please try again.",
+        ) from exc
+    return response

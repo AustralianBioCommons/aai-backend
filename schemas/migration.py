@@ -1,5 +1,7 @@
 from enum import StrEnum
 
+from pydantic import BaseModel, EmailStr
+
 
 class MigrationDirection(StrEnum):
     AUTH0_TO_AAF = "AUTH0_TO_AAF"
@@ -10,3 +12,7 @@ class MigrationStatus(StrEnum):
     PENDING = "PENDING"
     COMPLETED = "COMPLETED"
     EXPIRED = "EXPIRED"
+
+
+class MigrateToAafRequest(BaseModel):
+    new_email: EmailStr
