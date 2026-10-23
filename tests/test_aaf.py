@@ -13,9 +13,74 @@ from db.models import AccountMigrationRequest
 from routers.aaf import link_aaf_account, mark_user_aaf_only, migrate_auth0_to_aaf
 from routers.biocommons_register import verify_registration_token
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
-from schemas.migration import MigrateToAafRequest, MigrationDirection
+from schemas.migration import MigrateToAafRequest, MigrationDirection, MigrationStatus
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
+
+
+def test_migrate_auth0_to_aaf_creates_request(
+    test_client,
+    test_db_session,
+    persistent_factories,
+    normal_user,
+    as_normal_user,
+):
+    BiocommonsUserFactory.create_sync(
+        id=normal_user.access_token.sub,
+        account_type=BiocommonsUserAccountType.AUTH0,
+    )
+    test_db_session.commit()
+    assert test_db_session.exec(select(AccountMigrationRequest)).all() == []
+
+    response = test_client.post(
+        "/aaf/migrate/auth0-to-aaf",
+        json={"new_email": "new@example.edu.au"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    migration_request = test_db_session.exec(select(AccountMigrationRequest)).one()
+    assert response.json()["migration_id"] == migration_request.id
+    assert migration_request.user_id == normal_user.access_token.sub
+    assert migration_request.new_email == "new@example.edu.au"
+    assert migration_request.direction == MigrationDirection.AUTH0_TO_AAF
+    assert migration_request.status == MigrationStatus.PENDING
+
+
+def test_migrate_auth0_to_aaf_replaces_pending_request(
+    test_client,
+    test_db_session,
+    persistent_factories,
+    normal_user,
+    as_normal_user,
+):
+    BiocommonsUserFactory.create_sync(
+        id=normal_user.access_token.sub,
+        account_type=BiocommonsUserAccountType.AUTH0,
+    )
+    existing_request = AccountMigrationRequest(
+        user_id=normal_user.access_token.sub,
+        new_email="existing@example.edu.au",
+        direction=MigrationDirection.AUTH0_TO_AAF,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        status=MigrationStatus.PENDING,
+    )
+    test_db_session.add(existing_request)
+    test_db_session.commit()
+    existing_request_id = existing_request.id
+
+    response = test_client.post(
+        "/aaf/migrate/auth0-to-aaf",
+        json={"new_email": "new@example.edu.au"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    migration_request = test_db_session.exec(select(AccountMigrationRequest)).one()
+    assert response.json()["migration_id"] == migration_request.id
+    assert migration_request.id != existing_request_id
+    assert migration_request.user_id == normal_user.access_token.sub
+    assert migration_request.new_email == "new@example.edu.au"
+    assert migration_request.direction == MigrationDirection.AUTH0_TO_AAF
+    assert migration_request.status == MigrationStatus.PENDING
 
 
 def test_migrate_auth0_to_aaf_rolls_back_on_concurrent_request(
@@ -37,7 +102,7 @@ def test_migrate_auth0_to_aaf_rolls_back_on_concurrent_request(
     existing_request_id = existing_request.id
     # Simulate the simultaneous requests by skipping the initial check for a pending
     #   request
-    mocker.patch.object(AccountMigrationRequest, "get_by_user_id", return_value=None)
+    mocker.patch.object(AccountMigrationRequest, "get_pending_by_user_id", return_value=None)
     rollback = mocker.spy(test_db_session, "rollback")
 
     with pytest.raises(HTTPException) as exc_info:
