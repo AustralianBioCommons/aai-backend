@@ -289,8 +289,9 @@ def migrate_auth0_to_aaf(
     return response
 
 
-@router.post("/migrate/auth0-to-aaf/complete", response_model=AccountLinkResponse)
+@router.get("/migrate/auth0-to-aaf/complete")
 def complete_auth0_to_aaf_migration(
+    state: str,
     token: Annotated[
         AafMigrationActionToken,
         Depends(require_action_token(purpose="aaf_migration", token_model=AafMigrationActionToken)),
@@ -327,4 +328,9 @@ def complete_auth0_to_aaf_migration(
     session.add(migration_request)
     response = AccountLinkResponse(link=True, primary_id=db_user.id, aaf_identity=aaf_identity)
     session.commit()
-    return response
+    return return_signed_response(
+        state=state,
+        response=response,
+        action_token=token,
+        settings=settings,
+    )
