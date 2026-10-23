@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from unittest.mock import MagicMock
 from urllib.parse import parse_qs, urlparse
@@ -6,13 +6,55 @@ from urllib.parse import parse_qs, urlparse
 import jwt
 import pytest
 from fastapi import HTTPException
+from sqlmodel import select
 
 from auth0.client import Auth0Client
-from routers.aaf import link_aaf_account, mark_user_aaf_only
+from db.models import AccountMigrationRequest
+from routers.aaf import link_aaf_account, mark_user_aaf_only, migrate_auth0_to_aaf
 from routers.biocommons_register import verify_registration_token
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
+from schemas.migration import MigrateToAafRequest, MigrationDirection
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
+
+
+def test_migrate_auth0_to_aaf_rolls_back_on_concurrent_request(
+    test_db_session, persistent_factories, normal_user, mocker
+):
+    db_user = BiocommonsUserFactory.create_sync(
+        id=normal_user.access_token.sub,
+        account_type=BiocommonsUserAccountType.AUTH0,
+    )
+    now = datetime.now(timezone.utc)
+    existing_request = AccountMigrationRequest(
+        user_id=db_user.id,
+        new_email="existing@example.edu.au",
+        direction=MigrationDirection.AUTH0_TO_AAF,
+        expires_at=now + timedelta(minutes=10),
+    )
+    test_db_session.add(existing_request)
+    test_db_session.commit()
+    existing_request_id = existing_request.id
+    mocker.patch.object(AccountMigrationRequest, "get_by_user_id", return_value=None)
+    rollback = mocker.spy(test_db_session, "rollback")
+
+    with pytest.raises(HTTPException) as exc_info:
+        migrate_auth0_to_aaf(
+            migrate_data=MigrateToAafRequest(new_email="new@example.edu.au"),
+            user=normal_user,
+            db_user=db_user,
+            session=test_db_session,
+            now=now,
+        )
+
+    assert exc_info.value.status_code == HTTPStatus.CONFLICT
+    assert exc_info.value.detail == (
+        "A pending migration request already exists for this user. Please try again."
+    )
+    rollback.assert_called_once_with()
+    remaining_request = test_db_session.exec(select(AccountMigrationRequest)).one()
+    assert remaining_request.id == existing_request_id
+    assert remaining_request.new_email == "existing@example.edu.au"
 
 
 def test_link_aaf_account_links_identity_updates_metadata_and_db(test_db_session, persistent_factories):
