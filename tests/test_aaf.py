@@ -35,6 +35,8 @@ def test_migrate_auth0_to_aaf_rolls_back_on_concurrent_request(
     test_db_session.add(existing_request)
     test_db_session.commit()
     existing_request_id = existing_request.id
+    # Simulate the simultaneous requests by skipping the initial check for a pending
+    #   request
     mocker.patch.object(AccountMigrationRequest, "get_by_user_id", return_value=None)
     rollback = mocker.spy(test_db_session, "rollback")
 
