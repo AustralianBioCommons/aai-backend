@@ -34,6 +34,10 @@ class Auth0ActionToken(BaseModel):
     iss: str | None = None
 
 
+class AafMigrationActionToken(Auth0ActionToken):
+    migration_id: str
+
+
 class AafRegistrationActionToken(Auth0ActionToken):
     """
     Extends Auth0ActionToken with extra fields used during AAF registration.

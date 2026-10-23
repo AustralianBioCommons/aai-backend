@@ -20,7 +20,7 @@ from db.models import AccountMigrationRequest, BiocommonsUser
 from db.setup import get_db_session
 from dependencies.auth import require_action_token
 from dependencies.utils import request_time
-from schemas.auth0 import Auth0ActionToken
+from schemas.auth0 import AafMigrationActionToken, Auth0ActionToken
 from schemas.biocommons import (
     Auth0Identity,
     Auth0UserData,
@@ -57,7 +57,16 @@ class SignedAccountLinkResponse(AccountLinkResponse):
     state: str
 
 
-def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Client, session: Session) -> Auth0Identity:
+def link_aaf_account(
+    db_user_id: str,
+    aaf_user_id: str,
+    auth0_client: Auth0Client,
+    session: Session,
+    *,
+    new_email: str | None = None,
+    connection: str | None = None,
+    commit: bool = True,
+) -> Auth0Identity:
     """
     Update app_metadata and DB record for AAF account linking.
 
@@ -90,14 +99,21 @@ def link_aaf_account(db_user_id: str, aaf_user_id: str, auth0_client: Auth0Clien
                     account_type=BiocommonsUserAccountType.AAF,
                     linking_completed=True,
                     linking_completed_at=now
-                )
+                ),
+                email=new_email,
+                email_verified=True if new_email is not None else None,
+                connection=connection,
             )
         )
     except ValueError as exc:
         logger.error(f"Failed to update account metadata in Auth0: {exc}")
         raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Failed to link account with Auth0") from exc
     logger.info("Updating DB record")
-    db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user, commit=True)
+    db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user)
+    if new_email is not None:
+        db_user.update_email(new_email=new_email, verified=True, session=session, updated_by=db_user)
+    if commit:
+        session.commit()
     return aaf_identity
 
 
@@ -165,6 +181,9 @@ def check_aaf_account_link(
     auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ):
+    """
+    Used when linking an AAF account to an existing account
+    """
     email = token.email
     aaf_user_id = token.user_id
     auth0_matches = auth0_client.search_users_by_email(
@@ -267,4 +286,45 @@ def migrate_auth0_to_aaf(
             status_code=status.HTTP_409_CONFLICT,
             detail="A pending migration request already exists for this user. Please try again.",
         ) from exc
+    return response
+
+
+@router.post("/migrate/auth0-to-aaf/complete", response_model=AccountLinkResponse)
+def complete_auth0_to_aaf_migration(
+    token: Annotated[
+        AafMigrationActionToken,
+        Depends(require_action_token(purpose="aaf_migration", token_model=AafMigrationActionToken)),
+    ],
+    session: Annotated[Session, Depends(get_db_session)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    now: Annotated[AwareDatetime, Depends(request_time)],
+):
+    migration_request = AccountMigrationRequest.get_by_id_or_404(session=session, id=token.migration_id, with_for_update=True)
+    if (
+        migration_request.direction != MigrationDirection.AUTH0_TO_AAF
+        or migration_request.status != MigrationStatus.PENDING
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Migration request is not pending for Auth0 to AAF")
+    if migration_request.is_expired(now=now):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Migration request has expired, please try again")
+    if token.email.lower() != migration_request.new_email.lower():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="AAF email does not match the migration request")
+
+    db_user = BiocommonsUser.get_by_id_or_404(migration_request.user_id, session=session)
+    if db_user.account_type != BiocommonsUserAccountType.AUTH0:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated to AAF.")
+    aaf_identity = link_aaf_account(
+        db_user_id=db_user.id,
+        aaf_user_id=token.user_id,
+        auth0_client=auth0_client,
+        session=session,
+        new_email=migration_request.new_email,
+        connection=settings.auth0_db_connection,
+        commit=False,
+    )
+    migration_request.status = MigrationStatus.COMPLETED
+    session.add(migration_request)
+    response = AccountLinkResponse(link=True, primary_id=db_user.id, aaf_identity=aaf_identity)
+    session.commit()
     return response
