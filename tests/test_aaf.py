@@ -151,15 +151,18 @@ def test_complete_auth0_to_aaf_migration_rejects_invalid_request(
     assert db_user.email == "original@example.edu.au"
 
 
+@pytest.mark.parametrize("new_email", ["new@example.edu.au", "original@example.edu.au"])
 def test_migrate_auth0_to_aaf_creates_request(
     test_client,
     test_db_session,
     persistent_factories,
     normal_user,
     as_normal_user,
+    new_email,
 ):
     BiocommonsUserFactory.create_sync(
         id=normal_user.access_token.sub,
+        email="original@example.edu.au",
         account_type=BiocommonsUserAccountType.AUTH0,
     )
     test_db_session.commit()
@@ -167,16 +170,63 @@ def test_migrate_auth0_to_aaf_creates_request(
 
     response = test_client.post(
         "/aaf/migrate/auth0-to-aaf",
-        json={"new_email": "new@example.edu.au"},
+        json={"new_email": new_email},
     )
 
     assert response.status_code == HTTPStatus.OK
     migration_request = test_db_session.exec(select(AccountMigrationRequest)).one()
     assert response.json()["migration_id"] == migration_request.id
     assert migration_request.user_id == normal_user.access_token.sub
-    assert migration_request.new_email == "new@example.edu.au"
+    assert migration_request.new_email == new_email
     assert migration_request.direction == MigrationDirection.AUTH0_TO_AAF
     assert migration_request.status == MigrationStatus.PENDING
+
+
+@pytest.mark.parametrize("existing_email", ["new@example.edu.au", "NEW@EXAMPLE.EDU.AU"])
+@pytest.mark.parametrize("has_pending_request", [False, True])
+def test_migrate_auth0_to_aaf_rejects_occupied_email(
+    test_client,
+    test_db_session,
+    persistent_factories,
+    normal_user,
+    as_normal_user,
+    existing_email,
+    has_pending_request,
+):
+    BiocommonsUserFactory.create_sync(
+        id=normal_user.access_token.sub,
+        email="original@example.edu.au",
+        account_type=BiocommonsUserAccountType.AUTH0,
+    )
+    BiocommonsUserFactory.create_sync(
+        email=existing_email,
+        account_type=BiocommonsUserAccountType.AAF,
+    )
+    if has_pending_request:
+        existing_request = AccountMigrationRequest(
+            user_id=normal_user.access_token.sub,
+            new_email="pending@example.edu.au",
+            direction=MigrationDirection.AUTH0_TO_AAF,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        test_db_session.add(existing_request)
+    test_db_session.commit()
+
+    response = test_client.post(
+        "/aaf/migrate/auth0-to-aaf",
+        json={"new_email": "new@example.edu.au"},
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert response.json() == {"detail": "Email is already in use by another user."}
+    requests = test_db_session.exec(select(AccountMigrationRequest)).all()
+    if has_pending_request:
+        assert len(requests) == 1
+        assert requests[0].id == existing_request.id
+        assert requests[0].new_email == "pending@example.edu.au"
+        assert requests[0].status == MigrationStatus.PENDING
+    else:
+        assert requests == []
 
 
 def test_migrate_auth0_to_aaf_replaces_pending_request(

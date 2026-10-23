@@ -260,6 +260,17 @@ def migrate_auth0_to_aaf(
             detail="This account cannot be migrated to AAF."
         )
     user_id = user.access_token.sub
+    conflicting_user = BiocommonsUser.get_by_email(
+        email=migrate_data.new_email,
+        session=session,
+        case_insensitive=True,
+        exclude_user_id=user_id,
+    )
+    if conflicting_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email is already in use by another user.",
+        )
     existing_request = AccountMigrationRequest.get_pending_by_user_id(user_id=user_id, session=session)
     if existing_request is not None:
         logger.warning(f"Found existing pending migration for user {user_id}, replacing")
