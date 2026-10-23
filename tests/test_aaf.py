@@ -9,13 +9,146 @@ from fastapi import HTTPException
 from sqlmodel import select
 
 from auth0.client import Auth0Client
-from db.models import AccountMigrationRequest
+from db.models import AccountMigrationRequest, BiocommonsUser
 from routers.aaf import link_aaf_account, mark_user_aaf_only, migrate_auth0_to_aaf
 from routers.biocommons_register import verify_registration_token
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
 from schemas.migration import MigrateToAafRequest, MigrationDirection, MigrationStatus
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
+
+
+@pytest.fixture
+def pending_aaf_migration(test_db_session, persistent_factories):
+    db_user = BiocommonsUserFactory.create_sync(
+        email="original@example.edu.au",
+        account_type=BiocommonsUserAccountType.AUTH0,
+        other_user_id=None,
+    )
+    migration_request = AccountMigrationRequest(
+        user_id=db_user.id,
+        new_email="new@example.edu.au",
+        direction=MigrationDirection.AUTH0_TO_AAF,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+    )
+    test_db_session.add(migration_request)
+    test_db_session.commit()
+    return migration_request
+
+
+@pytest.fixture
+def aaf_migration_payload(pending_aaf_migration):
+    return {
+        **_action_token_payload(
+            user_id="oidc|AAF|migration-test",
+            email=pending_aaf_migration.new_email,
+            purpose="aaf_migration",
+        ),
+        "migration_id": pending_aaf_migration.id,
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=5)).timestamp()),
+    }
+
+
+def test_complete_auth0_to_aaf_migration(
+    test_client,
+    test_db_session,
+    mock_settings,
+    mock_auth0_client,
+    pending_aaf_migration,
+    aaf_migration_payload,
+):
+    primary_id = pending_aaf_migration.user_id
+    aaf_user_id = aaf_migration_payload["user_id"]
+    identity = Auth0Identity(connection="AAF", provider="oidc", user_id="migration-test", isSocial=False)
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=aaf_user_id,
+        email=pending_aaf_migration.new_email,
+        identities=[identity],
+    )
+    session_token = jwt.encode(aaf_migration_payload, mock_settings.auth0_management_secret, algorithm="HS256")
+
+    state = "migration-state"
+    response = test_client.get(
+        "/aaf/migrate/auth0-to-aaf/complete",
+        params={"session_token": session_token, "state": state},
+        follow_redirects=False,
+    )
+
+    decoded_token = _decode_check_link_redirect(
+        response,
+        state=state,
+        settings=mock_settings,
+        incoming_token=aaf_migration_payload,
+    )
+    assert decoded_token["link"] is True
+    assert decoded_token["primary_id"] == primary_id
+    assert decoded_token["aaf_identity"] == identity.model_dump(exclude_none=True)
+    test_db_session.refresh(pending_aaf_migration)
+    assert pending_aaf_migration.status == MigrationStatus.COMPLETED
+    db_user = test_db_session.get(BiocommonsUser, primary_id)
+    assert db_user.account_type == BiocommonsUserAccountType.AAF
+    assert db_user.other_user_id == aaf_user_id
+    assert db_user.email == "new@example.edu.au"
+    assert db_user.email_verified is True
+    mock_auth0_client.update_user.assert_called_once()
+    call_args, call_kwargs = mock_auth0_client.update_user.call_args
+    assert call_args[0] == primary_id
+    update_data = call_kwargs["update_data"]
+    assert update_data.email == "new@example.edu.au"
+    assert update_data.email_verified is True
+    assert update_data.connection == mock_settings.auth0_db_connection
+    assert update_data.app_metadata.account_type == BiocommonsUserAccountType.AAF
+    mock_auth0_client.search_users_by_email.assert_not_called()
+    mock_auth0_client.link_identity.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ["request_changes", "token_changes", "expected_status"],
+    [
+        ({}, {"migration_id": "missing"}, HTTPStatus.NOT_FOUND),
+        ({"status": MigrationStatus.COMPLETED}, {}, HTTPStatus.BAD_REQUEST),
+        ({"direction": MigrationDirection.AAF_TO_AUTH0}, {}, HTTPStatus.BAD_REQUEST),
+        (
+            {"expires_at": datetime.now(timezone.utc) - timedelta(minutes=1)},
+            {},
+            HTTPStatus.BAD_REQUEST,
+        ),
+        ({}, {"email": "other@example.edu.au"}, HTTPStatus.BAD_REQUEST),
+        ({}, {"purpose": "aaf_link"}, HTTPStatus.UNAUTHORIZED),
+        ({}, {"migration_id": None}, HTTPStatus.UNAUTHORIZED),
+    ],
+)
+def test_complete_auth0_to_aaf_migration_rejects_invalid_request(
+    test_client,
+    test_db_session,
+    mock_settings,
+    mock_auth0_client,
+    pending_aaf_migration,
+    aaf_migration_payload,
+    request_changes,
+    token_changes,
+    expected_status,
+):
+    for field_name, value in request_changes.items():
+        setattr(pending_aaf_migration, field_name, value)
+    test_db_session.commit()
+    aaf_migration_payload.update(token_changes)
+    session_token = jwt.encode(aaf_migration_payload, mock_settings.auth0_management_secret, algorithm="HS256")
+
+    response = test_client.get(
+        "/aaf/migrate/auth0-to-aaf/complete",
+        params={"session_token": session_token, "state": "migration-state"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == expected_status
+    mock_auth0_client.get_user.assert_not_called()
+    mock_auth0_client.update_user.assert_not_called()
+    test_db_session.refresh(pending_aaf_migration)
+    assert pending_aaf_migration.status == request_changes.get("status", MigrationStatus.PENDING)
+    db_user = test_db_session.get(BiocommonsUser, pending_aaf_migration.user_id)
+    assert db_user.account_type == BiocommonsUserAccountType.AUTH0
+    assert db_user.email == "original@example.edu.au"
 
 
 def test_migrate_auth0_to_aaf_creates_request(
