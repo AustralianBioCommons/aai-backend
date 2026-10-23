@@ -1499,9 +1499,23 @@ class AccountMigrationRequest(BaseModel, table=True):
     )
 
     @classmethod
-    def get_pending_by_user_id(self, user_id: str, session: Session) -> Self | None:
+    def get_by_id_or_404(cls, session: Session, *, id: str, with_for_update: bool = False) -> Self:
+        request = session.get(cls, id, with_for_update=with_for_update)
+        if request is None:
+            raise HTTPException(status_code=404, detail="Migration request not found")
+        return request
+
+    @classmethod
+    def get_pending_by_user_id(cls, user_id: str, session: Session) -> Self | None:
         query = select(AccountMigrationRequest).where(AccountMigrationRequest.user_id == user_id, AccountMigrationRequest.status == MigrationStatus.PENDING)
         return session.exec(query).one_or_none()
+
+    def is_expired(self, now: AwareDatetime) -> bool:
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return expires_at <= now
+
 
 
 
