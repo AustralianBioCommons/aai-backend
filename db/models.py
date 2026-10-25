@@ -1521,6 +1521,7 @@ class AccountMigrationRequest(BaseModel, table=True):
 
 
 # Update all model references
+AccountMigrationRequest.model_rebuild()
 BiocommonsUser.model_rebuild()
 BiocommonsUserHistory.model_rebuild()
 Platform.model_rebuild()
