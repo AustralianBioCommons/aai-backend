@@ -254,6 +254,14 @@ def migrate_auth0_to_aaf(
     session: Annotated[Session, Depends(get_db_session)],
     now: Annotated[AwareDatetime, Depends(request_time)]
 ):
+    """
+    Called when an existing user wants to change their email address from
+    non-institutional (recorded in Auth0 database) to institutional
+    (log in via AAF).
+
+    Returns a migration_id used to link the AAF login back to the
+    original account
+    """
     if db_user.account_type != BiocommonsUserAccountType.AUTH0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -312,6 +320,11 @@ def complete_auth0_to_aaf_migration(
     settings: Annotated[Settings, Depends(get_settings)],
     now: Annotated[AwareDatetime, Depends(request_time)],
 ):
+    """
+    Called to complete migration from Auth0 to AAF, after AAF login.
+
+    Redirects to the /continue endpoint to complete login.
+    """
     migration_request = AccountMigrationRequest.get_by_id_or_404(session=session, id=token.migration_id, with_for_update=True)
     if (
         migration_request.direction != MigrationDirection.AUTH0_TO_AAF
