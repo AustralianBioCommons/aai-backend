@@ -20,6 +20,11 @@ from db.models import AccountMigrationRequest, BiocommonsUser
 from db.setup import get_db_session
 from dependencies.auth import require_action_token
 from dependencies.utils import request_time
+from schemas.aaf_migration import (
+    MigrateToAafRequest,
+    MigrationDirection,
+    MigrationStatus,
+)
 from schemas.auth0 import AafMigrationActionToken, Auth0ActionToken
 from schemas.biocommons import (
     Auth0Identity,
@@ -27,7 +32,6 @@ from schemas.biocommons import (
     BiocommonsAppMetadataUpdate,
     BiocommonsUserAccountType,
 )
-from schemas.migration import MigrateToAafRequest, MigrationDirection, MigrationStatus
 from schemas.user import SessionUser
 
 router = APIRouter(
@@ -274,7 +278,7 @@ def migrate_auth0_to_aaf(
     if db_user.account_type != BiocommonsUserAccountType.AUTH0:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account cannot be migrated to AAF."
+            detail="This account cannot be migrated to AAF - not an Auth0 account."
         )
     user_id = user.access_token.sub
     conflicting_user = BiocommonsUser.get_by_email(
@@ -348,7 +352,7 @@ def complete_auth0_to_aaf_migration(
 
     db_user = BiocommonsUser.get_by_id_or_404(migration_request.user_id, session=session)
     if db_user.account_type != BiocommonsUserAccountType.AUTH0:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated to AAF.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated to AAF - not an Auth0 account.")
     conflicting_user = BiocommonsUser.get_by_email(
         email=migration_request.new_email,
         session=session,

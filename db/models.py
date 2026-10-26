@@ -31,9 +31,9 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.aaf_migration import MigrationDirection, MigrationStatus
 from schemas.auth0 import get_platform_id_from_role_name
 from schemas.biocommons import BiocommonsUserAccountType
-from schemas.migration import MigrationDirection, MigrationStatus
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 

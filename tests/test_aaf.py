@@ -12,8 +12,12 @@ from auth0.client import Auth0Client
 from db.models import AccountMigrationRequest, BiocommonsUser
 from routers.aaf import link_aaf_account, mark_user_aaf_only, migrate_auth0_to_aaf
 from routers.biocommons_register import verify_registration_token
+from schemas.aaf_migration import (
+    MigrateToAafRequest,
+    MigrationDirection,
+    MigrationStatus,
+)
 from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
-from schemas.migration import MigrateToAafRequest, MigrationDirection, MigrationStatus
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
 
