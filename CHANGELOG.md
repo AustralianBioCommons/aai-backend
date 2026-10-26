@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/AustralianBioCommons/aai-backend/compare/v1.5.0...v1.5.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* update vulnerable package versions ([5d1d231](https://github.com/AustralianBioCommons/aai-backend/commit/5d1d231661be563968d2911a5f87153d69959578))
+
 ## [1.5.0](https://github.com/AustralianBioCommons/aai-backend/compare/v1.4.0...v1.5.0) (2026-10-09)
 
 
