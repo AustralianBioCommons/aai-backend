@@ -81,6 +81,25 @@ def test_biocommons_user_account_type_db_enum_uses_enum_values():
     assert db_enum.enums == [account_type.value for account_type in BiocommonsUserAccountType]
 
 
+@pytest.mark.parametrize("include_deleted", [False, True])
+def test_get_by_email_respects_include_deleted(
+    test_db_session, persistent_factories, include_deleted
+):
+    user = BiocommonsUserFactory.create_sync(email="deleted@example.edu.au", is_deleted=True)
+    test_db_session.commit()
+
+    result = BiocommonsUser.get_by_email(
+        email="deleted@example.edu.au",
+        session=test_db_session,
+        include_deleted=include_deleted,
+    )
+
+    if include_deleted:
+        assert result.id == user.id
+    else:
+        assert result is None
+
+
 def test_create_biocommons_user_from_auth0(test_db_session, mock_auth0_client):
     """
     Test creating the BiocommonsUser model from Auth0 user data from the API

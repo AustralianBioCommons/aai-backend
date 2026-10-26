@@ -102,6 +102,79 @@ def test_complete_auth0_to_aaf_migration(
     mock_auth0_client.link_identity.assert_not_called()
 
 
+@pytest.mark.parametrize("is_deleted", [False, True])
+@pytest.mark.parametrize("existing_email", ["new@example.edu.au", "NEW@EXAMPLE.EDU.AU"])
+def test_complete_auth0_to_aaf_migration_rejects_email_claimed_after_creation(
+    test_client,
+    test_db_session,
+    persistent_factories,
+    mock_settings,
+    mock_auth0_client,
+    pending_aaf_migration,
+    aaf_migration_payload,
+    is_deleted,
+    existing_email,
+):
+    BiocommonsUserFactory.create_sync(email=existing_email, is_deleted=is_deleted)
+    test_db_session.commit()
+    session_token = jwt.encode(aaf_migration_payload, mock_settings.auth0_management_secret, algorithm="HS256")
+
+    response = test_client.get(
+        "/aaf/migrate/auth0-to-aaf/complete",
+        params={"session_token": session_token, "state": "migration-state"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert response.json() == {"detail": "Email is already in use by another user."}
+    mock_auth0_client.get_user.assert_not_called()
+    mock_auth0_client.update_user.assert_not_called()
+    test_db_session.refresh(pending_aaf_migration)
+    assert pending_aaf_migration.status == MigrationStatus.PENDING
+    db_user = test_db_session.get(BiocommonsUser, pending_aaf_migration.user_id)
+    assert db_user.email == "original@example.edu.au"
+    assert db_user.account_type == BiocommonsUserAccountType.AUTH0
+    assert db_user.other_user_id is None
+
+
+def test_complete_auth0_to_aaf_migration_handles_email_constraint_conflict(
+    test_client,
+    test_db_session,
+    persistent_factories,
+    mock_settings,
+    mock_auth0_client,
+    pending_aaf_migration,
+    aaf_migration_payload,
+    mocker,
+):
+    BiocommonsUserFactory.create_sync(email=pending_aaf_migration.new_email)
+    test_db_session.commit()
+    mocker.patch.object(BiocommonsUser, "get_by_email", return_value=None)
+    aaf_user_id = aaf_migration_payload["user_id"]
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=aaf_user_id,
+        identities=[Auth0Identity(connection="AAF", provider="oidc", user_id="migration-test", isSocial=False)],
+    )
+    session_token = jwt.encode(aaf_migration_payload, mock_settings.auth0_management_secret, algorithm="HS256")
+
+    response = test_client.get(
+        "/aaf/migrate/auth0-to-aaf/complete",
+        params={"session_token": session_token, "state": "migration-state"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert response.json() == {"detail": "Email is already in use by another user."}
+    mock_auth0_client.get_user.assert_called_once_with(user_id=aaf_user_id)
+    mock_auth0_client.update_user.assert_not_called()
+    test_db_session.refresh(pending_aaf_migration)
+    assert pending_aaf_migration.status == MigrationStatus.PENDING
+    db_user = test_db_session.get(BiocommonsUser, pending_aaf_migration.user_id)
+    assert db_user.email == "original@example.edu.au"
+    assert db_user.account_type == BiocommonsUserAccountType.AUTH0
+    assert db_user.other_user_id is None
+
+
 @pytest.mark.parametrize(
     ["request_changes", "token_changes", "expected_status"],
     [
@@ -184,6 +257,7 @@ def test_migrate_auth0_to_aaf_creates_request(
 
 @pytest.mark.parametrize("existing_email", ["new@example.edu.au", "NEW@EXAMPLE.EDU.AU"])
 @pytest.mark.parametrize("has_pending_request", [False, True])
+@pytest.mark.parametrize("is_deleted", [False, True])
 def test_migrate_auth0_to_aaf_rejects_occupied_email(
     test_client,
     test_db_session,
@@ -192,6 +266,7 @@ def test_migrate_auth0_to_aaf_rejects_occupied_email(
     as_normal_user,
     existing_email,
     has_pending_request,
+    is_deleted,
 ):
     BiocommonsUserFactory.create_sync(
         id=normal_user.access_token.sub,
@@ -201,6 +276,7 @@ def test_migrate_auth0_to_aaf_rejects_occupied_email(
     BiocommonsUserFactory.create_sync(
         email=existing_email,
         account_type=BiocommonsUserAccountType.AAF,
+        is_deleted=is_deleted,
     )
     if has_pending_request:
         existing_request = AccountMigrationRequest(
@@ -377,9 +453,14 @@ def test_link_aaf_account_raises_404_when_no_aaf_identity(test_db_session, persi
     assert db_user.other_user_id is None
 
 
-def test_link_aaf_account_raises_502_when_auth0_update_fails(test_db_session, persistent_factories):
+@pytest.mark.parametrize("new_email", [None, "new@example.edu.au"])
+def test_link_aaf_account_raises_502_when_auth0_update_fails(
+    test_db_session, persistent_factories, new_email
+):
     db_user = BiocommonsUserFactory.create_sync(account_type=BiocommonsUserAccountType.AUTH0, other_user_id=None)
     test_db_session.commit()
+    original_email = db_user.email
+    original_email_verified = db_user.email_verified
 
     aaf_user_id = random_auth0_id()
     aaf_user_data = Auth0UserDataFactory.build(
@@ -395,6 +476,8 @@ def test_link_aaf_account_raises_502_when_auth0_update_fails(test_db_session, pe
             aaf_user_id=aaf_user_id,
             auth0_client=auth0_client,
             session=test_db_session,
+            new_email=new_email,
+            connection="Username-Password-Authentication" if new_email is not None else None,
         )
 
     assert exc_info.value.status_code == HTTPStatus.BAD_GATEWAY
@@ -404,6 +487,8 @@ def test_link_aaf_account_raises_502_when_auth0_update_fails(test_db_session, pe
     test_db_session.refresh(db_user)
     assert db_user.account_type == BiocommonsUserAccountType.AUTH0
     assert db_user.other_user_id is None
+    assert db_user.email == original_email
+    assert db_user.email_verified == original_email_verified
 
 
 def test_link_aaf_account_idempotent_when_already_linked(test_db_session, persistent_factories):

@@ -90,6 +90,16 @@ def link_aaf_account(
         return aaf_identity
 
     logger.info("Updating DB record and account metadata")
+    if new_email is not None:
+        try:
+            db_user.update_email(new_email=new_email, verified=True, session=session, updated_by=db_user)
+            session.flush()
+        except IntegrityError as exc:
+            session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email is already in use by another user.",
+            ) from exc
     now = datetime.now(tz=timezone.utc)
     try:
         auth0_client.update_user(
@@ -106,12 +116,11 @@ def link_aaf_account(
             )
         )
     except ValueError as exc:
+        session.rollback()
         logger.error(f"Failed to update account metadata in Auth0: {exc}")
         raise HTTPException(status_code=HTTPStatus.BAD_GATEWAY, detail="Failed to link account with Auth0") from exc
     logger.info("Updating DB record")
     db_user.link_aaf_account(aaf_user_id=aaf_user_id, session=session, updated_by=db_user)
-    if new_email is not None:
-        db_user.update_email(new_email=new_email, verified=True, session=session, updated_by=db_user)
     if commit:
         session.commit()
     return aaf_identity
@@ -272,6 +281,7 @@ def migrate_auth0_to_aaf(
         email=migrate_data.new_email,
         session=session,
         case_insensitive=True,
+        include_deleted=True,
         exclude_user_id=user_id,
     )
     if conflicting_user is not None:
@@ -339,6 +349,18 @@ def complete_auth0_to_aaf_migration(
     db_user = BiocommonsUser.get_by_id_or_404(migration_request.user_id, session=session)
     if db_user.account_type != BiocommonsUserAccountType.AUTH0:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated to AAF.")
+    conflicting_user = BiocommonsUser.get_by_email(
+        email=migration_request.new_email,
+        session=session,
+        case_insensitive=True,
+        include_deleted=True,
+        exclude_user_id=db_user.id,
+    )
+    if conflicting_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email is already in use by another user.",
+        )
     aaf_identity = link_aaf_account(
         db_user_id=db_user.id,
         aaf_user_id=token.user_id,

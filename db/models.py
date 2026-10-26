@@ -147,7 +147,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if case_insensitive
             else cls.email == email
         )
-        query = select(cls).where(email_filter)
+        query = select(cls).where(email_filter).execution_options(include_deleted=include_deleted)
         if not include_deleted:
             query = query.where(cls.is_deleted.is_(False))
         if exclude_user_id is not None:
