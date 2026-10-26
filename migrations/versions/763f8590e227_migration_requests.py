@@ -42,4 +42,6 @@ def downgrade() -> None:
     op.drop_index('uq_account_migration_requests_pending_user', table_name='account_migration_requests', postgresql_where=sa.text("status = 'PENDING'"), sqlite_where=sa.text("status = 'PENDING'"))
     op.drop_index(op.f('ix_account_migration_requests_user_id'), table_name='account_migration_requests')
     op.drop_table('account_migration_requests')
+    sa.Enum(name='migration_direction_enum').drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name='migration_status_enum').drop(op.get_bind(), checkfirst=True)
     # ### end Alembic commands ###
