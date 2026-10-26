@@ -6,7 +6,17 @@ from typing import Optional, Self, Type
 
 from httpx2 import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint, delete, desc, func
+from sqlalchemy import (
+    Column,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    delete,
+    desc,
+    func,
+    text,
+)
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
@@ -21,6 +31,7 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.aaf_migration import MigrationDirection, MigrationStatus
 from schemas.auth0 import get_platform_id_from_role_name
 from schemas.biocommons import BiocommonsUserAccountType
 from schemas.tokens import AccessTokenPayload
@@ -136,7 +147,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if case_insensitive
             else cls.email == email
         )
-        query = select(cls).where(email_filter)
+        query = select(cls).where(email_filter).execution_options(include_deleted=include_deleted)
         if not include_deleted:
             query = query.where(cls.is_deleted.is_(False))
         if exclude_user_id is not None:
@@ -1454,7 +1465,63 @@ class EmailChangeOtp(BaseModel, table=True):
         ).all()
 
 
+class AccountMigrationRequest(BaseModel, table=True):
+    __tablename__ = "account_migration_requests"
+    __table_args__ = (
+        # Only allow one pending migration per user
+        Index(
+            "uq_account_migration_requests_pending_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+            sqlite_where=text("status = 'PENDING'"),
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid7()), primary_key=True)
+    # Current user id: we want to maintain this as their primary ID after migration
+    user_id: str = Field(foreign_key="biocommons_user.id", index=True)
+    new_email: str = Field(nullable=False, max_length=254)
+    direction: MigrationDirection = Field(
+        sa_type=DbEnum(MigrationDirection, name="migration_direction_enum"),
+        nullable=False,
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+        nullable=False
+    )
+    expires_at: AwareDatetime = Field(sa_type=DateTime(timezone=True), nullable=False)
+    status: MigrationStatus = Field(
+        default=MigrationStatus.PENDING,
+        sa_type=DbEnum(MigrationStatus, name="migration_status_enum"),
+        nullable=False,
+    )
+
+    @classmethod
+    def get_by_id_or_404(cls, session: Session, *, id: str, with_for_update: bool = False) -> Self:
+        request = session.get(cls, id, with_for_update=with_for_update)
+        if request is None:
+            raise HTTPException(status_code=404, detail="Migration request not found")
+        return request
+
+    @classmethod
+    def get_pending_by_user_id(cls, user_id: str, session: Session) -> Self | None:
+        query = select(AccountMigrationRequest).where(AccountMigrationRequest.user_id == user_id, AccountMigrationRequest.status == MigrationStatus.PENDING)
+        return session.exec(query).one_or_none()
+
+    def is_expired(self, now: AwareDatetime) -> bool:
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return expires_at <= now
+
+
+
+
+
 # Update all model references
+AccountMigrationRequest.model_rebuild()
 BiocommonsUser.model_rebuild()
 BiocommonsUserHistory.model_rebuild()
 Platform.model_rebuild()

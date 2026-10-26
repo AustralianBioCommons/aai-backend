@@ -1,12 +1,44 @@
+from importlib import import_module
+from io import StringIO
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import text
 from sqlmodel import Session, create_engine
 
 from db.models import BiocommonsGroup
 from schemas.biocommons import BiocommonsUserAccountType
+
+
+def test_account_migration_request_downgrade_drops_postgresql_enums():
+    migration = import_module("migrations.versions.763f8590e227_migration_requests")
+    output = StringIO()
+    context = MigrationContext.configure(
+        dialect_name="postgresql",
+        opts={"as_sql": True, "output_buffer": output},
+    )
+
+    with Operations.context(context):
+        migration.downgrade()
+
+    statements = output.getvalue()
+    table_drop = statements.index("DROP TABLE account_migration_requests;")
+    assert table_drop < statements.index("DROP TYPE migration_direction_enum;")
+    assert table_drop < statements.index("DROP TYPE migration_status_enum;")
+
+
+def test_account_migration_request_migration_can_be_reapplied(tmp_path, mocker):
+    db_url = f"sqlite:///{tmp_path / 'account_migration_requests.sqlite'}"
+    mocker.patch("db.setup.get_db_config", return_value=(db_url, {"check_same_thread": False}))
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(repo_root / "alembic.ini"))
+
+    command.upgrade(alembic_config, "763f8590e227")
+    command.downgrade(alembic_config, "98fbefd9f191")
+    command.upgrade(alembic_config, "763f8590e227")
 
 
 def test_sbp_group_migration_creates_expected_group(tmp_path, mocker):

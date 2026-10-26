@@ -92,7 +92,11 @@ def test_check_username_exists_exact_match_only(override_auth0_client, test_clie
 
 
 def test_check_email_availability_endpoint(override_auth0_client, test_client):
-    override_auth0_client.search_users_by_email.return_value = [Auth0UserDataFactory.build()]
+    user = Auth0UserDataFactory.build(
+        email="existing@example.com",
+        app_metadata=Auth0ReadAppMetadataFactory.build(aaf_only=False),
+    )
+    override_auth0_client.search_users_by_email.return_value = [user]
     resp = test_client.get(
         "/utils/register/check-email-availability",
         params={"email": "existing@example.com"},

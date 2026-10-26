@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.13-alpine
+FROM ghcr.io/astral-sh/uv:python3.14-alpine
 # Force latest Alpine security patches (e.g. libssl3/libcrypto3 OpenSSL fixes)
 # at build time, independent of how stale the cached base image layer is.
 RUN apk update && apk upgrade --no-cache
