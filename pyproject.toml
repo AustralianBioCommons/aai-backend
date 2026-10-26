@@ -8,12 +8,12 @@ dependencies = [
     "alembic>=1.18.5",
     "fastapi[standard]>=0.139.0",
     # Security floor for CVE-2026-26007 (subgroup validation for SECT curves)
-    "cryptography>=49.0",
+    "cryptography>=50.0",
     "httpx>=0.28.1",
     "psycopg[binary]>=3.3.4",
     "email-validator~=2.3",
     "pydantic-settings>=2.14.2",
-    "pyjwt[crypto]>=2.13.0",
+    "pyjwt[crypto]>=2.15.0",
     "sqlmodel>=0.0.39",
     "boto3>=1.43.45",
     "authlib>=1.6.11",
@@ -29,6 +29,10 @@ dependencies = [
     # Security floor for CVE-2026-40347 / CVE-2026-42561 (multipart DoS) and
     # CVE-2026-53537 / CVE-2026-53538 (Content-Disposition/querystring parameter smuggling)
     "python-multipart>=0.0.30",
+    # Security floor for emSign certificate issue
+    "certifi>=2026.10.19",
+    # Security floor for CVE-2026-63374
+    "anyio>=4.14.2",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +57,8 @@ dev = [
 # prevent security issues, since hijacked packages are generally
 # fixed quickly
 exclude-newer = "7 days"
+# Need to force an upgrade for certifi
+exclude-newer-package = { certifi = false }
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
