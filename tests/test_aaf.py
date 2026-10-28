@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 from urllib.parse import parse_qs, urlparse
 
 import jwt
@@ -53,6 +53,7 @@ def aaf_migration_payload(pending_aaf_migration):
     }
 
 
+@pytest.mark.parametrize("blocked", [False, None])
 def test_complete_auth0_to_aaf_migration(
     test_client,
     test_db_session,
@@ -60,15 +61,21 @@ def test_complete_auth0_to_aaf_migration(
     mock_auth0_client,
     pending_aaf_migration,
     aaf_migration_payload,
+    blocked,
 ):
     primary_id = pending_aaf_migration.user_id
     aaf_user_id = aaf_migration_payload["user_id"]
     identity = Auth0Identity(connection="AAF", provider="oidc", user_id="migration-test", isSocial=False)
-    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+    existing_account = Auth0UserDataFactory.build(user_id=primary_id, blocked=blocked)
+    aaf_account = Auth0UserDataFactory.build(
         user_id=aaf_user_id,
         email=pending_aaf_migration.new_email,
         identities=[identity],
     )
+    mock_auth0_client.get_user.side_effect = lambda user_id: {
+        primary_id: existing_account,
+        aaf_user_id: aaf_account,
+    }[user_id]
     session_token = jwt.encode(aaf_migration_payload, mock_settings.auth0_management_secret, algorithm="HS256")
 
     state = "migration-state"
@@ -104,6 +111,40 @@ def test_complete_auth0_to_aaf_migration(
     assert update_data.app_metadata.account_type == BiocommonsUserAccountType.AAF
     mock_auth0_client.search_users_by_email.assert_not_called()
     mock_auth0_client.link_identity.assert_not_called()
+
+
+def test_complete_auth0_to_aaf_migration_rejects_blocked_account(
+    test_client,
+    test_db_session,
+    mock_settings,
+    mock_auth0_client,
+    pending_aaf_migration,
+    aaf_migration_payload,
+):
+    primary_id = pending_aaf_migration.user_id
+    mock_auth0_client.get_user.return_value = Auth0UserDataFactory.build(
+        user_id=primary_id,
+        blocked=True,
+    )
+    session_token = jwt.encode(aaf_migration_payload, mock_settings.auth0_management_secret, algorithm="HS256")
+
+    response = test_client.get(
+        "/aaf/migrate/auth0-to-aaf/complete",
+        params={"session_token": session_token, "state": "migration-state"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.json() == {"detail": "This account cannot be migrated to AAF - blocked in Auth0."}
+    mock_auth0_client.get_user.assert_called_once_with(user_id=primary_id)
+    mock_auth0_client.update_user.assert_not_called()
+    mock_auth0_client.link_identity.assert_not_called()
+    test_db_session.refresh(pending_aaf_migration)
+    assert pending_aaf_migration.status == MigrationStatus.PENDING
+    db_user = test_db_session.get(BiocommonsUser, primary_id)
+    assert db_user.email == "original@example.edu.au"
+    assert db_user.account_type == BiocommonsUserAccountType.AUTH0
+    assert db_user.other_user_id is None
 
 
 @pytest.mark.parametrize("is_deleted", [False, True])
@@ -169,7 +210,10 @@ def test_complete_auth0_to_aaf_migration_handles_email_constraint_conflict(
 
     assert response.status_code == HTTPStatus.CONFLICT
     assert response.json() == {"detail": "Email is already in use by another user."}
-    mock_auth0_client.get_user.assert_called_once_with(user_id=aaf_user_id)
+    assert mock_auth0_client.get_user.call_args_list == [
+        call(user_id=pending_aaf_migration.user_id),
+        call(user_id=aaf_user_id),
+    ]
     mock_auth0_client.update_user.assert_not_called()
     test_db_session.refresh(pending_aaf_migration)
     assert pending_aaf_migration.status == MigrationStatus.PENDING
