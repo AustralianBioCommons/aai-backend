@@ -1481,6 +1481,7 @@ class AccountMigrationRequest(BaseModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid.uuid7()), primary_key=True)
     # Current user id: we want to maintain this as their primary ID after migration
     user_id: str = Field(foreign_key="biocommons_user.id", index=True)
+    user: BiocommonsUser = Relationship(sa_relationship_kwargs={"foreign_keys": "AccountMigrationRequest.user_id"})
     new_email: str = Field(nullable=False, max_length=254)
     direction: MigrationDirection = Field(
         sa_type=DbEnum(MigrationDirection, name="migration_direction_enum"),
