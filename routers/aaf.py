@@ -365,6 +365,12 @@ def complete_auth0_to_aaf_migration(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email is already in use by another user.",
         )
+    existing_account = auth0_client.get_user(user_id=db_user.id)
+    if existing_account.blocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account cannot be migrated to AAF - account is blocked.",
+        )
     aaf_identity = link_aaf_account(
         db_user_id=db_user.id,
         aaf_user_id=token.user_id,
