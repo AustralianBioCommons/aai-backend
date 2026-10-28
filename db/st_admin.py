@@ -30,6 +30,7 @@ from auth.validator import verify_jwt
 from auth0.client import get_auth0_client
 from config import get_settings
 from db.models import (
+    AccountMigrationRequest,
     Auth0Role,
     BiocommonsGroup,
     BiocommonsUser,
@@ -344,6 +345,19 @@ class EmailNotificationView(DefaultView):
         return obj.subject
 
 
+class AccountMigrationRequestView(DefaultView):
+    fields = [
+        HasOne("user", identity="user"),
+        "new_email",
+        "direction",
+        "status",
+        "created_at",
+        "expires_at",
+    ]
+    fields_default_sort = [("created_at", True)]
+    searchable_fields = ["new_email"]
+
+
 def setup_starlette_admin(app: FastAPI):
     settings = get_settings()
     if not settings.enable_admin_dashboard:
@@ -369,6 +383,7 @@ def setup_starlette_admin(app: FastAPI):
     admin.add_view(GroupMembershipHistoryView(GroupMembershipHistory, identity="group_membership_history", icon="fa fa-clock-rotate-left"))
     admin.add_view(EmailChangeOtpView(EmailChangeOtp, identity="email_change_otp", icon="fa fa-envelope"))
     admin.add_view(EmailNotificationView(EmailNotification, identity="email_notification", icon="fa fa-envelope-open-text"))
+    admin.add_view(AccountMigrationRequestView(AccountMigrationRequest, identity="account_migration_request", icon="fa fa-arrow-right-arrow-left"))
     admin.mount_to(app)
 
 
