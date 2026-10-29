@@ -10,6 +10,7 @@ from uuid import UUID
 from httpx2 import HTTPStatusError
 from loguru import logger
 from pydantic import BaseModel, Field, field_validator, model_validator
+from sqlalchemy import update
 from sqlmodel import Session
 
 from auth.management import get_management_token
@@ -17,6 +18,7 @@ from auth.ses import get_email_service
 from auth0.client import Auth0Client
 from config import get_settings
 from db.models import (
+    AccountMigrationRequest,
     Auth0Role,
     BiocommonsGroup,
     EmailChangeOtp,
@@ -50,6 +52,7 @@ from scheduled_tasks.sync.users import (
     soft_delete_users_missing_from_auth0,
     sync_exported_users,
 )
+from schemas.aaf_migration import MigrationStatus
 from schemas.auth0 import (
     GROUP_ROLE_PATTERN,
     PLATFORM_ROLE_PATTERN,
@@ -188,6 +191,24 @@ def populate_platforms_from_auth0_job() -> None:
 
 def cleanup_email_otps_job() -> None:
     asyncio.run(cleanup_email_otps())
+
+
+def expire_account_migration_requests_job() -> None:
+    """Mark overdue pending migration requests as expired for record keeping."""
+    db_session = next(get_db_session())
+    try:
+        db_session.exec(
+            update(AccountMigrationRequest)
+            .where(
+                AccountMigrationRequest.status == MigrationStatus.PENDING,
+                AccountMigrationRequest.expires_at <= datetime.now(timezone.utc),
+            )
+            .values(status=MigrationStatus.EXPIRED)
+            .execution_options(synchronize_session=False)
+        )
+        db_session.commit()
+    finally:
+        db_session.close()
 
 
 def send_email_notification_job(notification_id: UUID) -> bool:
