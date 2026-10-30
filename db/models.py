@@ -1497,6 +1497,8 @@ class AccountMigrationRequest(BaseModel, table=True):
     user_id: str = Field(foreign_key="biocommons_user.id", index=True)
     user: BiocommonsUser = Relationship(sa_relationship_kwargs={"foreign_keys": "AccountMigrationRequest.user_id"})
     new_email: str = Field(nullable=False, max_length=254)
+    # Profile containing the target DB identity; equals user_id when reusing it.
+    auth0_user_id: str | None = Field(default=None)
     direction: MigrationDirection = Field(
         sa_type=DbEnum(MigrationDirection, name="migration_direction_enum"),
         nullable=False,
