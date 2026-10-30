@@ -16,6 +16,7 @@ from sqlalchemy import (
     desc,
     func,
     text,
+    update,
 )
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
@@ -1463,6 +1464,19 @@ class EmailChangeOtp(BaseModel, table=True):
         return session.exec(
             select(cls).where((cls.expires_at <= now) | (cls.is_active.is_(False)))
         ).all()
+
+    @classmethod
+    def clear_user_otps(cls, user_id: str, session: Session) -> None:
+        """
+        Make a user's existing OTPs inactive
+        """
+        session.exec(
+            update(EmailChangeOtp)
+            .where(EmailChangeOtp.user_id == user_id,
+                   EmailChangeOtp.is_active.is_(True))
+            .values(is_active=False)
+        )
+
 
 
 class AccountMigrationRequest(BaseModel, table=True):
