@@ -6,22 +6,25 @@ from urllib.parse import urlparse
 
 import httpx2
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, EmailStr
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session
 from starlette import status
 from starlette.responses import RedirectResponse
 
+from auth.otp import OTP_EXPIRATION_MINUTES, OneTimePassword
+from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_db_user_or_404, get_session_user
 from auth.validator import create_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from config import Settings, get_settings
-from db.models import AccountMigrationRequest, BiocommonsUser
+from db.models import AccountMigrationRequest, BiocommonsUser, EmailChangeOtp
 from db.setup import get_db_session
 from dependencies.auth import require_action_token
 from dependencies.utils import request_time
 from schemas.aaf_migration import (
     MigrateToAafRequest,
+    MigrateToAuth0Request,
     MigrationDirection,
     MigrationStatus,
 )
@@ -29,7 +32,9 @@ from schemas.auth0 import AafMigrationActionToken, Auth0ActionToken
 from schemas.biocommons import (
     Auth0Identity,
     Auth0UserData,
+    BiocommonsAppMetadata,
     BiocommonsAppMetadataUpdate,
+    BiocommonsRegisterData,
     BiocommonsUserAccountType,
 )
 from schemas.user import SessionUser
@@ -259,6 +264,35 @@ class MigrateToAafResponse(BaseModel):
     expires_at: AwareDatetime
 
 
+def check_email_conflict(*, current_user_id: str, new_email: str, session: Session):
+    """
+    Check if this email is already in use by another user - raise 409 conflict error
+    """
+    conflicting_user = BiocommonsUser.get_by_email(
+        email=new_email,
+        session=session,
+        case_insensitive=True,
+        include_deleted=True,
+        exclude_user_id=current_user_id,
+    )
+    if conflicting_user is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email is already in use by another user.",
+        )
+
+
+def check_and_delete_existing_request(user_id: str, session: Session):
+    """
+    Check for an existing pending migration request from the user, and delete
+    it if found (endpoints create a new request)
+    """
+    existing_request = AccountMigrationRequest.get_pending_by_user_id(user_id=user_id, session=session)
+    if existing_request is not None:
+        logger.warning(f"Found existing pending migration for user {user_id}, replacing")
+        session.delete(existing_request)
+        session.flush()
+
 @router.post("/migrate/auth0-to-aaf")
 def migrate_auth0_to_aaf(
     migrate_data: MigrateToAafRequest,
@@ -281,23 +315,11 @@ def migrate_auth0_to_aaf(
             detail="This account cannot be migrated to AAF - not an Auth0 account."
         )
     user_id = user.access_token.sub
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=migrate_data.new_email,
-        session=session,
-        case_insensitive=True,
-        include_deleted=True,
-        exclude_user_id=user_id,
-    )
-    if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
-        )
-    existing_request = AccountMigrationRequest.get_pending_by_user_id(user_id=user_id, session=session)
-    if existing_request is not None:
-        logger.warning(f"Found existing pending migration for user {user_id}, replacing")
-        session.delete(existing_request)
-        session.flush()
+
+    # Raise error if email already in use
+    check_email_conflict(current_user_id=user_id, new_email=migrate_data.new_email, session=session)
+    check_and_delete_existing_request(user_id=user_id, session=session)
+
     migration_request = AccountMigrationRequest(
         user_id=user.access_token.sub,
         new_email=migrate_data.new_email,
@@ -353,18 +375,9 @@ def complete_auth0_to_aaf_migration(
     db_user = BiocommonsUser.get_by_id_or_404(migration_request.user_id, session=session)
     if db_user.account_type != BiocommonsUserAccountType.AUTH0:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated to AAF - not an Auth0 account.")
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=migration_request.new_email,
-        session=session,
-        case_insensitive=True,
-        include_deleted=True,
-        exclude_user_id=db_user.id,
-    )
-    if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
-        )
+
+    check_email_conflict(current_user_id=db_user.id, new_email=migration_request.new_email, session=session)
+
     existing_account = auth0_client.get_user(user_id=db_user.id)
     if existing_account.blocked:
         raise HTTPException(
@@ -390,3 +403,99 @@ def complete_auth0_to_aaf_migration(
         action_token=token,
         settings=settings,
     )
+
+
+class MigrateToAuth0Response(BaseModel):
+    new_email: EmailStr
+    migration_id: str
+    expires_at: AwareDatetime
+
+
+@router.post("/migrate/aaf-to-auth0")
+def migrate_aaf_to_auth0(
+    migrate_data: MigrateToAuth0Request,
+    user: Annotated[SessionUser, Depends(get_session_user)],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user_or_404)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    session: Annotated[Session, Depends(get_db_session)],
+    email_service: Annotated[EmailService, Depends(get_email_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    now: Annotated[AwareDatetime, Depends(request_time)],
+):
+    # TODO: Need to create the account in Auth0 DB
+    if db_user.account_type != BiocommonsUserAccountType.AAF:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account cannot be migrated - not an AAF account.",
+        )
+    user_id = user.access_token.sub
+
+    check_email_conflict(current_user_id=user_id, new_email=migrate_data.new_email, session=session)
+    check_and_delete_existing_request(user_id=user_id, session=session)
+
+    migration_request = AccountMigrationRequest(
+        user_id=user_id,
+        new_email=migrate_data.new_email,
+        direction=MigrationDirection.AAF_TO_AUTH0,
+        expires_at=now + timedelta(minutes=MIGRATION_EXPIRY_MINUTES),
+        status=MigrationStatus.PENDING,
+    )
+    session.add(migration_request)
+
+    # Create user in Auth0 - blocked and unverified until they complete OTP
+    current_user_info = auth0_client.get_user(user_id=user_id)
+    auth0_user = BiocommonsRegisterData(
+        email=migrate_data.new_email,
+        username=db_user.username,
+        name=current_user_info.name,
+        family_name=current_user_info.family_name,
+        given_name=current_user_info.given_name,
+        connection=settings.auth0_db_connection,
+        password=migrate_data.password,
+        email_verified=False,
+        app_metadata=BiocommonsAppMetadata(
+            registration_from=current_user_info.app_metadata.registration_from,
+            account_type=BiocommonsUserAccountType.AUTH0,
+            aaf_only=False,
+            aaf_registration_complete=current_user_info.app_metadata.aaf_registration_complete,
+            checked_email=migrate_data.new_email,
+            linking_completed=False
+        )
+    )
+    # Don't ask user to verify: only send OTP
+    auth0_client.create_user(auth0_user, verify_email=False)
+
+    otp = OneTimePassword.generate()
+    otp_entry = EmailChangeOtp(
+        user_id=user_id,
+        target_email=migrate_data.new_email,
+        otp_hash=otp.hash,
+        created_at=now,
+        expires_at=now + timedelta(minutes=OTP_EXPIRATION_MINUTES),
+        window_start=now,
+    )
+    session.add(otp_entry)
+
+    # Get response data before committing - commit expires the migration_request
+    response = MigrateToAuth0Response(
+        new_email=migrate_data.new_email,
+        migration_id=migration_request.id,
+        expires_at=migration_request.expires_at,
+    )
+
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A pending migration request already exists for this user. Please try again.",
+        ) from exc
+
+    email_service.send_email_change_otp(
+        code=otp.code,
+        target_email=migrate_data.new_email,
+        expiration_minutes=OTP_EXPIRATION_MINUTES,
+        settings=settings,
+    )
+    return response
