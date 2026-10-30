@@ -411,6 +411,81 @@ class MigrateToAuth0Response(BaseModel):
     expires_at: AwareDatetime
 
 
+def prepare_existing_db_identity_for_migration(
+    *,
+    current_user: Auth0UserData,
+    migrate_data: MigrateToAuth0Request,
+    auth0_client: Auth0Client,
+    settings: Settings,
+) -> Auth0UserData:
+    """Update an already-linked DB identity, keeping database login disabled."""
+    if current_user.blocked:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account cannot be migrated - blocked in Auth0.",
+        )
+
+    # Keep the AAF login restriction and all other metadata until OTP completion.
+    # Auth0 does not permit changing email and password in the same request.
+    auth0_client.update_user(
+        user_id=current_user.user_id,
+        update_data=UpdateUserData(
+            connection=settings.auth0_db_connection,
+            email=migrate_data.new_email,
+            email_verified=False,
+            verify_email=False,
+            blocked=True,
+            app_metadata=BiocommonsAppMetadataUpdate(account_type=BiocommonsUserAccountType.AAF),
+        ),
+    )
+    try:
+        auth0_client.update_user(
+            user_id=current_user.user_id,
+            update_data=UpdateUserData(
+                connection=settings.auth0_db_connection,
+                password=migrate_data.password,
+            ),
+        )
+    finally:
+        # Password changes can remove an administrator block, including on error.
+        blocked_user = auth0_client.update_user(
+            user_id=current_user.user_id,
+            update_data=UpdateUserData(blocked=True),
+        )
+    return blocked_user
+
+
+def create_db_identity_for_migration(
+    *,
+    current_user: Auth0UserData,
+    db_user: BiocommonsUser,
+    migrate_data: MigrateToAuth0Request,
+    auth0_client: Auth0Client,
+    settings: Settings,
+) -> Auth0UserData:
+    """Create a blocked, unverified DB profile for an AAF-only user."""
+    auth0_user = BiocommonsRegisterData(
+        email=migrate_data.new_email,
+        username=db_user.username,
+        name=current_user.name,
+        family_name=current_user.family_name,
+        given_name=current_user.given_name,
+        connection=settings.auth0_db_connection,
+        password=migrate_data.password,
+        email_verified=False,
+        blocked=True,
+        app_metadata=BiocommonsAppMetadata(
+            registration_from=current_user.app_metadata.registration_from,
+            account_type=BiocommonsUserAccountType.AUTH0,
+            aaf_only=False,
+            aaf_registration_complete=current_user.app_metadata.aaf_registration_complete,
+            checked_email=migrate_data.new_email,
+            linking_completed=False,
+        ),
+    )
+    return auth0_client.create_user(auth0_user, verify_email=False)
+
+
 @router.post("/migrate/aaf-to-auth0")
 def migrate_aaf_to_auth0(
     migrate_data: MigrateToAuth0Request,
@@ -422,7 +497,6 @@ def migrate_aaf_to_auth0(
     settings: Annotated[Settings, Depends(get_settings)],
     now: Annotated[AwareDatetime, Depends(request_time)],
 ):
-    # TODO: Need to create the account in Auth0 DB
     if db_user.account_type != BiocommonsUserAccountType.AAF:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -442,30 +516,41 @@ def migrate_aaf_to_auth0(
     )
     session.add(migration_request)
 
-    # Create user in Auth0 - blocked and unverified until they complete OTP
     current_user_info = auth0_client.get_user(user_id=user_id)
-    auth0_user = BiocommonsRegisterData(
-        email=migrate_data.new_email,
-        username=db_user.username,
-        name=current_user_info.name,
-        family_name=current_user_info.family_name,
-        given_name=current_user_info.given_name,
-        connection=settings.auth0_db_connection,
-        password=migrate_data.password,
-        email_verified=False,
-        blocked=True,
-        app_metadata=BiocommonsAppMetadata(
-            registration_from=current_user_info.app_metadata.registration_from,
-            account_type=BiocommonsUserAccountType.AUTH0,
-            aaf_only=False,
-            aaf_registration_complete=current_user_info.app_metadata.aaf_registration_complete,
-            checked_email=migrate_data.new_email,
-            linking_completed=False
+    db_identities = [
+        identity for identity in current_user_info.identities
+        if identity.provider == "auth0" and identity.connection == settings.auth0_db_connection
+    ]
+    if len(db_identities) > 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Multiple database identities exist for this account; migration is ambiguous.",
         )
-    )
-    # Don't ask user to verify: only send OTP
-    auth0_client.create_user(auth0_user, verify_email=False)
+    try:
+        if db_identities:
+            target_user = prepare_existing_db_identity_for_migration(
+                current_user=current_user_info,
+                migrate_data=migrate_data,
+                auth0_client=auth0_client,
+                settings=settings,
+            )
+        else:
+            target_user = create_db_identity_for_migration(
+                current_user=current_user_info,
+                db_user=db_user,
+                migrate_data=migrate_data,
+                auth0_client=auth0_client,
+                settings=settings,
+            )
+    except ValueError as exc:
+        session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to prepare database identity in Auth0.",
+        ) from exc
+    migration_request.auth0_user_id = target_user.user_id
 
+    EmailChangeOtp.clear_user_otps(user_id=user_id, session=session)
     otp = OneTimePassword.generate()
     otp_entry = EmailChangeOtp(
         user_id=user_id,
@@ -473,7 +558,6 @@ def migrate_aaf_to_auth0(
         otp_hash=otp.hash,
         created_at=now,
         expires_at=now + timedelta(minutes=OTP_EXPIRATION_MINUTES),
-        window_start=now,
     )
     session.add(otp_entry)
 
