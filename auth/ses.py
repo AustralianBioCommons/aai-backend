@@ -3,7 +3,7 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from biocommons.emails import get_default_sender_email
+from biocommons.emails import compose_email_change_otp_email, get_default_sender_email
 from config import Settings
 
 logger = logging.getLogger('uvicorn.error')
@@ -36,6 +36,27 @@ class EmailService:
             logger.error(f"From address: {send_email_kwargs['FromEmailAddress']}")
             logger.error(f"Identity ARN: {send_email_kwargs.get('FromEmailAddressIdentityArn', 'None')}")
             raise
+
+    def send_email_change_otp(self, code: str, target_email: str, expiration_minutes: int, settings: Settings):
+        subject, body_html = compose_email_change_otp_email(
+            code=code,
+            target_email=target_email,
+            expiration_minutes=expiration_minutes,
+            portal_url=settings.aai_portal_url or "",
+        )
+        try:
+            self.send(
+                to_address=target_email,
+                subject=subject,
+                body_html=body_html,
+                settings=settings,
+            )
+        except ClientError as exc:
+            message = exc.response.get("Error", {}).get("Message") or str(exc)
+            logger.error("Failed to send OTP email via SES: {}", message)
+            raise
+
+
 
 
 def get_email_service():
