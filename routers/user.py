@@ -1,24 +1,20 @@
 import asyncio
-import hashlib
-import hmac
 import http
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict
 
-from botocore.exceptions import ClientError
 from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 from httpx2 import AsyncClient, HTTPStatusError
 from loguru import logger
 from pydantic import AliasPath, AwareDatetime, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from starlette.responses import RedirectResponse
 
 from auth.account_permissions import AccountActions, require_account_permission
 from auth.management import get_management_token
+from auth.otp import MAX_TOTAL_ATTEMPTS, OTP_EXPIRATION_MINUTES, OneTimePassword
 from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
 from auth.validator import verify_action_token
@@ -27,7 +23,6 @@ from auth0.user_info import UserInfo, get_auth0_user_info
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.emails import (
     compose_bundle_request_confirmation_email,
-    compose_email_change_otp_email,
     compose_group_approval_email,
     compose_welcome_email,
     format_first_name,
@@ -116,19 +111,6 @@ class EmailChangeRequest(BaseModel):
 
 class EmailChangeContinueRequest(BaseModel):
     otp: Annotated[str, Field(min_length=1)]
-
-
-OTP_EXPIRATION_MINUTES = 10
-OTP_WINDOW_SECONDS = 60
-MAX_WINDOW_ATTEMPTS = 10
-MAX_TOTAL_ATTEMPTS = 10
-OTP_LENGTH = 6
-def _generate_otp_code() -> str:
-    return "".join(str(secrets.randbelow(10)) for _ in range(OTP_LENGTH))
-
-
-def _hash_otp(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
 
 
 def _ensure_datetime_is_aware(value: datetime) -> datetime:
@@ -724,22 +706,14 @@ async def update_email(
         )
     now = datetime.now(timezone.utc)
     # Clear existing OTPs
-    db_session.exec(
-        update(EmailChangeOtp)
-        .where(
-            EmailChangeOtp.user_id == user.access_token.sub,
-            EmailChangeOtp.is_active.is_(True),
-        )
-    .values(is_active=False)
-    )
-
+    EmailChangeOtp.clear_user_otps(user_id=user.access_token.sub, session=db_session)
     db_session.commit()
 
-    code = _generate_otp_code()
+    otp = OneTimePassword.generate()
     otp_entry = EmailChangeOtp(
         user_id=user.access_token.sub,
         target_email=payload.email,
-        otp_hash=_hash_otp(code),
+        otp_hash=otp.hash,
         created_at=now,
         expires_at=now + timedelta(minutes=OTP_EXPIRATION_MINUTES),
         window_start=now,
@@ -747,23 +721,13 @@ async def update_email(
     db_session.add(otp_entry)
     db_session.commit()
 
-    try:
-        subject, body_html = compose_email_change_otp_email(
-            code=code,
-            target_email=payload.email,
-            expiration_minutes=OTP_EXPIRATION_MINUTES,
-            portal_url=settings.aai_portal_url or "",
-        )
-        email_service.send(
-            to_address=payload.email,
-            subject=subject,
-            body_html=body_html,
-            settings=settings,
-        )
-    except ClientError as exc:
-        message = exc.response.get("Error", {}).get("Message") or str(exc)
-        logger.error("Failed to send OTP email via SES: {}", message)
-        raise
+    email_service.send_email_change_otp(
+        code=otp.code,
+        target_email=payload.email,
+        expiration_minutes=OTP_EXPIRATION_MINUTES,
+        settings=settings
+    )
+
     return {"message": "OTP sent to the requested email address."}
 
 
@@ -805,8 +769,9 @@ async def continue_email_update(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many verification attempts. Try again later.",
         )
-    provided_hash = _hash_otp(payload.otp)
-    if not hmac.compare_digest(otp_entry.otp_hash, provided_hash):
+
+    valid_otp = OneTimePassword.check_code(code=payload.otp, hash=otp_entry.otp_hash)
+    if not valid_otp:
         otp_entry.total_attempts += 1
         if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
             otp_entry.is_active = False
