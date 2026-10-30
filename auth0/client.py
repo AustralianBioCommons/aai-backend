@@ -151,6 +151,7 @@ class UpdateUserData(BaseModel):
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None
+    verify_email: Optional[bool] = None
     name: Optional[str] = None
     family_name: Optional[str] = None
     given_name: Optional[str] = None
