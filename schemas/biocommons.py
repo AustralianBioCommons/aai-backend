@@ -249,6 +249,7 @@ class BiocommonsRegisterData(BaseModel):
     name: Optional[str] = None
     given_name: Optional[str] = None
     family_name: Optional[str] = None
+    blocked: Optional[bool] = None
     user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 

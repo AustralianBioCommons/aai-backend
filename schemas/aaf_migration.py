@@ -2,6 +2,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, EmailStr
 
+from schemas.biocommons import BiocommonsPassword
+
 
 class MigrationDirection(StrEnum):
     AUTH0_TO_AAF = "AUTH0_TO_AAF"
@@ -16,3 +18,8 @@ class MigrationStatus(StrEnum):
 
 class MigrateToAafRequest(BaseModel):
     new_email: EmailStr
+
+
+class MigrateToAuth0Request(BaseModel):
+    new_email: EmailStr
+    password: BiocommonsPassword

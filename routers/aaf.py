@@ -453,6 +453,7 @@ def migrate_aaf_to_auth0(
         connection=settings.auth0_db_connection,
         password=migrate_data.password,
         email_verified=False,
+        blocked=True,
         app_metadata=BiocommonsAppMetadata(
             registration_from=current_user_info.app_metadata.registration_from,
             account_type=BiocommonsUserAccountType.AUTH0,
