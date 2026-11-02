@@ -7,12 +7,12 @@ from urllib.parse import urlparse
 import httpx2
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import AwareDatetime, BaseModel, EmailStr
-from sqlalchemy.exc import IntegrityError
-from sqlmodel import Session
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlmodel import Session, select
 from starlette import status
 from starlette.responses import RedirectResponse
 
-from auth.otp import OTP_EXPIRATION_MINUTES, OneTimePassword
+from auth.otp import OTP_EXPIRATION_MINUTES
 from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_db_user_or_404, get_session_user
 from auth.validator import create_action_token
@@ -30,6 +30,7 @@ from schemas.aaf_migration import (
 )
 from schemas.auth0 import AafMigrationActionToken, Auth0ActionToken
 from schemas.biocommons import (
+    AafMigrationMetadata,
     Auth0Identity,
     Auth0UserData,
     BiocommonsAppMetadata,
@@ -417,9 +418,10 @@ def prepare_existing_db_identity_for_migration(
     migrate_data: MigrateToAuth0Request,
     auth0_client: Auth0Client,
     settings: Settings,
+    migration: AccountMigrationRequest,
 ) -> Auth0UserData:
     """Update an already-linked DB identity, keeping database login disabled."""
-    if current_user.blocked:
+    if current_user.blocked and (current_user.app_metadata.aaf_migration is None or current_user.app_metadata.aaf_migration.user_id != migration.user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account cannot be migrated - blocked in Auth0.",
@@ -435,7 +437,11 @@ def prepare_existing_db_identity_for_migration(
             email_verified=False,
             verify_email=False,
             blocked=True,
-            app_metadata=BiocommonsAppMetadataUpdate(account_type=BiocommonsUserAccountType.AAF),
+            app_metadata=BiocommonsAppMetadataUpdate(
+                account_type=BiocommonsUserAccountType.AAF,
+                checked_email=migrate_data.new_email,
+                aaf_migration=AafMigrationMetadata(user_id=migration.user_id),
+            ),
         ),
     )
     try:
@@ -462,6 +468,7 @@ def create_db_identity_for_migration(
     migrate_data: MigrateToAuth0Request,
     auth0_client: Auth0Client,
     settings: Settings,
+    migration: AccountMigrationRequest,
 ) -> Auth0UserData:
     """Create a blocked, unverified DB profile for an AAF-only user."""
     auth0_user = BiocommonsRegisterData(
@@ -481,9 +488,97 @@ def create_db_identity_for_migration(
             aaf_registration_complete=current_user.app_metadata.aaf_registration_complete,
             checked_email=migrate_data.new_email,
             linking_completed=False,
+            aaf_migration=AafMigrationMetadata(user_id=migration.user_id),
         ),
     )
     return auth0_client.create_user(auth0_user, verify_email=False)
+
+
+def get_or_create_auth0_migration(
+    *, user_id: str, new_email: str, session: Session, now: AwareDatetime,
+) -> AccountMigrationRequest:
+    """Keep active requests; start a fresh request for a changed email or after expiry."""
+    # Lock the user for update so no other requests interfere during processing.
+    db_user = session.get(BiocommonsUser, user_id, with_for_update=True, populate_existing=True)
+    if db_user is None or db_user.account_type != BiocommonsUserAccountType.AAF:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated - not an AAF account.")
+    pending = AccountMigrationRequest.get_pending_by_user_id(user_id=user_id, session=session)
+    if pending is not None:
+        if pending.direction != MigrationDirection.AAF_TO_AUTH0:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Another migration is already pending.")
+        same_email = pending.new_email.lower() == new_email.lower()
+        if same_email and not pending.is_expired(now):
+            return pending
+        # Replace a pending request when its email changes or its time runs out.
+        pending.status = MigrationStatus.EXPIRED
+        session.flush()
+        auth0_user_id = pending.auth0_user_id
+    else:
+        # An expired request stays expired; carry its Auth0 target into a new one.
+        expired = session.exec(select(AccountMigrationRequest).where(
+            AccountMigrationRequest.user_id == user_id,
+            AccountMigrationRequest.direction == MigrationDirection.AAF_TO_AUTH0,
+            AccountMigrationRequest.status == MigrationStatus.EXPIRED,
+        ).order_by(AccountMigrationRequest.created_at.desc())).first()
+        auth0_user_id = expired.auth0_user_id if expired is not None else None
+
+    migration = AccountMigrationRequest(
+        user_id=user_id, new_email=new_email,
+        auth0_user_id=auth0_user_id,
+        direction=MigrationDirection.AAF_TO_AUTH0,
+        created_at=now, expires_at=now + timedelta(minutes=MIGRATION_EXPIRY_MINUTES),
+    )
+    session.add(migration)
+    return migration
+
+
+def prepare_auth0_migration_target(
+    *, migration: AccountMigrationRequest, migrate_data: MigrateToAuth0Request,
+    db_user: BiocommonsUser, auth0_client: Auth0Client, settings: Settings,
+) -> Auth0UserData:
+    """Choose a linked, saved, recovered, or new database account."""
+    source = auth0_client.get_user(user_id=migration.user_id)
+    marker = source.app_metadata.aaf_migration
+    if source.blocked and (marker is None or marker.user_id != migration.user_id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account cannot be migrated - blocked in Auth0.")
+    linked_identities = [identity for identity in source.identities
+                         if identity.provider == "auth0" and identity.connection == settings.auth0_db_connection]
+    if len(linked_identities) > 1:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Multiple database identities exist for this account.")
+
+    if linked_identities:
+        # The database identity is already part of the authenticated profile.
+        target = source
+        if marker is not None and marker.user_id != migration.user_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Database identity belongs to another user.")
+    elif migration.auth0_user_id is not None:
+        # A previous request saved the separately created database account.
+        target = auth0_client.get_user(user_id=migration.auth0_user_id)
+        marker = target.app_metadata.aaf_migration
+        if marker is None or marker.user_id != migration.user_id:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Database identity belongs to another user.")
+    else:
+        matches = auth0_client.search_users_by_email(migration.new_email.lower(), connection=settings.auth0_db_connection)
+        if matches:
+            # Recover an account created before its ID could be saved locally.
+            if len(matches) != 1:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email is already in use by another Auth0 account.")
+            target = matches[0]
+            marker = target.app_metadata.aaf_migration
+            if marker is None or marker.user_id != migration.user_id:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email is already in use by another Auth0 account.")
+        else:
+            # No existing database account: create a blocked, unverified one.
+            return create_db_identity_for_migration(
+                current_user=source, db_user=db_user, migrate_data=migrate_data,
+                auth0_client=auth0_client, settings=settings, migration=migration,
+            )
+
+    # Reapplying credentials avoids separate states for partially completed attempts.
+    return prepare_existing_db_identity_for_migration(
+        current_user=target, migrate_data=migrate_data, auth0_client=auth0_client,
+        settings=settings, migration=migration,
+    )
 
 
 @router.post("/migrate/aaf-to-auth0")
@@ -505,81 +600,46 @@ def migrate_aaf_to_auth0(
     user_id = user.access_token.sub
 
     check_email_conflict(current_user_id=user_id, new_email=migrate_data.new_email, session=session)
-    check_and_delete_existing_request(user_id=user_id, session=session)
-
-    migration_request = AccountMigrationRequest(
-        user_id=user_id,
-        new_email=migrate_data.new_email,
-        direction=MigrationDirection.AAF_TO_AUTH0,
-        expires_at=now + timedelta(minutes=MIGRATION_EXPIRY_MINUTES),
-        status=MigrationStatus.PENDING,
+    migration_request = get_or_create_auth0_migration(
+        user_id=user_id, new_email=migrate_data.new_email, session=session, now=now,
     )
-    session.add(migration_request)
-
-    current_user_info = auth0_client.get_user(user_id=user_id)
-    db_identities = [
-        identity for identity in current_user_info.identities
-        if identity.provider == "auth0" and identity.connection == settings.auth0_db_connection
-    ]
-    if len(db_identities) > 1:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Multiple database identities exist for this account; migration is ambiguous.",
-        )
     try:
-        if db_identities:
-            target_user = prepare_existing_db_identity_for_migration(
-                current_user=current_user_info,
-                migrate_data=migrate_data,
-                auth0_client=auth0_client,
-                settings=settings,
-            )
-        else:
-            target_user = create_db_identity_for_migration(
-                current_user=current_user_info,
-                db_user=db_user,
-                migrate_data=migrate_data,
-                auth0_client=auth0_client,
-                settings=settings,
-            )
-    except ValueError as exc:
+        target_user = prepare_auth0_migration_target(
+            migration=migration_request, migrate_data=migrate_data, db_user=db_user,
+            auth0_client=auth0_client, settings=settings,
+        )
+    except (ValueError, httpx2.HTTPError) as exc:
         session.rollback()
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to prepare database identity in Auth0.",
         ) from exc
-    migration_request.auth0_user_id = target_user.user_id
-
-    EmailChangeOtp.clear_user_otps(user_id=user_id, session=session)
-    otp = OneTimePassword.generate()
-    otp_entry = EmailChangeOtp(
-        user_id=user_id,
-        target_email=migrate_data.new_email,
-        otp_hash=otp.hash,
-        created_at=now,
-        expires_at=now + timedelta(minutes=OTP_EXPIRATION_MINUTES),
+    otp = EmailChangeOtp.issue_for_request(
+        session, user_id=user_id, target_email=migration_request.new_email,
+        request_created_at=migration_request.created_at, now=now,
     )
-    session.add(otp_entry)
+    migration_request.auth0_user_id = target_user.user_id
+    migration_request.expires_at = now + timedelta(minutes=MIGRATION_EXPIRY_MINUTES)
 
     # Get response data before committing - commit expires the migration_request
     response = MigrateToAuth0Response(
-        new_email=migrate_data.new_email,
+        new_email=migration_request.new_email,
         migration_id=migration_request.id,
         expires_at=migration_request.expires_at,
     )
 
     try:
         session.commit()
-    except IntegrityError as exc:
+    except SQLAlchemyError as exc:
         session.rollback()
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A pending migration request already exists for this user. Please try again.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to save migration progress. Retry with the same email address.",
         ) from exc
 
     email_service.send_email_change_otp(
         code=otp.code,
-        target_email=migrate_data.new_email,
+        target_email=response.new_email,
         expiration_minutes=OTP_EXPIRATION_MINUTES,
         settings=settings,
     )

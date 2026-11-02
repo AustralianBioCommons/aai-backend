@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from logging import getLogger
 from typing import Optional, Self, Type
@@ -23,6 +23,7 @@ from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
 
 import schemas
+from auth.otp import MAX_TOTAL_ATTEMPTS, OTP_EXPIRATION_MINUTES, OneTimePassword
 from auth0.client import Auth0Client, UpdateUserData
 from db.core import BaseModel, SoftDeleteModel
 from db.types import (
@@ -1447,6 +1448,31 @@ class EmailChangeOtp(BaseModel, table=True):
     expires_at: AwareDatetime = Field(sa_type=DateTime(timezone=True))
     is_active: bool = Field(default=True)
     total_attempts: int = Field(default=0)
+
+    @classmethod
+    def issue_for_request(
+        cls, session: Session, *, user_id: str, target_email: str,
+        request_created_at: datetime, now: datetime,
+    ) -> OneTimePassword:
+        """Create or refresh an OTP without resetting attempts; leave commit to the caller."""
+        entry = session.exec(select(cls).where(
+            cls.user_id == user_id,
+            cls.target_email == target_email,
+            cls.created_at >= request_created_at,
+        ).order_by(cls.created_at.desc())).first()
+        if entry is not None and entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many verification attempts.")
+        cls.clear_user_otps(user_id=user_id, session=session)
+        otp = OneTimePassword.generate()
+        expires_at = now + timedelta(minutes=OTP_EXPIRATION_MINUTES)
+        if entry is None:
+            entry = cls(user_id=user_id, target_email=target_email, otp_hash=otp.hash,
+                        created_at=now, expires_at=expires_at)
+        entry.otp_hash = otp.hash
+        entry.expires_at = expires_at
+        entry.is_active = True
+        session.add(entry)
+        return otp
 
     @classmethod
     def get_latest_active_for_user(cls, session: Session, user_id: str) -> Self | None:
