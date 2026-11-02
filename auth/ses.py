@@ -3,7 +3,11 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from biocommons.emails import compose_email_change_otp_email, get_default_sender_email
+from biocommons.emails import (
+    compose_aaf_migration_otp_email,
+    compose_email_change_otp_email,
+    get_default_sender_email,
+)
 from config import Settings
 
 logger = logging.getLogger('uvicorn.error')
@@ -55,6 +59,16 @@ class EmailService:
             message = exc.response.get("Error", {}).get("Message") or str(exc)
             logger.error("Failed to send OTP email via SES: {}", message)
             raise
+
+    def send_aaf_migration_otp(
+        self, code: str, target_email: str, migration_id: str,
+        expiration_minutes: int, settings: Settings,
+    ):
+        subject, body_html = compose_aaf_migration_otp_email(
+            code=code, target_email=target_email, migration_id=migration_id,
+            expiration_minutes=expiration_minutes, portal_url=settings.aai_portal_url,
+        )
+        self.send(to_address=target_email, subject=subject, body_html=body_html, settings=settings)
 
 
 

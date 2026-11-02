@@ -14,7 +14,7 @@ from starlette.responses import RedirectResponse
 
 from auth.account_permissions import AccountActions, require_account_permission
 from auth.management import get_management_token
-from auth.otp import MAX_TOTAL_ATTEMPTS, OTP_EXPIRATION_MINUTES, OneTimePassword
+from auth.otp import OTP_EXPIRATION_MINUTES, OneTimePassword
 from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
 from auth.validator import verify_action_token
@@ -111,12 +111,6 @@ class EmailChangeRequest(BaseModel):
 
 class EmailChangeContinueRequest(BaseModel):
     otp: Annotated[str, Field(min_length=1)]
-
-
-def _ensure_datetime_is_aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 
 async def get_user_data(
@@ -744,43 +738,9 @@ async def continue_email_update(
 ):
     """Complete an email change by validating the OTP and updating Auth0."""
     now = datetime.now(timezone.utc)
-    otp_entry = EmailChangeOtp.get_latest_active_for_user(
-        db_session,
-        user.access_token.sub,
+    otp_entry = EmailChangeOtp.verify_for_user(
+        db_session, user_id=user.access_token.sub, code=payload.otp, now=now,
     )
-    if otp_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending email change request exists.",
-        )
-
-    expires_at = _ensure_datetime_is_aware(otp_entry.expires_at)
-    if expires_at < now:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending email change request exists.",
-        )
-
-    if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
-        otp_entry.is_active = False
-        db_session.add(otp_entry)
-        db_session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many verification attempts. Try again later.",
-        )
-
-    valid_otp = OneTimePassword.check_code(code=payload.otp, hash=otp_entry.otp_hash)
-    if not valid_otp:
-        otp_entry.total_attempts += 1
-        if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
-            otp_entry.is_active = False
-        db_session.add(otp_entry)
-        db_session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP.",
-        )
 
     conflicting_user = BiocommonsUser.get_by_email(
         email=otp_entry.target_email,
@@ -794,17 +754,13 @@ async def continue_email_update(
             detail="Email is already in use by another user.",
         )
 
-    otp_entry.is_active = False
-    otp_entry.total_attempts += 1
-    db_session.add(otp_entry)
-    db_session.commit()
-
     update_data = UpdateUserData(
         email=otp_entry.target_email,
         email_verified=True,
         connection=settings.auth0_db_connection,
     )
     resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
+    otp_entry.consume(db_session)
 
     db_user.update_email(
         new_email=resp.email,

@@ -19,7 +19,7 @@ from polyfactory import BaseFactory
 from sqlmodel import Session, create_engine
 
 from auth.management import get_management_token
-from auth.ses import get_email_service
+from auth.ses import EmailService, get_email_service
 from auth.user_permissions import get_session_user
 from auth0.client import Auth0Client, get_auth0_client
 from config import Settings, get_settings
@@ -133,11 +133,7 @@ def disable_db_setup(mocker):
 @pytest.fixture
 def mock_email_service(mocker):
     """Mock get_email_service so tests don't hit AWS."""
-    class DummyEmailService:
-        def send(self, *args, **kwargs):
-            return None
-
-    service = DummyEmailService()
+    service = _DummyEmailService()
     mocker.patch("auth.ses.get_email_service", return_value=service)
     mocker.patch("routers.user.get_email_service", return_value=service)
     def get_email_service_override():
@@ -149,8 +145,10 @@ def mock_email_service(mocker):
         app.dependency_overrides.pop(get_email_service, None)
 
 
-class _DummyEmailService:
-    """No-op email service used to prevent real SES calls in tests."""
+class _DummyEmailService(EmailService):
+    """Render real email templates without creating an AWS client or sending."""
+    def __init__(self):
+        pass
     def send(self, *args, **kwargs):
         return None
 

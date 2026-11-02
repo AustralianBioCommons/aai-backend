@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from biocommons.emails import (
+    compose_aaf_migration_otp_email,
     compose_bundle_request_confirmation_email,
     compose_email_change_notification,
     compose_email_change_otp_email,
@@ -25,6 +26,19 @@ def assert_email_contains(html: str, *expected: str) -> None:
     normalized_html = " ".join(html.split())
     for text in expected:
         assert " ".join(text.split()) in normalized_html
+
+
+def test_compose_aaf_migration_otp_email():
+    subject, html = compose_aaf_migration_otp_email(
+        code="123456", target_email="new@example.com", migration_id="migration-123",
+        expiration_minutes=10, portal_url="https://portal.example.com/",
+    )
+    assert "migration" in subject
+    assert_email_contains(
+        html, "123456", "new@example.com", "10 minutes", "AAF to email and password",
+        'href="https://portal.example.com/aaf/migrate/aaf-to-auth0/complete?migration_id=migration-123"',
+    )
+    assert "123456" not in html.split('href="https://portal.example.com/aaf/', 1)[1].split('"', 1)[0]
 
 
 def test_get_default_sender(mock_settings):

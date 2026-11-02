@@ -1486,6 +1486,41 @@ class EmailChangeOtp(BaseModel, table=True):
         ).first()
 
     @classmethod
+    def verify_for_user(
+        cls, session: Session, *, user_id: str, code: str, now: datetime,
+        target_email: str | None = None, request_created_at: datetime | None = None,
+    ) -> Self:
+        """Validate without consuming; persist failed attempts before raising."""
+        query = select(cls).where(cls.user_id == user_id, cls.is_active.is_(True))
+        if target_email is not None:
+            query = query.where(cls.target_email == target_email)
+        if request_created_at is not None:
+            query = query.where(cls.created_at >= request_created_at)
+        entry = session.exec(query.order_by(cls.created_at.desc()).with_for_update()).first()
+        expires_at = entry.expires_at if entry is not None else None
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at is None or expires_at <= now:
+            raise HTTPException(status_code=400, detail="No pending email change request exists.")
+        if entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
+            entry.is_active = False
+            session.add(entry)
+            session.commit()
+            raise HTTPException(status_code=429, detail="Too many verification attempts. Try again later.")
+        if not OneTimePassword.check_code(code=code, hash=entry.otp_hash):
+            entry.total_attempts += 1
+            entry.is_active = entry.total_attempts < MAX_TOTAL_ATTEMPTS
+            session.add(entry)
+            session.commit()
+            raise HTTPException(status_code=400, detail="Invalid OTP.")
+        return entry
+
+    def consume(self, session: Session) -> None:
+        self.is_active = False
+        self.total_attempts += 1
+        session.add(self)
+
+    @classmethod
     def get_expired_or_inactive(cls, session: Session, *, now: datetime) -> list[Self]:
         return session.exec(
             select(cls).where((cls.expires_at <= now) | (cls.is_active.is_(False)))

@@ -84,6 +84,7 @@ def test_send_omits_source_arn_when_not_defined(ses_service, mocker):
         settings=mock_settings,
     )
 
+
     mock_client.send_email.assert_called_once_with(
         FromEmailAddress="sender@example.com",
         Destination={"ToAddresses": ["recipient@example.com"]},
@@ -94,3 +95,15 @@ def test_send_omits_source_arn_when_not_defined(ses_service, mocker):
             }
         },
     )
+
+def test_send_aaf_migration_otp_uses_migration_email(ses_service, mock_settings):
+    service, client = ses_service
+    client.send_email.return_value = {"MessageId": "migration-email"}
+    service.send_aaf_migration_otp(
+        code="123456", target_email="new@example.com", migration_id="migration-123",
+        expiration_minutes=10, settings=mock_settings,
+    )
+    sent = client.send_email.call_args.kwargs
+    assert sent["Destination"] == {"ToAddresses": ["new@example.com"]}
+    html = sent["Content"]["Simple"]["Body"]["Html"]["Data"]
+    assert "/aaf/migrate/aaf-to-auth0/complete?migration_id=migration-123" in html

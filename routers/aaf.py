@@ -23,6 +23,7 @@ from db.setup import get_db_session
 from dependencies.auth import require_action_token
 from dependencies.utils import request_time
 from schemas.aaf_migration import (
+    CompleteToAuth0Request,
     MigrateToAafRequest,
     MigrateToAuth0Request,
     MigrationDirection,
@@ -637,10 +638,101 @@ def migrate_aaf_to_auth0(
             detail="Failed to save migration progress. Retry with the same email address.",
         ) from exc
 
-    email_service.send_email_change_otp(
+    email_service.send_aaf_migration_otp(
         code=otp.code,
         target_email=response.new_email,
+        migration_id=response.migration_id,
         expiration_minutes=OTP_EXPIRATION_MINUTES,
         settings=settings,
+    )
+    return response
+
+
+def finalize_auth0_migration_identity(
+    migration: AccountMigrationRequest, auth0_client: Auth0Client, settings: Settings,
+) -> None:
+    """Link a newly created DB identity if needed, then enable database login."""
+    source = auth0_client.get_user(user_id=migration.user_id)
+    marker = source.app_metadata.aaf_migration
+    if source.blocked and (marker is None or marker.user_id != source.user_id):
+        raise HTTPException(status_code=403, detail="This account is blocked in Auth0.")
+    identities = [identity for identity in source.identities
+                  if identity.provider == "auth0" and identity.connection == settings.auth0_db_connection]
+    if identities:
+        # Also handles retrying after linking succeeded but the local commit failed.
+        if len(identities) != 1 or migration.auth0_user_id not in (source.user_id, f"auth0|{identities[0].user_id}"):
+            raise HTTPException(status_code=409, detail="Migration database identity does not match this account.")
+        if migration.auth0_user_id == source.user_id and (marker is None or marker.user_id != source.user_id or (source.app_metadata.checked_email or "").lower() != migration.new_email.lower()):
+            raise HTTPException(status_code=409, detail="Migration database identity does not match this account.")
+    else:
+        target = auth0_client.get_user(user_id=migration.auth0_user_id)
+        marker = target.app_metadata.aaf_migration
+        db_identities = [identity for identity in target.identities
+                         if identity.provider == "auth0" and identity.connection == settings.auth0_db_connection]
+        if marker is None or marker.user_id != source.user_id or target.email.lower() != migration.new_email.lower() or len(db_identities) != 1:
+            raise HTTPException(status_code=409, detail="Migration database identity does not match this account.")
+        auth0_client.update_user(target.user_id, UpdateUserData(
+            email_verified=True, verify_email=False, connection=settings.auth0_db_connection,
+        ))
+        auth0_client.link_identity(
+            primary_user_id=source.user_id, secondary_user_id=db_identities[0].user_id,
+            secondary_provider="auth0", secondary_connection_name=settings.auth0_db_connection,
+        )
+    auth0_client.update_user(source.user_id, UpdateUserData(
+        connection=settings.auth0_db_connection, email=migration.new_email,
+        email_verified=True, verify_email=False, blocked=False,
+        app_metadata=BiocommonsAppMetadataUpdate(
+            account_type=BiocommonsUserAccountType.AUTH0, aaf_only=False,
+            checked_email=migration.new_email, linking_completed=True,
+            linking_completed_at=datetime.now(timezone.utc),
+            aaf_migration=AafMigrationMetadata(user_id=source.user_id),
+        ),
+    ))
+
+
+@router.post("/migrate/aaf-to-auth0/complete")
+async def complete_aaf_to_auth0_migration(
+    payload: CompleteToAuth0Request,
+    user: Annotated[SessionUser, Depends(get_session_user)],
+    session: Annotated[Session, Depends(get_db_session)],
+    auth0_client: Annotated[Auth0Client, Depends(get_auth0_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    now: Annotated[AwareDatetime, Depends(request_time)],
+):
+    # Lock user to prevent other requests interfering during processing
+    db_user = session.get(BiocommonsUser, user.access_token.sub, with_for_update=True, populate_existing=True)
+    migration = AccountMigrationRequest.get_by_id_or_404(session, id=payload.migration_id, with_for_update=True)
+    if db_user is None or migration.user_id != db_user.id:
+        raise HTTPException(status_code=404, detail="Migration request not found")
+    if migration.direction != MigrationDirection.AAF_TO_AUTH0 or migration.status != MigrationStatus.PENDING:
+        raise HTTPException(status_code=400, detail="Migration request is not pending for AAF to Auth0")
+    if migration.is_expired(now):
+        raise HTTPException(status_code=400, detail="Migration request has expired, please try again")
+    if db_user.account_type != BiocommonsUserAccountType.AAF or migration.auth0_user_id is None:
+        raise HTTPException(status_code=409, detail="Migration database identity is not ready.")
+    otp = EmailChangeOtp.verify_for_user(
+        session, user_id=db_user.id, code=payload.otp, now=now,
+        target_email=migration.new_email, request_created_at=migration.created_at,
+    )
+    check_email_conflict(current_user_id=db_user.id, new_email=migration.new_email, session=session)
+    try:
+        finalize_auth0_migration_identity(migration, auth0_client, settings)
+    except (ValueError, httpx2.HTTPError) as exc:
+        session.rollback()
+        raise HTTPException(status_code=502, detail="Failed to finalize migration in Auth0. Please retry.") from exc
+    db_user.update_email(new_email=migration.new_email, verified=True, session=session, updated_by=db_user)
+    db_user.account_type = BiocommonsUserAccountType.AUTH0
+    otp.consume(session)
+    migration.status = MigrationStatus.COMPLETED
+    response = {"migration_id": migration.id, "user_id": db_user.id, "new_email": migration.new_email}
+    try:
+        session.commit()
+    except SQLAlchemyError as exc:
+        session.rollback()
+        raise HTTPException(status_code=503, detail="Failed to save migration completion. Please retry.") from exc
+    from routers.user import _revoke_sbp_if_non_institutional
+    await _revoke_sbp_if_non_institutional(
+        user_id=response["user_id"], new_email=response["new_email"],
+        auth0_client=auth0_client, db_session=session,
     )
     return response
