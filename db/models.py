@@ -1588,6 +1588,21 @@ class AccountMigrationRequest(BaseModel, table=True):
         query = select(AccountMigrationRequest).where(AccountMigrationRequest.user_id == user_id, AccountMigrationRequest.status == MigrationStatus.PENDING)
         return session.exec(query).one_or_none()
 
+    @classmethod
+    def has_unfinished_migration(cls, user_id: str, session: Session, now: AwareDatetime) -> bool:
+        """
+        True while sync must leave the user alone. AAF-to-Auth0 keeps the canonical
+        profile blocked until completion, so expired requests still count. Auth0-to-AAF
+        blocks nothing and can't complete after expiry, so only live requests count.
+        """
+        latest = session.exec(select(cls).where(cls.user_id == user_id)
+                              .order_by(cls.created_at.desc(), cls.id.desc())).first()
+        if latest is None:
+            return False
+        if latest.direction == MigrationDirection.AAF_TO_AUTH0:
+            return latest.status in (MigrationStatus.PENDING, MigrationStatus.EXPIRED)
+        return latest.status == MigrationStatus.PENDING and not latest.is_expired(now)
+
     def is_expired(self, now: AwareDatetime) -> bool:
         expires_at = self.expires_at
         if expires_at.tzinfo is None:
