@@ -3,10 +3,12 @@ from http import HTTPStatus
 from unittest.mock import MagicMock, call
 from urllib.parse import parse_qs, urlparse
 
+import httpx2
 import jwt
 import pytest
 from fastapi import HTTPException
-from sqlmodel import select
+from sqlalchemy.exc import OperationalError
+from sqlmodel import Session, select
 
 from auth.otp import OneTimePassword
 from auth0.client import Auth0Client
@@ -18,7 +20,11 @@ from schemas.aaf_migration import (
     MigrationDirection,
     MigrationStatus,
 )
-from schemas.biocommons import Auth0Identity, BiocommonsUserAccountType
+from schemas.biocommons import (
+    Auth0Identity,
+    Auth0ReadAppMetadata,
+    BiocommonsUserAccountType,
+)
 from tests.datagen import Auth0UserDataFactory, random_auth0_id
 from tests.db.datagen import BiocommonsUserFactory
 
@@ -37,18 +43,54 @@ def aaf_migration_account(
     test_db_session.commit()
     current_user = Auth0UserDataFactory.build(
         user_id=db_user.id,
+        email=db_user.email,
         identities=[
             Auth0Identity(connection="AAF", provider="oidc", user_id="aaf-user", isSocial=False),
             Auth0Identity(
                 connection=mock_settings.auth0_db_connection,
-                provider="auth0", user_id="database-user", isSocial=False,
+                provider="auth0", user_id=request.param.removeprefix("auth0|") if request.param.startswith("auth0|") else "database-user", isSocial=False,
             ),
         ],
-        app_metadata={"account_type": "aaf", "linking_completed": True, "registration_from": "biocommons"},
+        app_metadata={"account_type": "aaf", "linking_completed": True, "registration_from": "biocommons", "aaf_migration": None},
         blocked=False,
     )
-    mock_auth0_client.get_user.return_value = current_user
-    mock_auth0_client.update_user.return_value = current_user
+    remote_users = {current_user.user_id: current_user}
+    mock_auth0_client.remote_users = remote_users
+    mock_auth0_client.get_user.side_effect = lambda user_id: remote_users[user_id]
+    mock_auth0_client.search_users_by_email.side_effect = lambda email, connection: [
+        user for user in remote_users.values()
+        if user.email.lower() == email.lower()
+        and any(identity.connection == connection for identity in user.identities)
+    ]
+
+    def update_user(user_id, update_data):
+        target = remote_users[user_id]
+        if target.user_id.startswith("auth0|"):
+            for field in ("email", "email_verified"):
+                value = getattr(update_data, field)
+                if value is not None:
+                    setattr(target, field, value)
+        if update_data.blocked is not None:
+            target.blocked = update_data.blocked
+        if update_data.app_metadata is not None:
+            target.app_metadata = Auth0ReadAppMetadata.model_validate({
+                **target.app_metadata.model_dump(),
+                **update_data.app_metadata.model_dump(exclude_none=True),
+            })
+        return target
+
+    def create_user(user, verify_email):
+        target = Auth0UserDataFactory.build(
+            user_id="auth0|new-database-user", email=user.email,
+            blocked=user.blocked, email_verified=user.email_verified,
+            app_metadata=user.app_metadata.model_dump(),
+            identities=[Auth0Identity(connection=user.connection, provider="auth0", user_id="new-database-user", isSocial=False)],
+        )
+        remote_users[target.user_id] = target
+        return target
+
+    mock_auth0_client.update_user.side_effect = update_user
+    mock_auth0_client.create_user.side_effect = create_user
     mocker.patch.object(mock_email_service, "send_email_change_otp", create=True)
     return db_user, current_user
 
@@ -83,13 +125,18 @@ def test_migrate_aaf_to_auth0_reuses_linked_identity(
     assert email_update.email_verified is False
     assert email_update.verify_email is False
     assert email_update.blocked is True
-    assert email_update.app_metadata.model_dump(exclude_none=True) == {"account_type": "aaf"}
+    assert email_update.app_metadata.account_type == BiocommonsUserAccountType.AAF
+    assert email_update.app_metadata.aaf_migration.user_id == current_user.user_id
     assert password_update.connection == mock_settings.auth0_db_connection
     assert password_update.password == "New-password123!"
     assert password_update.email is None
     assert password_update.email_verified is None
-    assert block_update.model_dump(exclude_none=True) == {"blocked": True}
+    assert block_update.blocked is True
+    assert block_update.app_metadata is None
     assert current_user.app_metadata.linking_completed is True
+    if current_user.user_id.startswith("oidc|"):
+        assert current_user.email == "original@example.edu.au"
+        assert current_user.email_verified is True
 
     migration = test_db_session.exec(select(AccountMigrationRequest)).one()
     assert migration.id == response.json()["migration_id"]
@@ -117,8 +164,6 @@ def test_migrate_aaf_to_auth0_creates_identity_when_no_matching_db_identity(
 ):
     db_user, current_user = aaf_migration_account
     current_user.identities = [current_user.identities[0], other_identity]
-    created_user = Auth0UserDataFactory.build(user_id="auth0|new-database-user")
-    mock_auth0_client.create_user.return_value = created_user
 
     response = test_client.post(
         "/aaf/migrate/aaf-to-auth0",
@@ -139,7 +184,7 @@ def test_migrate_aaf_to_auth0_creates_identity_when_no_matching_db_identity(
     assert registration.email_verified is False
     assert registration.app_metadata.account_type == BiocommonsUserAccountType.AUTH0
     migration = test_db_session.exec(select(AccountMigrationRequest)).one()
-    assert migration.auth0_user_id == created_user.user_id
+    assert migration.auth0_user_id == "auth0|new-database-user"
     mock_email_service.send_email_change_otp.assert_called_once()
 
 
@@ -190,6 +235,231 @@ def test_migrate_aaf_to_auth0_does_not_send_otp_after_update_failure(
         # Even a failed password update must be followed by reapplying the block.
         assert mock_auth0_client.update_user.call_args.kwargs["update_data"].blocked is True
         assert mock_auth0_client.update_user.call_count == 3
+
+
+MIGRATE_AUTH0_PAYLOAD = {"new_email": "new@example.com", "password": "New-password123!"}
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+@pytest.mark.parametrize("expired", [False, True])
+def test_migrate_aaf_to_auth0_retry_reuses_target(
+    test_client, test_db_session, aaf_migration_account, mock_auth0_client,
+    mock_email_service, reuse, expired,
+):
+    _, source = aaf_migration_account
+    if not reuse:
+        source.identities = source.identities[:1]
+    first = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+    assert first.status_code == HTTPStatus.OK
+    previous = test_db_session.get(AccountMigrationRequest, first.json()["migration_id"])
+    target_id = previous.auth0_user_id
+    if expired:
+        previous.status = MigrationStatus.EXPIRED
+    otp = test_db_session.exec(select(EmailChangeOtp)).one()
+    otp.total_attempts = 4
+    test_db_session.commit()
+    mock_auth0_client.create_user.reset_mock()
+    mock_auth0_client.update_user.reset_mock()
+
+    response = test_client.post("/aaf/migrate/aaf-to-auth0", json={
+        **MIGRATE_AUTH0_PAYLOAD, "password": "Different-password123!",
+    })
+
+    assert response.status_code == HTTPStatus.OK
+    assert (response.json()["migration_id"] != previous.id) == expired
+    test_db_session.refresh(previous)
+    assert previous.status == (MigrationStatus.EXPIRED if expired else MigrationStatus.PENDING)
+    migration = test_db_session.get(AccountMigrationRequest, response.json()["migration_id"])
+    assert migration.auth0_user_id == target_id
+    mock_auth0_client.create_user.assert_not_called()
+    assert mock_auth0_client.update_user.call_count == 3
+    updates = mock_auth0_client.update_user.call_args_list
+    assert updates[1].kwargs["update_data"].password == "Different-password123!"
+    target = mock_auth0_client.remote_users[target_id]
+    assert target.blocked is True
+    assert target.app_metadata.aaf_migration.user_id == source.user_id
+    if not expired:
+        test_db_session.refresh(otp)
+        assert otp.total_attempts == 4
+    assert mock_email_service.send_email_change_otp.call_count == 2
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+@pytest.mark.parametrize("expired", [False, True])
+def test_migrate_aaf_to_auth0_changed_email_creates_fresh_request(
+    test_client, test_db_session, aaf_migration_account, mock_auth0_client,
+    mock_email_service, reuse, expired,
+):
+    _, source = aaf_migration_account
+    if not reuse:
+        source.identities = source.identities[:1]
+    first = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+    assert first.status_code == HTTPStatus.OK
+    previous = test_db_session.get(AccountMigrationRequest, first.json()["migration_id"])
+    target_id = previous.auth0_user_id
+    old_otp = test_db_session.exec(select(EmailChangeOtp)).one()
+    if expired:
+        previous.status = MigrationStatus.EXPIRED
+        test_db_session.commit()
+    mock_auth0_client.get_user.reset_mock()
+    mock_auth0_client.update_user.reset_mock()
+    mock_auth0_client.create_user.reset_mock()
+    mock_email_service.send_email_change_otp.reset_mock()
+
+    response = test_client.post("/aaf/migrate/aaf-to-auth0", json={
+        **MIGRATE_AUTH0_PAYLOAD, "new_email": "changed@example.com",
+    })
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["migration_id"] != previous.id
+    assert response.json()["new_email"] == "changed@example.com"
+    test_db_session.refresh(previous)
+    assert previous.status == MigrationStatus.EXPIRED
+    migration = test_db_session.get(AccountMigrationRequest, response.json()["migration_id"])
+    assert migration.status == MigrationStatus.PENDING
+    assert migration.auth0_user_id == target_id
+    assert migration.new_email == "changed@example.com"
+    updates = mock_auth0_client.update_user.call_args_list
+    assert updates[0].kwargs["user_id"] == target_id
+    assert updates[0].kwargs["update_data"].email == "changed@example.com"
+    assert mock_auth0_client.remote_users[target_id].blocked is True
+    test_db_session.refresh(old_otp)
+    assert old_otp.is_active is False
+    current_otp = test_db_session.exec(select(EmailChangeOtp).where(EmailChangeOtp.is_active.is_(True))).one()
+    assert current_otp.id != old_otp.id
+    assert current_otp.target_email == "changed@example.com"
+    mock_auth0_client.create_user.assert_not_called()
+    assert mock_email_service.send_email_change_otp.call_args.kwargs["target_email"] == "changed@example.com"
+
+
+@pytest.mark.parametrize("reuse", [False, True])
+@pytest.mark.parametrize("failure", ["commit", "email", "create_response", "password"])
+def test_migrate_aaf_to_auth0_retry_after_failure(
+    test_client, test_db_session, aaf_migration_account, mock_auth0_client,
+    mock_email_service, mocker, reuse, failure,
+):
+    _, source = aaf_migration_account
+    if not reuse:
+        source.identities = source.identities[:1]
+    if failure == "commit":
+        commit = Session.commit
+        attempts = 0
+
+        def fail_once(session):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise OperationalError("injected failure", {}, Exception("failed"))
+            return commit(session)
+
+        mocker.patch.object(Session, "commit", autospec=True, side_effect=fail_once)
+    elif failure == "email":
+        mock_email_service.send_email_change_otp.side_effect = [RuntimeError("SES unavailable"), None]
+    elif failure == "password":
+        if not reuse:
+            assert test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD).status_code == HTTPStatus.OK
+        operation = mock_auth0_client.update_user.side_effect
+        failed = False
+
+        def fail_once(*args, **kwargs):
+            nonlocal failed
+            if kwargs["update_data"].password is not None and not failed:
+                failed = True
+                raise ValueError("Password update failed")
+            return operation(*args, **kwargs)
+
+        mock_auth0_client.update_user.side_effect = fail_once
+    else:
+        method = mock_auth0_client.update_user if reuse or failure == "password" else mock_auth0_client.create_user
+        operation = method.side_effect
+        failed = False
+
+        def fail_once(*args, **kwargs):
+            nonlocal failed
+            result = operation(*args, **kwargs)
+            if not failed:
+                failed = True
+                raise httpx2.ReadTimeout("Response lost after Auth0 write")
+            return result
+
+        method.side_effect = fail_once
+    if failure == "email":
+        with pytest.raises(RuntimeError, match="SES unavailable"):
+            test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+    else:
+        first = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+        assert first.status_code == (HTTPStatus.SERVICE_UNAVAILABLE if failure == "commit" else HTTPStatus.BAD_GATEWAY)
+
+    response = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+    assert response.status_code == HTTPStatus.OK
+    migration = test_db_session.exec(select(AccountMigrationRequest)).one()
+    assert migration.auth0_user_id is not None
+    assert mock_auth0_client.remote_users[migration.auth0_user_id].blocked is True
+    assert mock_auth0_client.create_user.call_count == (0 if reuse else 1)
+    assert test_db_session.exec(select(EmailChangeOtp).where(EmailChangeOtp.is_active.is_(True))).one()
+
+
+def test_migrate_aaf_to_auth0_changed_email_rejects_unrelated_saved_target(
+    test_client, test_db_session, aaf_migration_account, mock_auth0_client,
+):
+    _, source = aaf_migration_account
+    source.identities = source.identities[:1]
+    first = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+    assert first.status_code == HTTPStatus.OK
+    previous = test_db_session.get(AccountMigrationRequest, first.json()["migration_id"])
+    unrelated = Auth0UserDataFactory.build(
+        user_id="auth0|unrelated", app_metadata={"account_type": "auth0", "aaf_migration": {"user_id": "another-user"}},
+    )
+    mock_auth0_client.remote_users[unrelated.user_id] = unrelated
+    previous.auth0_user_id = unrelated.user_id
+    test_db_session.commit()
+    mock_auth0_client.update_user.reset_mock()
+
+    response = test_client.post("/aaf/migrate/aaf-to-auth0", json={
+        **MIGRATE_AUTH0_PAYLOAD, "new_email": "changed@example.com",
+    })
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    mock_auth0_client.update_user.assert_not_called()
+    test_db_session.refresh(previous)
+    assert previous.status == MigrationStatus.PENDING
+
+
+def test_migrate_aaf_to_auth0_never_adopts_unrelated_email_match(
+    test_client, aaf_migration_account, mock_auth0_client, mock_email_service,
+):
+    _, source = aaf_migration_account
+    source.identities = source.identities[:1]
+    unrelated = Auth0UserDataFactory.build(email="new@example.com", blocked=True)
+    mock_auth0_client.search_users_by_email.side_effect = None
+    mock_auth0_client.search_users_by_email.return_value = [unrelated]
+
+    response = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    mock_auth0_client.create_user.assert_not_called()
+    mock_auth0_client.update_user.assert_not_called()
+    mock_email_service.send_email_change_otp.assert_not_called()
+
+
+def test_migrate_aaf_to_auth0_resend_does_not_reset_exhausted_attempts(
+    test_client, test_db_session, aaf_migration_account, mock_email_service,
+):
+    first = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+    assert first.status_code == HTTPStatus.OK
+    otp = test_db_session.exec(select(EmailChangeOtp)).one()
+    otp.total_attempts = 10
+    otp.is_active = False
+    test_db_session.commit()
+    mock_email_service.send_email_change_otp.reset_mock()
+
+    response = test_client.post("/aaf/migrate/aaf-to-auth0", json=MIGRATE_AUTH0_PAYLOAD)
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+    test_db_session.refresh(otp)
+    assert otp.total_attempts == 10
+    assert otp.is_active is False
+    mock_email_service.send_email_change_otp.assert_not_called()
 
 
 @pytest.fixture
