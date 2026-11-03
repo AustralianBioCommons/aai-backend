@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import select
 
 from db.models import (
+    AccountMigrationRequest,
     ApprovalStatusEnum,
     Auth0Role,
     BiocommonsGroup,
@@ -24,6 +25,7 @@ from db.models import (
     PlatformMembership,
     PlatformMembershipHistory,
 )
+from schemas.aaf_migration import MigrationDirection, MigrationStatus
 from schemas.biocommons import BiocommonsUserAccountType
 from tests.biocommons.datagen import RoleDataFactory
 from tests.datagen import (
@@ -1709,6 +1711,41 @@ def test_hard_delete_removes_user_and_related_rows(test_db_session, mock_auth0_c
     assert test_db_session.get(GroupMembershipHistory, group_history_id) is None
     assert test_db_session.get(BiocommonsUserHistory, user_history_id) is None
     assert test_db_session.get(EmailChangeOtp, otp_id) is None
+
+
+@pytest.mark.parametrize("is_deleted", [False, True])
+@pytest.mark.parametrize("direction", list(MigrationDirection))
+def test_hard_delete_removes_account_migration_requests(
+    test_db_session, mock_auth0_client, persistent_factories, is_deleted, direction
+):
+    test_db_session.connection().exec_driver_sql("PRAGMA foreign_keys=ON")
+    user = BiocommonsUserFactory.create_sync(is_deleted=is_deleted, deleted_by_id=None)
+    other_user = BiocommonsUserFactory.create_sync(deleted_by_id=None)
+    test_db_session.commit()
+    user_id = user.id
+    requests = [
+        AccountMigrationRequest(
+            user_id=owner.id,
+            new_email="new@example.edu.au",
+            direction=direction,
+            status=status,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        for owner in (user, other_user)
+        for status in MigrationStatus
+    ]
+    test_db_session.add_all(requests)
+    test_db_session.commit()
+    other_request_ids = {request.id for request in requests if request.user_id == other_user.id}
+
+    user.hard_delete(test_db_session, auth0_client=mock_auth0_client)
+
+    test_db_session.expire_all()
+    assert BiocommonsUser.get_by_id(user_id, test_db_session, include_deleted=True) is None
+    remaining_requests = test_db_session.exec(select(AccountMigrationRequest)).all()
+    assert {request.id for request in remaining_requests} == other_request_ids
+    assert test_db_session.get(BiocommonsUser, other_user.id) is not None
+    mock_auth0_client.delete_user.assert_called_once_with(user_id=user_id)
 
 
 def test_hard_delete_refuses_if_user_acted_as_admin_for_another_user(test_db_session, mock_auth0_client, persistent_factories):
