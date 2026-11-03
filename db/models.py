@@ -297,7 +297,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         except HTTPStatusError as e:
             logger.warning(f"Error deleting user {user_id} from Auth0: {e}")
 
-        for model in (EmailChangeOtp, GroupMembershipHistory, PlatformMembershipHistory, GroupMembership, PlatformMembership, BiocommonsUserHistory):
+        for model in (AccountMigrationRequest, EmailChangeOtp, GroupMembershipHistory, PlatformMembershipHistory, GroupMembership, PlatformMembership, BiocommonsUserHistory):
             session.exec(delete(model).where(model.user_id == user_id))
         session.exec(delete(BiocommonsUser).where(BiocommonsUser.id == user_id))
         session.commit()
