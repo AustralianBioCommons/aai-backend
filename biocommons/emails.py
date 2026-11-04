@@ -1,5 +1,4 @@
 import logging
-from urllib.parse import urlencode
 
 from pydantic import EmailStr
 
@@ -269,13 +268,19 @@ def compose_email_change_otp_email(
         target_email: str,
         expiration_minutes: int,
         portal_url: str = "",
+        *,
+        aaf_migration: bool = False,
 ) -> tuple[str, str]:
     """
-    Email OTP for confirming an email address change.
+    Email OTP for confirming an email address change or AAF migration.
     """
     subject = "Confirm your new BioCommons Access email address"
+    template_name = (
+        "emails/aaf_migration_otp.html"
+        if aaf_migration else "emails/email_change_otp.html"
+    )
     body_html = render_html_template(
-        "emails/email_change_otp.html",
+        template_name,
         code=code,
         target_email=target_email,
         expiration_minutes=expiration_minutes,
@@ -287,21 +292,6 @@ def compose_email_change_otp_email(
         portal_url=portal_url,
     )
     return subject, email_html
-
-
-def compose_aaf_migration_otp_email(
-    code: str, target_email: str, migration_id: str, expiration_minutes: int,
-    portal_url: str,
-) -> tuple[str, str]:
-    subject = "Complete your BioCommons Access account migration"
-    completion_url = f"{portal_url.rstrip('/')}/aaf/migrate/aaf-to-auth0/complete?{urlencode({'migration_id': migration_id})}"
-    body_html = render_html_template(
-        "emails/aaf_migration_otp.html", code=code, target_email=target_email,
-        expiration_minutes=expiration_minutes, completion_url=completion_url,
-    )
-    return subject, render_default_email_html(
-        title=subject, preheader=subject, body_html=body_html, portal_url=portal_url,
-    )
 
 
 def compose_welcome_email(

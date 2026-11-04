@@ -4,7 +4,6 @@ import boto3
 from botocore.exceptions import ClientError
 
 from biocommons.emails import (
-    compose_aaf_migration_otp_email,
     compose_email_change_otp_email,
     get_default_sender_email,
 )
@@ -41,36 +40,23 @@ class EmailService:
             logger.error(f"Identity ARN: {send_email_kwargs.get('FromEmailAddressIdentityArn', 'None')}")
             raise
 
-    def send_email_change_otp(self, code: str, target_email: str, expiration_minutes: int, settings: Settings):
+    def send_email_change_otp(
+        self, code: str, target_email: str, expiration_minutes: int,
+        settings: Settings, *, aaf_migration: bool = False,
+    ):
         subject, body_html = compose_email_change_otp_email(
             code=code,
             target_email=target_email,
             expiration_minutes=expiration_minutes,
             portal_url=settings.aai_portal_url or "",
+            aaf_migration=aaf_migration,
         )
-        try:
-            self.send(
-                to_address=target_email,
-                subject=subject,
-                body_html=body_html,
-                settings=settings,
-            )
-        except ClientError as exc:
-            message = exc.response.get("Error", {}).get("Message") or str(exc)
-            logger.error("Failed to send OTP email via SES: {}", message)
-            raise
-
-    def send_aaf_migration_otp(
-        self, code: str, target_email: str, migration_id: str,
-        expiration_minutes: int, settings: Settings,
-    ):
-        subject, body_html = compose_aaf_migration_otp_email(
-            code=code, target_email=target_email, migration_id=migration_id,
-            expiration_minutes=expiration_minutes, portal_url=settings.aai_portal_url,
+        self.send(
+            to_address=target_email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
         )
-        self.send(to_address=target_email, subject=subject, body_html=body_html, settings=settings)
-
-
 
 
 def get_email_service():

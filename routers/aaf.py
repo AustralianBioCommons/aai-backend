@@ -638,12 +638,12 @@ def migrate_aaf_to_auth0(
             detail="Failed to save migration progress. Retry with the same email address.",
         ) from exc
 
-    email_service.send_aaf_migration_otp(
+    email_service.send_email_change_otp(
         code=otp.code,
         target_email=response.new_email,
-        migration_id=response.migration_id,
         expiration_minutes=OTP_EXPIRATION_MINUTES,
         settings=settings,
+        aaf_migration=True,
     )
     return response
 
