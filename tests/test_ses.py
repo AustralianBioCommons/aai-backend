@@ -114,7 +114,6 @@ def test_send_email_change_otp(ses_service, mock_settings, aaf_migration):
     assert "migration_id" not in html
     if aaf_migration:
         assert "institutional login (via AAF)" in html
-        assert sent["Content"]["Simple"]["Subject"]["Data"] == "Complete your BioCommons Access account migration"
     else:
         assert "request to change the email address" in html
-        assert sent["Content"]["Simple"]["Subject"]["Data"] == "Confirm your new BioCommons Access email address"
+    assert sent["Content"]["Simple"]["Subject"]["Data"] == "Confirm your new BioCommons Access email address"

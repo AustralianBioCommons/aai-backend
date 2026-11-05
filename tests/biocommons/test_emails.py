@@ -32,7 +32,7 @@ def test_compose_aaf_migration_otp_email():
         code="123456", target_email="new@example.com", aaf_migration=True,
         expiration_minutes=10, portal_url="https://portal.example.com/",
     )
-    assert "migration" in subject
+    assert "Confirm your new" in subject
     assert_email_contains(
         html, "123456", "new@example.com", "10 minutes",
         "institutional login (via AAF)", "non-institutional email and password",
