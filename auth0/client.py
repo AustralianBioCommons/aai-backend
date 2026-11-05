@@ -151,6 +151,7 @@ class UpdateUserData(BaseModel):
     blocked: Optional[bool] = None
     email: Optional[EmailStr] = None
     email_verified: Optional[bool] = None
+    verify_email: Optional[bool] = None
     name: Optional[str] = None
     family_name: Optional[str] = None
     given_name: Optional[str] = None
@@ -244,10 +245,11 @@ class Auth0Client:
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 
-    def create_user(self, user: BiocommonsRegisterData) -> Auth0UserData:
+    def create_user(self, user: BiocommonsRegisterData, verify_email: bool = True) -> Auth0UserData:
         url = f"{self.api_base}/users"
         # Exclude None values to avoid validation errors.
-        resp = self._client.post(url, json=user.model_dump(mode="json", exclude_none=True))
+        user_data = user.model_dump(mode="json", exclude_none=True)
+        resp = self._client.post(url, json={**user_data, "verify_email": verify_email})
         resp.raise_for_status()
         return Auth0UserData(**resp.json())
 

@@ -13,6 +13,39 @@ from db.models import BiocommonsGroup
 from schemas.biocommons import BiocommonsUserAccountType
 
 
+def test_migration_auth0_user_id_upgrade_and_downgrade(tmp_path, mocker):
+    db_url = f"sqlite:///{tmp_path / 'migration_auth0_user_id.sqlite'}"
+    mocker.patch("db.setup.get_db_config", return_value=(db_url, {"check_same_thread": False}))
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(repo_root / "alembic.ini"))
+    command.upgrade(alembic_config, "763f8590e227")
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO biocommons_user
+                    (id, email, email_verified, username, created_at, is_deleted, account_type)
+                VALUES ('test-user', 'original@example.com', TRUE, 'test-user', CURRENT_TIMESTAMP, FALSE, 'AAF')
+            """))
+            connection.execute(text("""
+                INSERT INTO account_migration_requests
+                    (id, user_id, new_email, direction, created_at, expires_at, status)
+                VALUES ('test-migration', 'test-user', 'new@example.com', 'AAF_TO_AUTH0',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'PENDING')
+            """))
+        command.upgrade(alembic_config, "c0002f438d7b")
+        with engine.begin() as connection:
+            assert connection.execute(text("SELECT auth0_user_id FROM account_migration_requests")).scalar_one() is None
+            connection.execute(text("UPDATE account_migration_requests SET auth0_user_id = 'auth0|target'"))
+            assert connection.execute(text("SELECT auth0_user_id FROM account_migration_requests")).scalar_one() == "auth0|target"
+        command.downgrade(alembic_config, "763f8590e227")
+        command.upgrade(alembic_config, "c0002f438d7b")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT auth0_user_id FROM account_migration_requests")).scalar_one() is None
+    finally:
+        engine.dispose()
+
+
 def test_account_migration_request_downgrade_drops_postgresql_enums():
     migration = import_module("migrations.versions.763f8590e227_migration_requests")
     output = StringIO()

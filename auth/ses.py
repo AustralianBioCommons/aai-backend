@@ -3,7 +3,10 @@ import logging
 import boto3
 from botocore.exceptions import ClientError
 
-from biocommons.emails import get_default_sender_email
+from biocommons.emails import (
+    compose_email_change_otp_email,
+    get_default_sender_email,
+)
 from config import Settings
 
 logger = logging.getLogger('uvicorn.error')
@@ -36,6 +39,24 @@ class EmailService:
             logger.error(f"From address: {send_email_kwargs['FromEmailAddress']}")
             logger.error(f"Identity ARN: {send_email_kwargs.get('FromEmailAddressIdentityArn', 'None')}")
             raise
+
+    def send_email_change_otp(
+        self, code: str, target_email: str, expiration_minutes: int,
+        settings: Settings, *, aaf_migration: bool = False,
+    ):
+        subject, body_html = compose_email_change_otp_email(
+            code=code,
+            target_email=target_email,
+            expiration_minutes=expiration_minutes,
+            portal_url=settings.aai_portal_url or "",
+            aaf_migration=aaf_migration,
+        )
+        self.send(
+            to_address=target_email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
 
 
 def get_email_service():

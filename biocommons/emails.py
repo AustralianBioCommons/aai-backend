@@ -268,13 +268,19 @@ def compose_email_change_otp_email(
         target_email: str,
         expiration_minutes: int,
         portal_url: str = "",
+        *,
+        aaf_migration: bool = False,
 ) -> tuple[str, str]:
     """
-    Email OTP for confirming an email address change.
+    Email OTP for confirming an email address change or AAF migration.
     """
     subject = "Confirm your new BioCommons Access email address"
+    template_name = (
+        "emails/aaf_migration_otp.html"
+        if aaf_migration else "emails/email_change_otp.html"
+    )
     body_html = render_html_template(
-        "emails/email_change_otp.html",
+        template_name,
         code=code,
         target_email=target_email,
         expiration_minutes=expiration_minutes,

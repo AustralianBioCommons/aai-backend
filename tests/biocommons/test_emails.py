@@ -27,6 +27,20 @@ def assert_email_contains(html: str, *expected: str) -> None:
         assert " ".join(text.split()) in normalized_html
 
 
+def test_compose_aaf_migration_otp_email():
+    subject, html = compose_email_change_otp_email(
+        code="123456", target_email="new@example.com", aaf_migration=True,
+        expiration_minutes=10, portal_url="https://portal.example.com/",
+    )
+    assert "Confirm your new" in subject
+    assert_email_contains(
+        html, "123456", "new@example.com", "10 minutes",
+        "institutional login (via AAF)", "non-institutional email and password",
+    )
+    assert "/aaf/migrate/" not in html
+    assert "migration_id" not in html
+
+
 def test_get_default_sender(mock_settings):
     email = get_default_sender_email(mock_settings)
     assert email == mock_settings.no_reply_email_sender

@@ -1,6 +1,8 @@
 from enum import StrEnum
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+
+from schemas.biocommons import BiocommonsPassword
 
 
 class MigrationDirection(StrEnum):
@@ -16,3 +18,13 @@ class MigrationStatus(StrEnum):
 
 class MigrateToAafRequest(BaseModel):
     new_email: EmailStr
+
+
+class MigrateToAuth0Request(BaseModel):
+    new_email: EmailStr
+    password: BiocommonsPassword
+
+
+class CompleteToAuth0Request(BaseModel):
+    migration_id: str
+    otp: str = Field(pattern=r"^[0-9]{6}$")

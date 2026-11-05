@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -5,7 +6,7 @@ import pytest
 from httpx2 import HTTPStatusError
 from sqlmodel import select
 
-from db.models import BiocommonsUser, BiocommonsUserHistory
+from db.models import AccountMigrationRequest, BiocommonsUser, BiocommonsUserHistory
 from scheduled_tasks.sync.users import (
     Auth0ExportIdentityIndex,
     UserSyncRecord,
@@ -19,13 +20,100 @@ from scheduled_tasks.sync.users import (
     user_exists_in_auth0,
 )
 from scheduled_tasks.tasks import ExportedUser
+from schemas.aaf_migration import MigrationDirection, MigrationStatus
 from schemas.biocommons import (
     Auth0Identity,
     Auth0ReadAppMetadata,
     BiocommonsUserAccountType,
 )
 from tests.datagen import Auth0UserDataFactory
-from tests.db.datagen import BiocommonsUserFactory
+from tests.db.datagen import (
+    BiocommonsGroupFactory,
+    BiocommonsUserFactory,
+    GroupMembershipFactory,
+)
+
+
+@pytest.mark.parametrize(("direction", "migration_status", "expires_in"), [
+    (MigrationDirection.AAF_TO_AUTH0, MigrationStatus.PENDING, timedelta(minutes=-1)),
+    (MigrationDirection.AAF_TO_AUTH0, MigrationStatus.EXPIRED, timedelta(minutes=-1)),
+    (MigrationDirection.AUTH0_TO_AAF, MigrationStatus.PENDING, timedelta(minutes=10)),
+])
+@pytest.mark.parametrize("blocked", [False, True])
+def test_sync_skips_entire_profile_during_unfinished_migration(
+    test_db_session, persistent_factories, direction, migration_status, expires_in, blocked,
+):
+    account_type = (
+        BiocommonsUserAccountType.AAF if direction == MigrationDirection.AAF_TO_AUTH0
+        else BiocommonsUserAccountType.AUTH0
+    )
+    user = BiocommonsUserFactory.create_sync(
+        account_type=account_type,
+        email="original@example.edu.au", email_verified=True,
+    )
+    group = BiocommonsGroupFactory.create_sync()
+    membership = GroupMembershipFactory.create_sync(user_id=user.id, group_id=group.group_id)
+    now = datetime.now(timezone.utc)
+    test_db_session.add(AccountMigrationRequest(
+        user_id=user.id, auth0_user_id=user.id, new_email="new@example.com",
+        direction=direction, status=migration_status,
+        expires_at=now + expires_in,
+    ))
+    test_db_session.commit()
+    client = MagicMock()
+    record = UserSyncRecord(
+        user_id=user.id, email="new@example.com", username=user.username,
+        email_verified=False, account_type=account_type, blocked=blocked,
+    )
+
+    summary = sync_users_from_records(test_db_session, [record], auth0_client=client)
+
+    test_db_session.refresh(user)
+    test_db_session.refresh(membership)
+    assert summary.total == summary.skipped_migration == 1
+    assert summary.soft_deleted == summary.updated == 0
+    assert user.email == "original@example.edu.au"
+    assert user.email_verified is True
+    assert user.is_deleted is False
+    assert membership.is_deleted is False
+    assert test_db_session.exec(select(BiocommonsUserHistory)).all() == []
+    client.get_user.assert_not_called()
+
+
+@pytest.mark.parametrize("scenario", ["completed", "expired_auth0_to_aaf", "no_request"])
+def test_sync_still_deletes_blocked_users_without_unfinished_migration(
+    test_db_session, persistent_factories, scenario,
+):
+    user = BiocommonsUserFactory.create_sync(account_type=BiocommonsUserAccountType.AUTH0)
+    now = datetime.now(timezone.utc)
+    if scenario == "completed":
+        # Older expired requests must not keep protecting a completed migration.
+        test_db_session.add(AccountMigrationRequest(
+            user_id=user.id, direction=MigrationDirection.AAF_TO_AUTH0,
+            status=MigrationStatus.EXPIRED, new_email=user.email,
+            created_at=now - timedelta(days=1), expires_at=now - timedelta(hours=1),
+        ))
+    if scenario != "no_request":
+        test_db_session.add(AccountMigrationRequest(
+            user_id=user.id, new_email=user.email,
+            direction=MigrationDirection.AAF_TO_AUTH0 if scenario == "completed" else MigrationDirection.AUTH0_TO_AAF,
+            status=MigrationStatus.COMPLETED if scenario == "completed" else MigrationStatus.PENDING,
+            created_at=now - timedelta(hours=1),
+            # Abandoned Auth0-to-AAF requests stay PENDING but can no longer complete.
+            expires_at=now + timedelta(minutes=10) if scenario == "completed" else now - timedelta(minutes=1),
+        ))
+    test_db_session.commit()
+    record = UserSyncRecord(
+        user_id=user.id, email=user.email, username=user.username,
+        account_type=BiocommonsUserAccountType.AUTH0, blocked=True,
+    )
+
+    summary = sync_users_from_records(test_db_session, [record], auth0_client=MagicMock())
+
+    assert summary.skipped_migration == 0
+    assert summary.soft_deleted == 1
+    test_db_session.refresh(user)
+    assert user.is_deleted is True
 
 
 def test_normalize_exported_user_classifies_aaf_only_user():

@@ -183,6 +183,12 @@ class OldEmailRecord(BaseModel):
     until_datetime: datetime
 
 
+class AafMigrationMetadata(BaseModel):
+    """Identify the original user when recovering a migration-created account."""
+
+    user_id: str
+
+
 class BiocommonsAppMetadata(BaseModel):
     """
     app_metadata we use to store Auth0-specific info
@@ -199,6 +205,7 @@ class BiocommonsAppMetadata(BaseModel):
     checked_email: Optional[EmailStr] = None
     linking_completed: Optional[bool] = None
     linking_completed_at: Optional[AwareDatetime] = None
+    aaf_migration: Optional[AafMigrationMetadata] = None
 
     model_config = {
         "extra": "ignore"
@@ -230,6 +237,7 @@ class BiocommonsAppMetadataUpdate(BaseModel):
     checked_email: Optional[EmailStr] = None
     linking_completed: Optional[bool] = None
     linking_completed_at: Optional[AwareDatetime] = None
+    aaf_migration: Optional[AafMigrationMetadata] = None
 
     model_config = {
         "extra": "ignore"
@@ -249,6 +257,7 @@ class BiocommonsRegisterData(BaseModel):
     name: Optional[str] = None
     given_name: Optional[str] = None
     family_name: Optional[str] = None
+    blocked: Optional[bool] = None
     user_metadata: Optional[BiocommonsUserMetadata] = None
     app_metadata: BiocommonsAppMetadata
 

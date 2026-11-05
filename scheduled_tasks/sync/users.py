@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Literal, Protocol, Self
 
@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from auth0.client import Auth0Client
-from db.models import BiocommonsUser, BiocommonsUserHistory
+from db.models import AccountMigrationRequest, BiocommonsUser, BiocommonsUserHistory
 from scheduled_tasks.sync.summaries import SyncSummary
 from schemas.biocommons import Auth0Identity, Auth0UserData, BiocommonsUserAccountType
 
@@ -132,6 +132,7 @@ class UserSyncAction(StrEnum):
     SOFT_DELETED = "soft_deleted"
     SKIPPED_UNCHANGED = "skipped_unchanged"
     SKIPPED_BLOCKED_MISSING = "skipped_blocked_missing"
+    SKIPPED_MIGRATION = "skipped_migration"
 
 
 class UserSyncResult(BaseModel):
@@ -149,6 +150,7 @@ class UserSyncSummary(SyncSummary):
     soft_deleted: int = 0
     skipped_unchanged: int = 0
     skipped_blocked_missing: int = 0
+    skipped_migration: int = 0
     skipped_invalid: int = 0
     conflicted: int = 0
 
@@ -167,6 +169,8 @@ class UserSyncSummary(SyncSummary):
                 self.skipped_unchanged += 1
             case UserSyncAction.SKIPPED_BLOCKED_MISSING:
                 self.skipped_blocked_missing += 1
+            case UserSyncAction.SKIPPED_MIGRATION:
+                self.skipped_migration += 1
 
     def add_invalid(self) -> None:
         self.total += 1
@@ -343,11 +347,17 @@ def sync_one_user(
     Restoring users, changing account type, or resolving conflicting AAF
     identities requires live Auth0 data. Batch sync skips failed lookups.
     """
-    user = BiocommonsUser.get_by_id(
-        record.user_id,
-        session,
-        include_deleted=True,
+    # Share initiation/completion's user lock so their request state is committed
+    # before deciding whether a blocked export represents a deletion.
+    user = session.get(
+        BiocommonsUser, record.user_id, with_for_update=True, populate_existing=True,
+        execution_options={"include_deleted": True},
     )
+    if user is not None and AccountMigrationRequest.has_unfinished_migration(
+        user.id, session, datetime.now(timezone.utc)
+    ):
+        logger.info("Skipping user {} with an unfinished account migration", user.id)
+        return UserSyncResult(action=UserSyncAction.SKIPPED_MIGRATION, user=user)
     if needs_live_check(user, record):
         record = refresh_user_record(
             user,

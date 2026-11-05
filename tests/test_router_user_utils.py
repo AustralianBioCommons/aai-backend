@@ -1,22 +1,26 @@
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
+from starlette.exceptions import HTTPException
 
+from auth.otp import OTP_EXPIRATION_MINUTES, OTP_LENGTH, OneTimePassword
 from biocommons import emails
-from routers import user
+from db.models import EmailChangeOtp
+from tests.db.datagen import BiocommonsUserFactory
 
 
 def test_generate_otp_code_length_and_digits() -> None:
-    code = user._generate_otp_code()
-    assert len(code) == user.OTP_LENGTH
+    code = OneTimePassword.generate().code
+    assert len(code) == OTP_LENGTH
     assert code.isdigit()
 
 
-def test_hash_otp_matches_sha256(monkeypatch: pytest.MonkeyPatch) -> None:
-    code = "123456"
-    expected = hashlib.sha256(code.encode("utf-8")).hexdigest()
-    assert user._hash_otp(code) == expected
+def test_hash_otp_matches_sha256() -> None:
+    otp = OneTimePassword.generate()
+    expected = hashlib.sha256(otp.code.encode("utf-8")).hexdigest()
+    assert otp.hash == expected
+    assert OneTimePassword.check_code(code=otp.code, hash=expected)
 
 
 def test_render_otp_email_includes_code_and_target() -> None:
@@ -25,33 +29,37 @@ def test_render_otp_email_includes_code_and_target() -> None:
     _subject, body = emails.compose_email_change_otp_email(
         code=code,
         target_email=email,
-        expiration_minutes=user.OTP_EXPIRATION_MINUTES,
+        expiration_minutes=OTP_EXPIRATION_MINUTES,
     )
     assert code in body
     assert email in body
-    assert str(user.OTP_EXPIRATION_MINUTES) in body
-
-
-def test_ensure_datetime_is_aware_adds_timezone() -> None:
-    naive = datetime(2020, 1, 1, 0, 0, 0)
-    aware = user._ensure_datetime_is_aware(naive)
-    assert aware.tzinfo is not None
-    assert aware.tzinfo == timezone.utc
-
-
-def test_ensure_datetime_preserves_existing_timezone() -> None:
-    aware = datetime(2020, 1, 1, tzinfo=timezone.utc)
-    result = user._ensure_datetime_is_aware(aware)
-    assert result is aware
+    assert str(OTP_EXPIRATION_MINUTES) in body
 
 
 @pytest.mark.parametrize(
-    "value",
-    [
-        datetime(2020, 1, 1),
-        datetime(2020, 1, 1, tzinfo=timezone.utc),
-    ],
+    "tz", [None, timezone.utc, timezone(timedelta(hours=11)), timezone(timedelta(hours=-5))],
 )
-def test_ensure_datetime_consistency(value: datetime) -> None:
-    result = user._ensure_datetime_is_aware(value)
-    assert result.tzinfo == timezone.utc
+@pytest.mark.parametrize("expired", [False, True])
+def test_otp_verification_handles_expiry_timezones(
+    test_db_session, persistent_factories, tz, expired,
+) -> None:
+    user = BiocommonsUserFactory.create_sync()
+    now = datetime(2020, 1, 1, 12, tzinfo=timezone.utc)
+    expires_at = now + timedelta(minutes=-1 if expired else 1)
+    expires_at = expires_at.astimezone(tz) if tz else expires_at.replace(tzinfo=None)
+    otp = OneTimePassword.generate()
+    entry = EmailChangeOtp(
+        user_id=user.id, target_email="new@example.com", otp_hash=otp.hash,
+        created_at=now - timedelta(minutes=1), expires_at=expires_at,
+    )
+    test_db_session.add(entry)
+    test_db_session.flush()
+
+    if expired:
+        with pytest.raises(HTTPException) as exc:
+            EmailChangeOtp.verify_for_user(test_db_session, user_id=user.id, code=otp.code, now=now)
+        assert exc.value.status_code == 400
+    else:
+        result = EmailChangeOtp.verify_for_user(test_db_session, user_id=user.id, code=otp.code, now=now)
+        assert result.id == entry.id
+        assert result.is_active is True
