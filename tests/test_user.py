@@ -163,6 +163,7 @@ async def test_update_user_metadata_handles_responses(mocker, mock_settings, sta
         "/me/groups/approved",
         "/me/groups/pending",
         "/me/all/pending",
+        "/me/profile/email/check-availability?email=new@example.com",
     ],
 )
 def test_endpoints_require_auth(endpoint, test_client):
@@ -1047,6 +1048,69 @@ def test_update_name_requires_both_fields(test_client, mocker, persistent_factor
     # FastAPI will return validation error for missing required fields
 
 
+@pytest.mark.parametrize("account_type", ["auth0", "aaf"])
+@pytest.mark.parametrize(
+    "email, is_deleted, available",
+    [
+        ("new@example.com", False, True),
+        ("USER@EXAMPLE.COM", False, True),
+        ("TAKEN@EXAMPLE.COM", False, False),
+        ("TAKEN@EXAMPLE.COM", True, False),
+    ],
+)
+def test_profile_email_availability(
+    test_client, test_db_session, mocker, persistent_factories,
+    account_type, email, is_deleted, available,
+):
+    user = BiocommonsUserFactory.create_sync(email="user@example.com", account_type=account_type)
+    BiocommonsUserFactory.create_sync(email="taken@example.com", is_deleted=is_deleted)
+    test_db_session.commit()
+    _act_as_user(mocker, user)
+
+    response = test_client.get(
+        "/me/profile/email/check-availability",
+        headers={"Authorization": "Bearer valid_token"},
+        params={"email": email},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "available": available,
+        "field_errors": [] if available else [
+            {"field": "email", "message": "Email is already in use by another user"},
+        ],
+    }
+    assert test_db_session.exec(select(EmailChangeOtp)).all() == []
+
+
+def test_profile_email_availability_requires_existing_account(
+    test_client, test_db_session, mock_auth_token,
+):
+    response = test_client.get(
+        "/me/profile/email/check-availability",
+        headers={"Authorization": "Bearer valid_token"},
+        params={"email": "new@example.com"},
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "User not found"}
+
+
+def test_profile_email_availability_rejects_invalid_email(
+    test_client, test_db_session, mocker, persistent_factories,
+):
+    user = BiocommonsUserFactory.create_sync()
+    _act_as_user(mocker, user)
+
+    response = test_client.get(
+        "/me/profile/email/check-availability",
+        headers={"Authorization": "Bearer valid_token"},
+        params={"email": "invalid"},
+    )
+
+    assert response.status_code == 422
+
+
 def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
     user = BiocommonsUserFactory.create_sync(email="old@example.com", email_verified=True)
     test_db_session.flush()
@@ -1071,11 +1135,25 @@ def test_email_update_sends_otp(test_client, test_db_session, mocker, persistent
     assert spy.call_count == 1
 
 
-def test_email_update_rejects_duplicate_email(test_client, test_db_session, mocker, persistent_factories, mock_email_service):
+@pytest.mark.parametrize("is_deleted", [False, True])
+def test_email_update_rejects_email_claimed_after_availability_check(
+    test_client, test_db_session, mocker, persistent_factories, mock_email_service, is_deleted,
+):
     user = BiocommonsUserFactory.create_sync(email="user1@example.com", email_verified=True)
-    _ = BiocommonsUserFactory.create_sync(email="existing@example.com", email_verified=True)
-    test_db_session.flush()
     _act_as_user(mocker, user)
+
+    availability = test_client.get(
+        "/me/profile/email/check-availability",
+        headers={"Authorization": "Bearer valid_token"},
+        params={"email": "existing@example.com"},
+    )
+    assert availability.status_code == 200
+    assert availability.json()["available"] is True
+
+    BiocommonsUserFactory.create_sync(
+        email="EXISTING@EXAMPLE.COM", email_verified=True, is_deleted=is_deleted,
+    )
+    test_db_session.commit()
 
     response = test_client.post(
         "/me/profile/email/update",
@@ -1089,6 +1167,39 @@ def test_email_update_rejects_duplicate_email(test_client, test_db_session, mock
     assert len(data["field_errors"]) == 1
     assert data["field_errors"][0]["field"] == "email"
     assert data["field_errors"][0]["message"] == "Email is already in use by another user"
+
+
+def test_email_continue_rejects_email_claimed_after_otp_sent(
+    test_client, test_db_session, mocker, persistent_factories, mock_auth0_client,
+):
+    user = BiocommonsUserFactory.create_sync(email="old@example.com", email_verified=True)
+    _act_as_user(mocker, user)
+    now = datetime.now(timezone.utc)
+    otp_entry = EmailChangeOtp(
+        user_id=user.id,
+        target_email="new@example.com",
+        otp_hash=hashlib.sha256(b"123456").hexdigest(),
+        created_at=now,
+        expires_at=now + timedelta(minutes=10),
+        window_start=now,
+    )
+    test_db_session.add(otp_entry)
+    test_db_session.commit()
+    BiocommonsUserFactory.create_sync(email="NEW@EXAMPLE.COM")
+
+    response = test_client.post(
+        "/me/profile/email/continue",
+        headers={"Authorization": "Bearer valid_token"},
+        json={"otp": "123456"},
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Email is already in use by another user"}
+    mock_auth0_client.update_user.assert_not_called()
+    test_db_session.refresh(user)
+    test_db_session.refresh(otp_entry)
+    assert user.email == "old@example.com"
+    assert otp_entry.is_active
 
 
 def test_email_continue_updates_user(test_client, test_db_session, mocker, persistent_factories):
