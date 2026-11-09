@@ -769,7 +769,7 @@ def test_complete_auth0_to_aaf_migration_rejects_email_claimed_after_creation(
     )
 
     assert response.status_code == HTTPStatus.CONFLICT
-    assert response.json() == {"detail": "Email is already in use by another user."}
+    assert response.json() == {"detail": "Email is already in use by another user"}
     mock_auth0_client.get_user.assert_not_called()
     mock_auth0_client.update_user.assert_not_called()
     test_db_session.refresh(pending_aaf_migration)
@@ -807,7 +807,7 @@ def test_complete_auth0_to_aaf_migration_handles_email_constraint_conflict(
     )
 
     assert response.status_code == HTTPStatus.CONFLICT
-    assert response.json() == {"detail": "Email is already in use by another user."}
+    assert response.json() == {"detail": "Email is already in use by another user"}
     assert mock_auth0_client.get_user.call_args_list == [
         call(user_id=pending_aaf_migration.user_id),
         call(user_id=aaf_user_id),
@@ -940,7 +940,7 @@ def test_migrate_auth0_to_aaf_rejects_occupied_email(
     )
 
     assert response.status_code == HTTPStatus.CONFLICT
-    assert response.json() == {"detail": "Email is already in use by another user."}
+    assert response.json() == {"detail": "Email is already in use by another user"}
     requests = test_db_session.exec(select(AccountMigrationRequest)).all()
     if has_pending_request:
         assert len(requests) == 1

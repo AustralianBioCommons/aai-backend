@@ -3,7 +3,7 @@ import http
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
 from httpx2 import AsyncClient, HTTPStatusError
 from loguru import logger
 from pydantic import AliasPath, AwareDatetime, BaseModel, Field
@@ -16,7 +16,12 @@ from auth.account_permissions import AccountActions, require_account_permission
 from auth.management import get_management_token
 from auth.otp import OTP_EXPIRATION_MINUTES, OneTimePassword
 from auth.ses import EmailService, get_email_service
-from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
+from auth.user_permissions import (
+    get_db_user,
+    get_db_user_or_404,
+    get_session_user,
+    user_is_general_admin,
+)
 from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
@@ -53,8 +58,12 @@ from schemas.biocommons import (
     PasswordChangeRequest,
     UserProfileData,
 )
-from schemas.responses import FieldError, FieldErrorResponse
+from schemas.responses import AvailabilityResponse, FieldError, FieldErrorResponse
 from schemas.user import SessionUser
+from services.email_availability import (
+    check_email_conflict,
+    is_email_available_for_change,
+)
 from services.email_queue import enqueue_email
 from services.institutions import (
     check_australian_research_institution_email,
@@ -668,6 +677,23 @@ async def update_name(
         )
 
 
+@router.get("/profile/email/check-availability", response_model=AvailabilityResponse)
+async def check_profile_email_availability(
+    email: Annotated[BiocommonsEmail, Query()],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user_or_404)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Check an email before choosing an email-change or migration flow."""
+    if not is_email_available_for_change(
+        email, current_user_id=db_user.id, session=db_session,
+    ):
+        return AvailabilityResponse(
+            available=False,
+            field_errors=[FieldError(field="email", message="Email is already in use by another user")],
+        )
+    return AvailabilityResponse(available=True)
+
+
 @router.post(
     "/profile/email/update",
     responses={
@@ -685,13 +711,9 @@ async def update_email(
     response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=str(payload.email),
-        session=db_session,
-        case_insensitive=True,
-        exclude_user_id=user.access_token.sub,
-    )
-    if conflicting_user is not None:
+    if not is_email_available_for_change(
+        payload.email, current_user_id=user.access_token.sub, session=db_session,
+    ):
         response.status_code = 400
         field_errors = [FieldError(field="email", message="Email is already in use by another user")]
         return FieldErrorResponse(
@@ -742,17 +764,11 @@ async def continue_email_update(
         db_session, user_id=user.access_token.sub, code=payload.otp, now=now,
     )
 
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=otp_entry.target_email,
+    check_email_conflict(
+        current_user_id=user.access_token.sub,
+        new_email=otp_entry.target_email,
         session=db_session,
-        case_insensitive=True,
-        exclude_user_id=user.access_token.sub,
     )
-    if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
-        )
 
     update_data = UpdateUserData(
         email=otp_entry.target_email,

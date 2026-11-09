@@ -16,7 +16,7 @@ from db.models import EmailNotification
 from db.setup import get_db_session
 from db.types import EmailStatusEnum
 from schemas.biocommons import AppId, Auth0UserData
-from schemas.responses import FieldError
+from schemas.responses import AvailabilityResponse, FieldError
 from services.email_queue import enqueue_email
 from services.institutions import is_australian_research_institution_email
 
@@ -99,12 +99,6 @@ def check_existing_user(username: str, email: str, auth0_client: Auth0Client) ->
 
 class RegistrationInfo(BaseModel):
     app: AppId = "biocommons"
-
-
-class AvailabilityResponse(BaseModel):
-    """Response for checking username/email availability"""
-    available: bool
-    field_errors: list[FieldError] = []
 
 
 @router.get("/register/check-username-availability", response_model=AvailabilityResponse)

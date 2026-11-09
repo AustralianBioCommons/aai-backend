@@ -40,6 +40,7 @@ from schemas.biocommons import (
     BiocommonsUserAccountType,
 )
 from schemas.user import SessionUser
+from services.email_availability import check_email_conflict
 
 router = APIRouter(
     prefix="/aaf", tags=["aaf"]
@@ -109,7 +110,7 @@ def link_aaf_account(
             session.rollback()
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Email is already in use by another user.",
+                detail="Email is already in use by another user",
             ) from exc
     now = datetime.now(tz=timezone.utc)
     try:
@@ -264,24 +265,6 @@ def check_aaf_account_link(
 class MigrateToAafResponse(BaseModel):
     migration_id: str
     expires_at: AwareDatetime
-
-
-def check_email_conflict(*, current_user_id: str, new_email: str, session: Session):
-    """
-    Check if this email is already in use by another user - raise 409 conflict error
-    """
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=new_email,
-        session=session,
-        case_insensitive=True,
-        include_deleted=True,
-        exclude_user_id=current_user_id,
-    )
-    if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
-        )
 
 
 def check_and_delete_existing_request(user_id: str, session: Session):
