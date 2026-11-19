@@ -1,11 +1,77 @@
+from importlib import import_module
+from io import StringIO
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 from sqlalchemy import text
 from sqlmodel import Session, create_engine
 
 from db.models import BiocommonsGroup
+from schemas.biocommons import BiocommonsUserAccountType
+
+
+def test_migration_auth0_user_id_upgrade_and_downgrade(tmp_path, mocker):
+    db_url = f"sqlite:///{tmp_path / 'migration_auth0_user_id.sqlite'}"
+    mocker.patch("db.setup.get_db_config", return_value=(db_url, {"check_same_thread": False}))
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(repo_root / "alembic.ini"))
+    command.upgrade(alembic_config, "763f8590e227")
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO biocommons_user
+                    (id, email, email_verified, username, created_at, is_deleted, account_type)
+                VALUES ('test-user', 'original@example.com', TRUE, 'test-user', CURRENT_TIMESTAMP, FALSE, 'AAF')
+            """))
+            connection.execute(text("""
+                INSERT INTO account_migration_requests
+                    (id, user_id, new_email, direction, created_at, expires_at, status)
+                VALUES ('test-migration', 'test-user', 'new@example.com', 'AAF_TO_AUTH0',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'PENDING')
+            """))
+        command.upgrade(alembic_config, "c0002f438d7b")
+        with engine.begin() as connection:
+            assert connection.execute(text("SELECT auth0_user_id FROM account_migration_requests")).scalar_one() is None
+            connection.execute(text("UPDATE account_migration_requests SET auth0_user_id = 'auth0|target'"))
+            assert connection.execute(text("SELECT auth0_user_id FROM account_migration_requests")).scalar_one() == "auth0|target"
+        command.downgrade(alembic_config, "763f8590e227")
+        command.upgrade(alembic_config, "c0002f438d7b")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT auth0_user_id FROM account_migration_requests")).scalar_one() is None
+    finally:
+        engine.dispose()
+
+
+def test_account_migration_request_downgrade_drops_postgresql_enums():
+    migration = import_module("migrations.versions.763f8590e227_migration_requests")
+    output = StringIO()
+    context = MigrationContext.configure(
+        dialect_name="postgresql",
+        opts={"as_sql": True, "output_buffer": output},
+    )
+
+    with Operations.context(context):
+        migration.downgrade()
+
+    statements = output.getvalue()
+    table_drop = statements.index("DROP TABLE account_migration_requests;")
+    assert table_drop < statements.index("DROP TYPE migration_direction_enum;")
+    assert table_drop < statements.index("DROP TYPE migration_status_enum;")
+
+
+def test_account_migration_request_migration_can_be_reapplied(tmp_path, mocker):
+    db_url = f"sqlite:///{tmp_path / 'account_migration_requests.sqlite'}"
+    mocker.patch("db.setup.get_db_config", return_value=(db_url, {"check_same_thread": False}))
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(repo_root / "alembic.ini"))
+
+    command.upgrade(alembic_config, "763f8590e227")
+    command.downgrade(alembic_config, "98fbefd9f191")
+    command.upgrade(alembic_config, "763f8590e227")
 
 
 def test_sbp_group_migration_creates_expected_group(tmp_path, mocker):
@@ -108,5 +174,64 @@ def test_sbp_cleanup_migration_removes_legacy_group_and_recreates_current_group(
             assert group.name == "Structural Biology Platform Bundle"
             assert group.short_name == "SBP"
             assert group.is_deleted is False
+    finally:
+        engine.dispose()
+
+
+def test_user_account_type_migration_backfills_existing_users(tmp_path, mocker):
+    db_path = tmp_path / "user_account_type_migration.sqlite"
+    db_url = f"sqlite:///{db_path}"
+
+    mocker.patch("db.setup.get_db_config", return_value=(db_url, {"check_same_thread": False}))
+
+    repo_root = Path(__file__).resolve().parents[2]
+    alembic_config = Config(str(repo_root / "alembic.ini"))
+
+    command.upgrade(alembic_config, "39caad32922e")
+
+    engine = create_engine(
+        db_url,
+        connect_args={"check_same_thread": False},
+    )
+    try:
+        with Session(engine) as session:
+            session.exec(
+                text(
+                    """
+                    INSERT INTO biocommons_user (
+                        id,
+                        email,
+                        email_verified,
+                        username,
+                        created_at,
+                        is_deleted
+                    )
+                    VALUES (
+                        'auth0|existing-user',
+                        'existing@example.com',
+                        FALSE,
+                        'existing_user',
+                        '2026-08-06 00:00:00',
+                        FALSE
+                    )
+                    """
+                )
+            )
+            session.commit()
+
+        command.upgrade(alembic_config, "0c91366532ae")
+
+        with Session(engine) as session:
+            account_type = session.exec(
+                text(
+                    """
+                    SELECT account_type
+                    FROM biocommons_user
+                    WHERE id = 'auth0|existing-user'
+                    """
+                )
+            ).one()[0]
+
+            assert account_type == BiocommonsUserAccountType.AUTH0.value
     finally:
         engine.dispose()

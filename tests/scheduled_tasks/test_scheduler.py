@@ -1,3 +1,4 @@
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import ANY
 
@@ -85,4 +86,31 @@ def test_schedule_jobs_routes_non_email_jobs_to_single_worker_executor(mocker):
         max_instances=1,
         replace_existing=True,
         next_run_time=ANY,
+    )
+
+
+def test_schedule_jobs_expires_migration_requests_every_ten_minutes(mocker):
+    scheduler = mocker.Mock()
+
+    run_scheduler.schedule_jobs(scheduler)
+
+    job = next(
+        call for call in scheduler.add_job.call_args_list
+        if call.kwargs["id"] == "expire_account_migration_requests"
+    )
+    assert job.args == (run_scheduler.expire_account_migration_requests_job,)
+    assert job.kwargs["trigger"].interval == timedelta(minutes=10)
+    assert job.kwargs["executor"] == scheduler_module.SCHEDULED_TASK_EXECUTOR
+    assert job.kwargs["max_instances"] == 1
+    assert job.kwargs["replace_existing"] is True
+
+
+def test_email_only_scheduler_skips_migration_expiry(mocker):
+    scheduler = mocker.Mock()
+
+    run_scheduler.schedule_jobs(scheduler, email_only=True)
+
+    assert all(
+        call.kwargs["id"] != "expire_account_migration_requests"
+        for call in scheduler.add_job.call_args_list
     )

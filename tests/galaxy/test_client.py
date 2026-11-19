@@ -1,4 +1,4 @@
-import httpx
+import httpx2
 import pytest
 
 from galaxy.client import GalaxyClient
@@ -15,7 +15,7 @@ def test_username_exists(galaxy_client, respx_mock):
     user1 = GalaxyUserFactory.build(username="user1")
     user2 = GalaxyUserFactory.build(username="user2")
     respx_mock.get("https://galaxy.example.com/api/users").mock(
-        return_value=httpx.Response(
+        return_value=httpx2.Response(
             200,
             json=[user1.model_dump(mode="json"),
                   user2.model_dump(mode="json")]

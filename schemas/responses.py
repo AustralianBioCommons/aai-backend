@@ -8,6 +8,11 @@ class FieldError(BaseModel):
     message: str
 
 
+class AvailabilityResponse(BaseModel):
+    available: bool
+    field_errors: list[FieldError] = Field(default_factory=list)
+
+
 class FieldErrorResponse(BaseModel):
     """
     Generic error response that specifies errors for individual fields where possible

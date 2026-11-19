@@ -33,6 +33,16 @@ def get_db_user(
     return user
 
 
+def get_db_user_or_404(user: Annotated[BiocommonsUser | None, Depends(get_db_user)]) -> BiocommonsUser:
+    """
+    Get the user's DB record, returning 404 if it does not exist.
+    """
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+
 def user_is_general_admin(
     current_user: Annotated[SessionUser, Depends(get_session_user)],
     settings: Annotated[Settings, Depends(get_settings)],

@@ -19,6 +19,7 @@ from scheduled_tasks.scheduler import (
 )
 from scheduled_tasks.tasks import (
     cleanup_email_otps_job,
+    expire_account_migration_requests_job,
     populate_db_groups_job,
     populate_platforms_from_auth0_job,
     process_email_queue_job,
@@ -55,6 +56,17 @@ def schedule_jobs(scheduler: AsyncIOScheduler, email_only: bool = False):
     if email_only:
         logger.info("Scheduler configured for email-only mode")
         return
+
+    logger.info("Adding recurring cleanup job: expire_account_migration_requests")
+    scheduler.add_job(
+        expire_account_migration_requests_job,
+        trigger=IntervalTrigger(minutes=10),
+        id="expire_account_migration_requests",
+        executor=SCHEDULED_TASK_EXECUTOR,
+        max_instances=1,
+        replace_existing=True,
+        next_run_time=datetime.now(UTC) + timedelta(minutes=5),
+    )
 
     hourly_trigger = IntervalTrigger(minutes=60)
     logger.info("Adding one-off job: populate DB groups")
@@ -207,6 +219,15 @@ async def run_immediate(skip_full_sync: bool = False):
             cleanup_email_otps_job,
             trigger=offset_trigger(offset=35),
             id="cleanup_email_otps",
+            executor=SCHEDULED_TASK_EXECUTOR,
+            max_instances=1,
+            replace_existing=True,
+        )
+        logger.info("Adding one-off job: expire_account_migration_requests")
+        SCHEDULER.add_job(
+            expire_account_migration_requests_job,
+            trigger=offset_trigger(offset=40),
+            id="expire_account_migration_requests",
             executor=SCHEDULED_TASK_EXECUTOR,
             max_instances=1,
             replace_existing=True,

@@ -1,16 +1,29 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from enum import StrEnum
 from logging import getLogger
-from typing import Optional, Self
+from typing import Optional, Self, Type
 
-from httpx import HTTPStatusError
+from httpx2 import HTTPStatusError
 from pydantic import AwareDatetime
-from sqlalchemy import Column, Index, String, Text, UniqueConstraint, desc, func
+from sqlalchemy import (
+    Column,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    delete,
+    desc,
+    func,
+    text,
+    update,
+)
 from sqlmodel import DateTime, Field, Relationship, Session, select
 from sqlmodel import Enum as DbEnum
 from starlette.exceptions import HTTPException
 
 import schemas
+from auth.otp import MAX_TOTAL_ATTEMPTS, OTP_EXPIRATION_MINUTES, OneTimePassword
 from auth0.client import Auth0Client, UpdateUserData
 from db.core import BaseModel, SoftDeleteModel
 from db.types import (
@@ -20,11 +33,17 @@ from db.types import (
     PlatformEnum,
     PlatformMembershipData,
 )
+from schemas.aaf_migration import MigrationDirection, MigrationStatus
 from schemas.auth0 import get_platform_id_from_role_name
+from schemas.biocommons import BiocommonsUserAccountType
 from schemas.tokens import AccessTokenPayload
 from schemas.user import SessionUser
 
 logger = getLogger(__name__)
+
+
+def get_enum_values(enum: Type[StrEnum]) -> list[str]:
+    return [e.value for e in enum]
 
 
 class BiocommonsUser(SoftDeleteModel, table=True):
@@ -34,6 +53,17 @@ class BiocommonsUser(SoftDeleteModel, table=True):
     )
     # Auth0 ID
     id: str = Field(primary_key=True)
+    # User ID from other providers, i.e. AAF. Don't want to rely on this in the DB
+    # (Auth0 should handle linked identities), but good for tracking user info
+    other_user_id: str | None = Field(default=None, nullable=True)
+    account_type: BiocommonsUserAccountType = Field(
+        sa_type=DbEnum(
+            BiocommonsUserAccountType,
+            name="biocommons_user_account_type",
+            values_callable=get_enum_values,
+            validate_strings=True
+        )
+    )
     # Note: sqlmodel can't validate emails easily.
     #   Use a separate data model to validate this
     email: str = Field(unique=True)
@@ -119,7 +149,7 @@ class BiocommonsUser(SoftDeleteModel, table=True):
             if case_insensitive
             else cls.email == email
         )
-        query = select(cls).where(email_filter)
+        query = select(cls).where(email_filter).execution_options(include_deleted=include_deleted)
         if not include_deleted:
             query = query.where(cls.is_deleted.is_(False))
         if exclude_user_id is not None:
@@ -161,7 +191,8 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         """
         Create a new BiocommonsUser object from Auth0 user data (no API call).
         """
-        return cls(id=data.user_id, email=data.email, username=data.username, email_verified=data.email_verified)
+        return cls(id=data.user_id, email=data.email, username=data.username, email_verified=data.email_verified,
+                   account_type=data.app_metadata.account_type)
 
     @classmethod
     def get_or_create(
@@ -235,6 +266,43 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         self.save_history(session, change="user_deletion", reason=reason, updated_by=deleted_by)
         super().delete(session, commit=commit)
         return self
+
+    def hard_delete(self, session: Session, auth0_client: Auth0Client) -> None:
+        """
+        Permanently delete the user and their own rows from the DB, and delete
+        the user from Auth0. For testing use only - irreversible.
+
+        Refuses if this user acted as an admin on another user's record
+        (appears as deleted_by/updated_by there) - that history would be lost.
+        """
+        user_id = self.id
+        other_admin_actions = (
+            session.exec(select(BiocommonsUser.id).execution_options(include_deleted=True).where(
+                BiocommonsUser.deleted_by_id == user_id, BiocommonsUser.id != user_id)).first()
+            or session.exec(select(BiocommonsUserHistory.id).execution_options(include_deleted=True).where(
+                BiocommonsUserHistory.updated_by_id == user_id, BiocommonsUserHistory.user_id != user_id)).first()
+            or session.exec(select(PlatformMembership.id).execution_options(include_deleted=True).where(
+                PlatformMembership.updated_by_id == user_id, PlatformMembership.user_id != user_id)).first()
+            or session.exec(select(PlatformMembershipHistory.id).execution_options(include_deleted=True).where(
+                PlatformMembershipHistory.updated_by_id == user_id, PlatformMembershipHistory.user_id != user_id)).first()
+            or session.exec(select(GroupMembership.id).execution_options(include_deleted=True).where(
+                GroupMembership.updated_by_id == user_id, GroupMembership.user_id != user_id)).first()
+            or session.exec(select(GroupMembershipHistory.id).execution_options(include_deleted=True).where(
+                GroupMembershipHistory.updated_by_id == user_id, GroupMembershipHistory.user_id != user_id)).first()
+        )
+        if other_admin_actions:
+            raise ValueError(f"User {user_id} has acted as an admin on another user's record and cannot be hard-deleted")
+
+        logger.info(f"Deleting user {user_id} from Auth0")
+        try:
+            auth0_client.delete_user(user_id=user_id)
+        except HTTPStatusError as e:
+            logger.warning(f"Error deleting user {user_id} from Auth0: {e}")
+
+        for model in (AccountMigrationRequest, EmailChangeOtp, GroupMembershipHistory, PlatformMembershipHistory, GroupMembership, PlatformMembership, BiocommonsUserHistory):
+            session.exec(delete(model).where(model.user_id == user_id))
+        session.exec(delete(BiocommonsUser).where(BiocommonsUser.id == user_id))
+        session.commit()
 
     def update_from_auth0(self, auth0_id: str, auth0_client: Auth0Client) -> Self:
         """
@@ -347,6 +415,21 @@ class BiocommonsUser(SoftDeleteModel, table=True):
         session.add(self)
         if commit:
             session.commit()
+
+    def link_aaf_account(self, aaf_user_id: str, session: Session, updated_by: Self | None = None, commit: bool = False) -> None:
+        """
+        Set an existing account as an AAF account with a linked ID.
+
+        Auth0 linking is not handled here and must be done separately.
+        """
+        # Save history before update
+        self.save_history(session=session, change="aaf_account_linking", updated_by=updated_by, commit=False)
+        self.account_type = BiocommonsUserAccountType.AAF
+        self.other_user_id = aaf_user_id
+        session.add(self)
+        if commit:
+            session.commit()
+
 
     def save_history(self, session: Session, change: str | None = None, reason: str | None = None,
                      updated_by: Self | None = None,
@@ -1367,6 +1450,31 @@ class EmailChangeOtp(BaseModel, table=True):
     total_attempts: int = Field(default=0)
 
     @classmethod
+    def issue_for_request(
+        cls, session: Session, *, user_id: str, target_email: str,
+        request_created_at: datetime, now: datetime,
+    ) -> OneTimePassword:
+        """Create or refresh an OTP without resetting attempts; leave commit to the caller."""
+        entry = session.exec(select(cls).where(
+            cls.user_id == user_id,
+            cls.target_email == target_email,
+            cls.created_at >= request_created_at,
+        ).order_by(cls.created_at.desc())).first()
+        if entry is not None and entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
+            raise HTTPException(status_code=429, detail="Too many verification attempts.")
+        cls.clear_user_otps(user_id=user_id, session=session)
+        otp = OneTimePassword.generate()
+        expires_at = now + timedelta(minutes=OTP_EXPIRATION_MINUTES)
+        if entry is None:
+            entry = cls(user_id=user_id, target_email=target_email, otp_hash=otp.hash,
+                        created_at=now, expires_at=expires_at)
+        entry.otp_hash = otp.hash
+        entry.expires_at = expires_at
+        entry.is_active = True
+        session.add(entry)
+        return otp
+
+    @classmethod
     def get_latest_active_for_user(cls, session: Session, user_id: str) -> Self | None:
         return session.exec(
             select(cls)
@@ -1378,13 +1486,135 @@ class EmailChangeOtp(BaseModel, table=True):
         ).first()
 
     @classmethod
+    def verify_for_user(
+        cls, session: Session, *, user_id: str, code: str, now: datetime,
+        target_email: str | None = None, request_created_at: datetime | None = None,
+    ) -> Self:
+        """Validate without consuming; persist failed attempts before raising."""
+        query = select(cls).where(cls.user_id == user_id, cls.is_active.is_(True))
+        if target_email is not None:
+            query = query.where(cls.target_email == target_email)
+        if request_created_at is not None:
+            query = query.where(cls.created_at >= request_created_at)
+        entry = session.exec(query.order_by(cls.created_at.desc()).with_for_update()).first()
+        expires_at = entry.expires_at if entry is not None else None
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at is None or expires_at <= now:
+            raise HTTPException(status_code=400, detail="No pending email change request exists.")
+        if entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
+            entry.is_active = False
+            session.add(entry)
+            session.commit()
+            raise HTTPException(status_code=429, detail="Too many verification attempts. Try again later.")
+        if not OneTimePassword.check_code(code=code, hash=entry.otp_hash):
+            entry.total_attempts += 1
+            entry.is_active = entry.total_attempts < MAX_TOTAL_ATTEMPTS
+            session.add(entry)
+            session.commit()
+            raise HTTPException(status_code=400, detail="Invalid OTP.")
+        return entry
+
+    def consume(self, session: Session) -> None:
+        self.is_active = False
+        self.total_attempts += 1
+        session.add(self)
+
+    @classmethod
     def get_expired_or_inactive(cls, session: Session, *, now: datetime) -> list[Self]:
         return session.exec(
             select(cls).where((cls.expires_at <= now) | (cls.is_active.is_(False)))
         ).all()
 
+    @classmethod
+    def clear_user_otps(cls, user_id: str, session: Session) -> None:
+        """
+        Make a user's existing OTPs inactive
+        """
+        session.exec(
+            update(EmailChangeOtp)
+            .where(EmailChangeOtp.user_id == user_id,
+                   EmailChangeOtp.is_active.is_(True))
+            .values(is_active=False)
+        )
+
+
+
+class AccountMigrationRequest(BaseModel, table=True):
+    __tablename__ = "account_migration_requests"
+    __table_args__ = (
+        # Only allow one pending migration per user
+        Index(
+            "uq_account_migration_requests_pending_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+            sqlite_where=text("status = 'PENDING'"),
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid7()), primary_key=True)
+    # Current user id: we want to maintain this as their primary ID after migration
+    user_id: str = Field(foreign_key="biocommons_user.id", index=True)
+    user: BiocommonsUser = Relationship(sa_relationship_kwargs={"foreign_keys": "AccountMigrationRequest.user_id"})
+    new_email: str = Field(nullable=False, max_length=254)
+    # Profile containing the target DB identity; equals user_id when reusing it.
+    auth0_user_id: str | None = Field(default=None)
+    direction: MigrationDirection = Field(
+        sa_type=DbEnum(MigrationDirection, name="migration_direction_enum"),
+        nullable=False,
+    )
+    created_at: AwareDatetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_type=DateTime(timezone=True),
+        nullable=False
+    )
+    expires_at: AwareDatetime = Field(sa_type=DateTime(timezone=True), nullable=False)
+    status: MigrationStatus = Field(
+        default=MigrationStatus.PENDING,
+        sa_type=DbEnum(MigrationStatus, name="migration_status_enum"),
+        nullable=False,
+    )
+
+    @classmethod
+    def get_by_id_or_404(cls, session: Session, *, id: str, with_for_update: bool = False) -> Self:
+        request = session.get(cls, id, with_for_update=with_for_update)
+        if request is None:
+            raise HTTPException(status_code=404, detail="Migration request not found")
+        return request
+
+    @classmethod
+    def get_pending_by_user_id(cls, user_id: str, session: Session) -> Self | None:
+        query = select(AccountMigrationRequest).where(AccountMigrationRequest.user_id == user_id, AccountMigrationRequest.status == MigrationStatus.PENDING)
+        return session.exec(query).one_or_none()
+
+    @classmethod
+    def has_unfinished_migration(cls, user_id: str, session: Session, now: AwareDatetime) -> bool:
+        """
+        True while sync must leave the user alone. AAF-to-Auth0 keeps the canonical
+        profile blocked until completion, so expired requests still count. Auth0-to-AAF
+        blocks nothing and can't complete after expiry, so only live requests count.
+        """
+        latest = session.exec(select(cls).where(cls.user_id == user_id)
+                              .order_by(cls.created_at.desc(), cls.id.desc())).first()
+        if latest is None:
+            return False
+        if latest.direction == MigrationDirection.AAF_TO_AUTH0:
+            return latest.status in (MigrationStatus.PENDING, MigrationStatus.EXPIRED)
+        return latest.status == MigrationStatus.PENDING and not latest.is_expired(now)
+
+    def is_expired(self, now: AwareDatetime) -> bool:
+        expires_at = self.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        return expires_at <= now
+
+
+
+
 
 # Update all model references
+AccountMigrationRequest.model_rebuild()
 BiocommonsUser.model_rebuild()
 BiocommonsUserHistory.model_rebuild()
 Platform.model_rebuild()

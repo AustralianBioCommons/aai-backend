@@ -2,8 +2,9 @@ import asyncio
 import json
 import logging
 import weakref
+from datetime import UTC, datetime, timedelta
 
-import httpx
+import httpx2
 import jwt
 from cachetools import TTLCache
 from fastapi import HTTPException
@@ -105,7 +106,7 @@ async def _fetch_rsa_keys(auth0_domain: str) -> dict:
 
         try:
             metadata_url = f"https://{auth0_domain}/.well-known/openid-configuration"
-            async with httpx.AsyncClient() as client:
+            async with httpx2.AsyncClient() as client:
                 metadata_response = await client.get(metadata_url)
                 metadata_response.raise_for_status()
                 metadata = metadata_response.json()
@@ -117,7 +118,7 @@ async def _fetch_rsa_keys(auth0_domain: str) -> dict:
         except KeyError as exc:
             logger.error(f"OIDC metadata from {metadata_url} did not include jwks_uri")
             raise InvalidTokenError("Failed to fetch JWKS") from exc
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx2.HTTPError, ValueError) as exc:
             logger.error(
                 f"Failed to fetch OIDC metadata or JWKS for domain {auth0_domain}: {exc}"
             )
@@ -168,3 +169,23 @@ def verify_action_token(token: str, settings: Settings) -> dict:
     except InvalidTokenError:
         raise HTTPException(status_code=401, detail="invalid session_token")
     return payload
+
+
+def create_action_token(payload: dict, settings: Settings, expires_in_seconds: int = 300) -> dict:
+    """
+    Create a signed JWT that can be passed back to Auth0 actions
+    """
+    required_fields = ["sub", "iss", "state"]
+    for field in required_fields:
+        if field not in payload:
+            raise ValueError( f"Missing required field {field} in action token")
+    now  = datetime.now(tz=UTC)
+    exp = (now + timedelta(seconds=expires_in_seconds)).timestamp()
+    payload = {**payload, "exp": int(exp), "iat": int(now.timestamp())}
+    secret = settings.auth0_management_secret
+    signed_payload = jwt.encode(
+        payload,
+        key=secret,
+        algorithm="HS256",
+    )
+    return signed_payload

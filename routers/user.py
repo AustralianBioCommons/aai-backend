@@ -1,32 +1,33 @@
 import asyncio
-import hashlib
-import hmac
 import http
-import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict
 
-from botocore.exceptions import ClientError
-from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
-from httpx import AsyncClient, HTTPStatusError
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response, status
+from httpx2 import AsyncClient, HTTPStatusError
 from loguru import logger
 from pydantic import AliasPath, AwareDatetime, BaseModel, Field
 from pydantic import BaseModel as PydanticBaseModel
-from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 from starlette.responses import RedirectResponse
 
+from auth.account_permissions import AccountActions, require_account_permission
 from auth.management import get_management_token
+from auth.otp import OTP_EXPIRATION_MINUTES, OneTimePassword
 from auth.ses import EmailService, get_email_service
-from auth.user_permissions import get_db_user, get_session_user, user_is_general_admin
+from auth.user_permissions import (
+    get_db_user,
+    get_db_user_or_404,
+    get_session_user,
+    user_is_general_admin,
+)
 from auth.validator import verify_action_token
 from auth0.client import Auth0Client, UpdateUserData, get_auth0_client
 from auth0.user_info import UserInfo, get_auth0_user_info
 from biocommons.bundles import BUNDLES, BiocommonsBundle
 from biocommons.emails import (
     compose_bundle_request_confirmation_email,
-    compose_email_change_otp_email,
     compose_group_approval_email,
     compose_welcome_email,
     format_first_name,
@@ -49,7 +50,7 @@ from dependencies.utils import request_time
 from register.tokens import validate_recaptcha
 from schemas.biocommons import (
     Auth0UserData,
-    BiocommonsAppMetadata,
+    BiocommonsAppMetadataUpdate,
     BiocommonsEmail,
     BiocommonsFirstName,
     BiocommonsLastName,
@@ -57,8 +58,12 @@ from schemas.biocommons import (
     PasswordChangeRequest,
     UserProfileData,
 )
-from schemas.responses import FieldError, FieldErrorResponse
+from schemas.responses import AvailabilityResponse, FieldError, FieldErrorResponse
 from schemas.user import SessionUser
+from services.email_availability import (
+    check_email_conflict,
+    is_email_available_for_change,
+)
 from services.email_queue import enqueue_email
 from services.institutions import (
     check_australian_research_institution_email,
@@ -115,25 +120,6 @@ class EmailChangeRequest(BaseModel):
 
 class EmailChangeContinueRequest(BaseModel):
     otp: Annotated[str, Field(min_length=1)]
-
-
-OTP_EXPIRATION_MINUTES = 10
-OTP_WINDOW_SECONDS = 60
-MAX_WINDOW_ATTEMPTS = 10
-MAX_TOTAL_ATTEMPTS = 10
-OTP_LENGTH = 6
-def _generate_otp_code() -> str:
-    return "".join(str(secrets.randbelow(10)) for _ in range(OTP_LENGTH))
-
-
-def _hash_otp(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
-
-
-def _ensure_datetime_is_aware(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value
 
 
 async def get_user_data(
@@ -574,6 +560,7 @@ async def get_all_pending(
         200: {"model": Auth0UserData},
         400: {"model": FieldErrorResponse},
     },
+    dependencies=[require_account_permission(AccountActions.CHANGE_USERNAME)],
 )
 async def update_username(
     username: Annotated[BiocommonsUsername, Body(embed=True)],
@@ -654,7 +641,8 @@ class NameUpdateRequest(BaseModel):
 
 
 @router.post("/profile/name/update",
-             response_model=Auth0UserData)
+             response_model=Auth0UserData,
+             dependencies=[require_account_permission(AccountActions.CHANGE_NAME)])
 async def update_name(
     payload: Annotated[NameUpdateRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
@@ -689,12 +677,30 @@ async def update_name(
         )
 
 
+@router.get("/profile/email/check-availability", response_model=AvailabilityResponse)
+async def check_profile_email_availability(
+    email: Annotated[BiocommonsEmail, Query()],
+    db_user: Annotated[BiocommonsUser, Depends(get_db_user_or_404)],
+    db_session: Annotated[Session, Depends(get_db_session)],
+):
+    """Check an email before choosing an email-change or migration flow."""
+    if not is_email_available_for_change(
+        email, current_user_id=db_user.id, session=db_session,
+    ):
+        return AvailabilityResponse(
+            available=False,
+            field_errors=[FieldError(field="email", message="Email is already in use by another user")],
+        )
+    return AvailabilityResponse(available=True)
+
+
 @router.post(
     "/profile/email/update",
     responses={
         200: {"model": dict},
         400: {"model": FieldErrorResponse},
     },
+    dependencies=[require_account_permission(AccountActions.CHANGE_EMAIL)]
 )
 async def update_email(
     payload: Annotated[EmailChangeRequest, Body()],
@@ -705,13 +711,9 @@ async def update_email(
     response: Response,
 ):
     """Start an email change by sending an OTP to the requested address."""
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=str(payload.email),
-        session=db_session,
-        case_insensitive=True,
-        exclude_user_id=user.access_token.sub,
-    )
-    if conflicting_user is not None:
+    if not is_email_available_for_change(
+        payload.email, current_user_id=user.access_token.sub, session=db_session,
+    ):
         response.status_code = 400
         field_errors = [FieldError(field="email", message="Email is already in use by another user")]
         return FieldErrorResponse(
@@ -720,22 +722,14 @@ async def update_email(
         )
     now = datetime.now(timezone.utc)
     # Clear existing OTPs
-    db_session.exec(
-        update(EmailChangeOtp)
-        .where(
-            EmailChangeOtp.user_id == user.access_token.sub,
-            EmailChangeOtp.is_active.is_(True),
-        )
-    .values(is_active=False)
-    )
-
+    EmailChangeOtp.clear_user_otps(user_id=user.access_token.sub, session=db_session)
     db_session.commit()
 
-    code = _generate_otp_code()
+    otp = OneTimePassword.generate()
     otp_entry = EmailChangeOtp(
         user_id=user.access_token.sub,
         target_email=payload.email,
-        otp_hash=_hash_otp(code),
+        otp_hash=otp.hash,
         created_at=now,
         expires_at=now + timedelta(minutes=OTP_EXPIRATION_MINUTES),
         window_start=now,
@@ -743,28 +737,19 @@ async def update_email(
     db_session.add(otp_entry)
     db_session.commit()
 
-    try:
-        subject, body_html = compose_email_change_otp_email(
-            code=code,
-            target_email=payload.email,
-            expiration_minutes=OTP_EXPIRATION_MINUTES,
-            portal_url=settings.aai_portal_url or "",
-        )
-        email_service.send(
-            to_address=payload.email,
-            subject=subject,
-            body_html=body_html,
-            settings=settings,
-        )
-    except ClientError as exc:
-        message = exc.response.get("Error", {}).get("Message") or str(exc)
-        logger.error("Failed to send OTP email via SES: {}", message)
-        raise
+    email_service.send_email_change_otp(
+        code=otp.code,
+        target_email=payload.email,
+        expiration_minutes=OTP_EXPIRATION_MINUTES,
+        settings=settings
+    )
+
     return {"message": "OTP sent to the requested email address."}
 
 
 @router.post("/profile/email/continue",
-             response_model=Auth0UserData)
+             response_model=Auth0UserData,
+             dependencies=[require_account_permission(AccountActions.CHANGE_EMAIL)])
 async def continue_email_update(
     payload: Annotated[EmailChangeContinueRequest, Body()],
     user: Annotated[SessionUser, Depends(get_session_user)],
@@ -775,59 +760,15 @@ async def continue_email_update(
 ):
     """Complete an email change by validating the OTP and updating Auth0."""
     now = datetime.now(timezone.utc)
-    otp_entry = EmailChangeOtp.get_latest_active_for_user(
-        db_session,
-        user.access_token.sub,
+    otp_entry = EmailChangeOtp.verify_for_user(
+        db_session, user_id=user.access_token.sub, code=payload.otp, now=now,
     )
-    if otp_entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending email change request exists.",
-        )
 
-    expires_at = _ensure_datetime_is_aware(otp_entry.expires_at)
-    if expires_at < now:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No pending email change request exists.",
-        )
-
-    if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
-        otp_entry.is_active = False
-        db_session.add(otp_entry)
-        db_session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many verification attempts. Try again later.",
-        )
-    provided_hash = _hash_otp(payload.otp)
-    if not hmac.compare_digest(otp_entry.otp_hash, provided_hash):
-        otp_entry.total_attempts += 1
-        if otp_entry.total_attempts >= MAX_TOTAL_ATTEMPTS:
-            otp_entry.is_active = False
-        db_session.add(otp_entry)
-        db_session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid OTP.",
-        )
-
-    conflicting_user = BiocommonsUser.get_by_email(
-        email=otp_entry.target_email,
+    check_email_conflict(
+        current_user_id=user.access_token.sub,
+        new_email=otp_entry.target_email,
         session=db_session,
-        case_insensitive=True,
-        exclude_user_id=user.access_token.sub,
     )
-    if conflicting_user is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email is already in use by another user.",
-        )
-
-    otp_entry.is_active = False
-    otp_entry.total_attempts += 1
-    db_session.add(otp_entry)
-    db_session.commit()
 
     update_data = UpdateUserData(
         email=otp_entry.target_email,
@@ -835,6 +776,7 @@ async def continue_email_update(
         connection=settings.auth0_db_connection,
     )
     resp = auth0_client.update_user(user_id=user.access_token.sub, update_data=update_data)
+    otp_entry.consume(db_session)
 
     db_user.update_email(
         new_email=resp.email,
@@ -910,6 +852,7 @@ async def _revoke_sbp_if_non_institutional(
         200: {"model": dict},
         400: {"model": FieldErrorResponse},
     },
+    dependencies=[require_account_permission(AccountActions.CHANGE_PASSWORD)]
 )
 async def change_password(
     payload: PasswordChangeRequest,
@@ -1058,7 +1001,7 @@ def finish_migrate_password(state: str,
         raise HTTPException(status_code=400, detail=f"Invalid session token: {e}")
     # NOTE: due to the way the update user endpoint works (app_metadata is merged, not replaced),
     #  this should not overwrite existing app_metadata
-    updated_metadata = BiocommonsAppMetadata(user_needs_migration=False)
+    updated_metadata = BiocommonsAppMetadataUpdate(user_needs_migration=False)
     logger.info(f"Updating app_metadata for user: {user_id}")
     auth0_client.update_user(user_id=user_id, update_data=UpdateUserData(app_metadata=updated_metadata))
 

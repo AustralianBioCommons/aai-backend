@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from db import models  # noqa: F401
 from db.st_admin import setup_starlette_admin
 from routers import (
+    aaf,
     admin,
     biocommons_admin,
     biocommons_register,
@@ -78,6 +79,7 @@ def public_route():
 
 CURRENT_ENVIRONMENT = read_setting("ENVIRONMENT", "dev")
 
+app.include_router(aaf.router)
 app.include_router(admin.router)
 app.include_router(biocommons_admin.router)
 app.include_router(user.router)

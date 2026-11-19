@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    environment: Literal["dev", "staging", "production"] = "dev"
+    environment: Literal["dev", "staging", "production", "dev-aaf"] = "dev"
     auth0_domain: str
     auth0_custom_domain: Optional[str] = None
     auth0_management_id: str
@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     cors_allowed_origins: str
     # AAI Portal URL for admin links in emails
     aai_portal_url: str = ""
+    # AAF login proxy: used to check if email addresses belong to AAF
+    aai_login_proxy_url: str = ""
     # SBP Platform URL for the "Go to Structural Biology Platform" email button
     sbp_portal_url: str = ""
     # Sender override for emails that should come from a no-reply address
@@ -38,7 +40,7 @@ class Settings(BaseSettings):
 
     @field_validator("environment", mode="before")
     @classmethod
-    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production"]:
+    def normalize_environment(cls, value: str | None) -> Literal["dev", "staging", "production", "dev-aaf"]:
         normalized = str(value).strip().lower()
         if normalized in {"dev", "development"}:
             return "dev"
@@ -48,7 +50,7 @@ class Settings(BaseSettings):
             return "production"
         return normalized
 
-    @field_validator('auth0_custom_domain', mode="after")
+    @field_validator('auth0_custom_domain', 'aai_login_proxy_url', mode="after")
     @classmethod
     def strip_trailing_slash(cls, value: str | None) -> str | None:
         if value is None:
@@ -68,6 +70,7 @@ class Settings(BaseSettings):
             return self
         env_to_url = {
             "dev": "https://dev.portal.aai.test.biocommons.org.au",
+            "dev-aaf": "https://dev-aaf.portal.aai.test.biocommons.org.au",
             "staging": "https://staging.portal.aai.test.biocommons.org.au",
             "production": "https://portal.access.services.biocommons.org.au",
         }
@@ -80,20 +83,18 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def set_default_sbp_portal_url(self) -> "Settings":
-        if self.sbp_portal_url:
+    def set_default_aai_login_proxy_url(self) -> "Settings":
+        if self.aai_login_proxy_url:
             return self
         env_to_url = {
-            "dev": "https://dev.sbp.test.biocommons.org.au",
-            "staging": "https://staging.sbp.test.biocommons.org.au",
-            "production": "https://sbp.services.biocommons.org.au",
+            "dev-aaf": "https://dev-aaf.aaf-login.aai.test.biocommons.org.au"
         }
         default_url = env_to_url.get(self.environment)
         if not default_url:
             raise ValueError(
-                "Unknown ENVIRONMENT value and SBP_PORTAL_URL is not set."
+                "Unknown ENVIRONMENT value and AAI_LOGIN_PROXY_URL is not set."
             )
-        self.sbp_portal_url = default_url
+        self.aai_login_proxy_url = default_url
         return self
 
 

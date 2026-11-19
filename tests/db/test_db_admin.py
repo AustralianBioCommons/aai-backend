@@ -4,10 +4,15 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import pytest
 from itsdangerous import URLSafeSerializer
 from sqlmodel import select
+from starlette.applications import Starlette
 from starlette.datastructures import FormData
 from starlette.exceptions import HTTPException
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
+from starlette.testclient import TestClient
+from starlette_admin.contrib.sqlmodel import Admin
 
 from db.models import (
     BiocommonsUser,
@@ -18,11 +23,13 @@ from db.models import (
     PlatformMembershipHistory,
 )
 from db.st_admin import (
+    Auth0AuthProvider,
     DeletedUserView,
     GroupMembershipHistoryView,
     GroupMembershipView,
     PlatformMembershipHistoryView,
     PlatformMembershipView,
+    UserView,
 )
 from db.types import ApprovalStatusEnum, PlatformEnum
 from tests.db.datagen import (
@@ -50,6 +57,67 @@ def create_signed_session_cookie(data: dict, secret_key: str) -> str:
 
 def _yield_once(value):
     yield value
+
+
+@pytest.mark.parametrize("user", [None, {"name": "Admin", "picture": "https://example.com/admin.png"}])
+def test_get_admin_user(mocker, user):
+    mocker.patch("db.st_admin.setup_oauth")
+    provider = Auth0AuthProvider()
+    request = Request({"type": "http"})
+    request.state.user = user
+
+    admin_user = provider.get_admin_user(request)
+
+    if user is None:
+        assert admin_user is None
+    else:
+        assert admin_user.username == user["name"]
+        assert admin_user.photo_url == user["picture"]
+
+
+def test_get_admin_user_without_user_state(mocker):
+    mocker.patch("db.st_admin.setup_oauth")
+    provider = Auth0AuthProvider()
+    request = Request({"type": "http"})
+
+    assert provider.get_admin_user(request) is None
+
+
+@pytest.mark.parametrize(
+    ("token", "validation_error", "status_code", "detail"),
+    [
+        ({}, None, 401, "Could not get access token."),
+        ({"access_token": "token"}, HTTPException(401, "Not authorized"), 401, "Not authorized"),
+        (
+            {"access_token": "token"},
+            HTTPException(403, "Missing required claim: https://biocommons.org.au/roles"),
+            403,
+            "Missing required claim: https://biocommons.org.au/roles",
+        ),
+    ],
+)
+def test_auth_callback_renders_error_without_user_state(
+    mocker, mock_settings, test_db_engine, token, validation_error, status_code, detail
+):
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    oauth = Mock()
+    oauth.create_client.return_value.authorize_access_token = AsyncMock(return_value=token)
+    mocker.patch("db.st_admin.setup_oauth", return_value=oauth)
+    mocker.patch("db.st_admin.verify_jwt", new=AsyncMock(side_effect=validation_error))
+    app = Starlette()
+    admin = Admin(
+        test_db_engine,
+        base_url="/db-admin",
+        auth_provider=Auth0AuthProvider(),
+        middlewares=[Middleware(SessionMiddleware, secret_key=mock_settings.jwt_secret_key)],
+    )
+    admin.mount_to(app)
+
+    with TestClient(app) as client:
+        response = client.get("/db-admin/auth/auth0")
+
+    assert response.status_code == status_code
+    assert detail in response.text
 
 
 def test_admin_panel_access_with_valid_admin_session(test_client, mock_settings, test_db_engine, mocker):
@@ -485,3 +553,67 @@ def test_platform_membership_history_view_list_query_includes_deleted_users(
     # Verify the related deleted user can be resolved from the history row
     matching_history = next(row for row in results if row.id == history.id)
     assert matching_history.user.id == deleted_user.id
+
+
+@pytest.mark.asyncio
+async def test_is_row_action_allowed_hard_delete_requires_dev_aaf(mocker, mock_settings):
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    view = UserView(BiocommonsUser)
+
+    mock_settings.environment = "dev-aaf"
+    assert await view.is_row_action_allowed(MagicMock(), "hard_delete_user") is True
+
+    mock_settings.environment = "dev"
+    assert await view.is_row_action_allowed(MagicMock(), "hard_delete_user") is False
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_row_action_calls_hard_delete(mocker, mock_settings):
+    mock_settings.environment = "dev-aaf"
+    mock_auth0_client = MagicMock()
+    mock_db_session = MagicMock()
+    target_user_id = "auth0|user456"
+    mock_user = MagicMock(spec=BiocommonsUser)
+
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(mock_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
+    mocker.patch("db.st_admin.get_management_token")
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch.object(BiocommonsUser, "get_by_id", return_value=mock_user)
+
+    view = UserView(BiocommonsUser)
+    response = await view.hard_delete_row_action(MagicMock(), target_user_id)
+
+    assert response == "User permanently deleted"
+    mock_user.hard_delete.assert_called_once_with(mock_db_session, auth0_client=mock_auth0_client)
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_row_action_blocked_outside_dev_aaf(mocker, mock_settings):
+    mock_settings.environment = "dev"
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    view = UserView(BiocommonsUser)
+
+    with pytest.raises(HTTPException) as exc:
+        await view.hard_delete_row_action(MagicMock(), "auth0|user456")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_hard_delete_row_action_returns_400_on_value_error(mocker, mock_settings):
+    mock_settings.environment = "dev-aaf"
+    mock_auth0_client = MagicMock()
+    mock_db_session = MagicMock()
+    mock_user = MagicMock(spec=BiocommonsUser)
+    mock_user.hard_delete.side_effect = ValueError("nope")
+
+    mocker.patch("db.st_admin.get_db_session", return_value=_yield_once(mock_db_session))
+    mocker.patch("db.st_admin.get_auth0_client", return_value=_yield_once(mock_auth0_client))
+    mocker.patch("db.st_admin.get_management_token")
+    mocker.patch("db.st_admin.get_settings", return_value=mock_settings)
+    mocker.patch.object(BiocommonsUser, "get_by_id", return_value=mock_user)
+
+    view = UserView(BiocommonsUser)
+    with pytest.raises(HTTPException) as exc:
+        await view.hard_delete_row_action(MagicMock(), "auth0|user456")
+    assert exc.value.status_code == 400

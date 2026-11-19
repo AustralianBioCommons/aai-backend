@@ -23,6 +23,7 @@ def _base_settings_kwargs():
         "recaptcha_secret": "mock-recaptcha",
         "jwt_secret_key": "mock-secret-key",
         "cors_allowed_origins": "https://test",
+        "aai_login_proxy_url": "https://proxy",
         "no_reply_email_sender": "no-reply@example.com",
     }
 
@@ -86,6 +87,6 @@ def test_aai_portal_url_override_strips_trailing_slash():
     assert settings.aai_portal_url == "https://example.test"
 
 
-def test_unknown_environment_requires_explicit_portal_url():
-    with pytest.raises(ValidationError, match="Input should be 'dev', 'staging' or 'production'"):
+def test_unknown_environment_raises_error():
+    with pytest.raises(ValidationError, match="Input should be 'dev', 'staging', 'production' or 'dev-aaf'"):
         Settings(_env_file=None, environment="qa", **_base_settings_kwargs())
