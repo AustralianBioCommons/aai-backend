@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     aai_portal_url: str = ""
     # AAF login proxy: used to check if email addresses belong to AAF
     aai_login_proxy_url: str = ""
+    # SBP Platform URL for the "Go to Structural Biology Platform" email button
+    sbp_portal_url: str = ""
     # Sender override for emails that should come from a no-reply address
     no_reply_email_sender: EmailStr
     # SES resource ARN for sending emails
@@ -55,9 +57,9 @@ class Settings(BaseSettings):
             return None
         return value.rstrip("/")
 
-    @field_validator("aai_portal_url", mode="before")
+    @field_validator("aai_portal_url", "sbp_portal_url", mode="before")
     @classmethod
-    def strip_aai_portal_trailing_slash(cls, value: str | None) -> str:
+    def strip_portal_trailing_slash(cls, value: str | None) -> str:
         if value is None:
             return ""
         return value.rstrip("/")

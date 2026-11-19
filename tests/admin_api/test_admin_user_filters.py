@@ -1,4 +1,5 @@
 import random
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +15,7 @@ from tests.db.datagen import (
     BiocommonsUserFactory,
     PlatformFactory,
     PlatformMembershipFactory,
+    _create_user_with_platform_membership,
     _users_with_platform_membership,
 )
 
@@ -28,6 +30,77 @@ def test_user_query_no_params():
     """
     query = UserQueryParams()
     assert query.get_query_conditions() == []
+
+
+@pytest.mark.parametrize("sort_order", ["asc", "desc", pytest.param(None, id="default")])
+@pytest.mark.parametrize(
+    ("tab_params", "ascending", "descending"),
+    [
+        ({}, [1, 2, 3, 0, 4], [4, 0, 3, 1, 2]),
+        ({"approval_status": "pending"}, [1, 2, 0], [0, 1, 2]),
+        ({"approval_status": "revoked"}, [3], [3]),
+        ({"email_verified": "false"}, [1, 2, 0], [0, 1, 2]),
+    ],
+    ids=["all", "pending", "revoked", "unverified"],
+)
+def test_signup_sorting_across_filtered_pages(
+    test_client, as_admin_user, test_db_session, persistent_factories,
+    mock_auth0_client, mock_background_tasks, sort_order, tab_params,
+    ascending, descending,
+):
+    admin_role = Auth0RoleFactory.create_sync(name="Admin")
+    platform = PlatformFactory.create_sync(
+        id=PlatformEnum.GALAXY, admin_roles=[admin_role]
+    )
+    users = [
+        _create_user_with_platform_membership(
+            db_session=test_db_session,
+            platform_id=platform.id,
+            id=f"auth0|signup{index}",
+            username=f"signup-user-{index}",
+            created_at=datetime(2024, 1, day, tzinfo=timezone.utc),
+            approval_status=approval_status,
+            email_verified=verified,
+        )
+        for index, (day, approval_status, verified) in enumerate([
+            (3, ApprovalStatusEnum.PENDING, False),
+            (1, ApprovalStatusEnum.PENDING, False),
+            (1, ApprovalStatusEnum.PENDING, False),
+            (2, ApprovalStatusEnum.REVOKED, True),
+            (4, ApprovalStatusEnum.APPROVED, True),
+        ])
+    ]
+    _create_user_with_platform_membership(
+        db_session=test_db_session, platform_id=platform.id,
+        username="excluded-by-search", email="excluded@example.com",
+    )
+    BiocommonsUserFactory.create_sync(username="signup-without-admin-access")
+    test_db_session.commit()
+    params = {
+        **tab_params, "per_page": 2,
+        "search": "signup", "filter_by": "galaxy",
+    }
+    if sort_order is not None:
+        params["sort_order"] = sort_order
+    expected = ascending if sort_order == "asc" else descending
+    page_info = test_client.get("/admin/users/pages", params=params)
+    assert page_info.status_code == 200
+    assert page_info.json()["total"] == len(expected)
+
+    results = []
+    for page in range(1, page_info.json()["pages"] + 1):
+        response = test_client.get("/admin/users", params={**params, "page": page})
+        assert response.status_code == 200
+        results.extend(response.json())
+
+    assert [user["id"] for user in results] == [users[index].id for index in expected]
+    assert all(user["created_at"] for user in results)
+
+
+def test_signup_sort_rejects_invalid_order(test_client, as_admin_user, mock_auth0_client):
+    response = test_client.get("/admin/users", params={"sort_order": "invalid"})
+    assert response.status_code == 422
+    assert any(error["loc"] == ["query", "sort_order"] for error in response.json()["detail"])
 
 
 def test_platform_filter_scopes_admin_permissions_to_platforms_only():

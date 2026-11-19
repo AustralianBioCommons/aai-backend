@@ -3,7 +3,7 @@ import inspect
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.params import Query
@@ -40,6 +40,8 @@ from biocommons.emails import (
     compose_group_membership_approved_email,
     compose_group_membership_rejected_email,
     compose_incorrect_email_notification_email,
+    compose_sbp_bundle_approval_email,
+    compose_sbp_bundle_rejection_email,
     compose_username_change_notification,
     get_user_first_name,
 )
@@ -324,7 +326,7 @@ class UserQueryParams(BaseModel):
     Defines query parameters for the /users endpoint, and
     constructs SQLAlchemy queries to filter users based on them.
 
-    Each field listed here must have a {field}_query method defined.
+    Each filter field must have a {field}_query method defined.
     """
     approval_status: ApprovalStatusEnum | None = Field(
         None,
@@ -340,12 +342,15 @@ class UserQueryParams(BaseModel):
         description="Filter users by group ('tsi',) or platform ('galaxy', 'bpa_data_portal')"
     )
     search: str | None = Field(None, description="Search users by username or email")
+    sort_order: Literal["asc", "desc"] = Field(
+        "desc", description="Sort by signup timestamp, newest (desc, default) or oldest (asc) first"
+    )
     _allowed_platforms_subquery: SelectOfScalar[Platform] | None = None
     _allowed_groups_subquery: SelectOfScalar[BiocommonsGroup] | None = None
 
     def _fields(self):
         return (name for name in self.__pydantic_fields__.keys()
-                if not name.startswith("_"))
+                if not name.startswith("_") and name != "sort_order")
 
     def model_post_init(self, context: Any) -> None:
         """
@@ -465,7 +470,12 @@ class UserQueryParams(BaseModel):
             .where(
                 self.get_admin_permissions_query(admin_roles),
                 *self.get_query_conditions(admin_roles))
-            .order_by(BiocommonsUser.created_at, BiocommonsUser.id)
+            .order_by(
+                BiocommonsUser.created_at.desc()
+                if self.sort_order == "desc"
+                else BiocommonsUser.created_at.asc(),
+                BiocommonsUser.id,
+            )
         )
 
     def get_complete_query(
@@ -1283,12 +1293,18 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
             first_name = get_user_first_name(auth0_user, fallback="there")
         except Exception:
             pass
-        subject, body_html = compose_group_membership_approved_email(
-            group_name=group_record.name,
-            group_short_name=group_record.short_name,
-            first_name=first_name,
-            settings=settings,
-        )
+        if group_id == GroupEnum.SBP.value:
+            subject, body_html = compose_sbp_bundle_approval_email(
+                first_name=first_name,
+                settings=settings,
+            )
+        else:
+            subject, body_html = compose_group_membership_approved_email(
+                group_name=group_record.name,
+                group_short_name=group_record.short_name,
+                first_name=first_name,
+                settings=settings,
+            )
         enqueue_email(
             session=db_session,
             to_address=membership.user.email,
@@ -1306,6 +1322,7 @@ def approve_group_membership(user_id: Annotated[str, UserIdParam],
 def reject_group_membership(user_id: Annotated[str, UserIdParam],
                             group_id: Annotated[str, ServiceIdParam],
                             payload: RejectServiceRequest,
+                            client: Annotated[Auth0Client, Depends(get_auth0_client)],
                             admin_record: Annotated[BiocommonsUser, Depends(get_db_user)],
                             db_session: Annotated[Session, Depends(get_db_session)],
                             settings: Annotated[Settings, Depends(get_settings)]):
@@ -1330,6 +1347,24 @@ def reject_group_membership(user_id: Annotated[str, UserIdParam],
         subject, body_html = compose_group_membership_rejected_email(
             group_name=group_record.name,
             username=membership.user.username,
+            settings=settings,
+        )
+        enqueue_email(
+            session=db_session,
+            to_address=membership.user.email,
+            subject=subject,
+            body_html=body_html,
+            settings=settings,
+        )
+    elif membership.user and membership.user.email and group_id == GroupEnum.SBP.value:
+        first_name = "there"
+        try:
+            auth0_user = client.get_user(membership.user.id)
+            first_name = get_user_first_name(auth0_user, fallback="there")
+        except Exception:
+            pass
+        subject, body_html = compose_sbp_bundle_rejection_email(
+            first_name=first_name,
             settings=settings,
         )
         enqueue_email(
